@@ -68,3 +68,4 @@ node render_html_preview_v2.js --html "<html_preview>/index.html" --out "<output
 - Every reel must pass `video_engine_v2.reels_qa`.
 - Every final render must pass ffprobe/spec/representative-frame/privacy QA.
 - Follow `docs/review_video_publish_workflow_v2.md` and `docs/reels_operations_dashboard_v1.md` before starting a new reel.
+- Follow `docs/github_pr_workflow.md` for branches, commits, PRs, and GitHub safety checks.
