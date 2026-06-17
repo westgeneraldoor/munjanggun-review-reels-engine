@@ -1,0 +1,40 @@
+.env
+.env.*
+!.env.example
+.codex_deps/
+node_modules/
+output/
+reviews/
+scratch/
+__pycache__/
+tests/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Generated media and customer-provided assets
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.mp3
+*.wav
+*.m4a
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.zip
+*.7z
+*.rar
+
+# Local fonts/assets; install locally as documented
+*.ttf
+*.otf
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

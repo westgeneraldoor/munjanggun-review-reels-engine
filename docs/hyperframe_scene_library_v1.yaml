@@ -1,0 +1,2823 @@
+# Hyperframe Scene Library v1.0
+# v1.2 Rulebook 호환 — 100개 씬 전체 메타데이터 + 시퀀스 정의
+# 사용법: scene_id 또는 scene name으로 호출, Master Prompt Input에 scene_list로 주입
+
+scenes:
+
+  # ============================================================
+  # A. HOOK — 첫 3초 장악 (1~20)
+  # ============================================================
+
+  - id: A01
+    name: hero_reveal
+    best_for: [saas, luxury_hardware, startup_hype]
+    arc_step: hook
+    emotion: [premium, urgency]
+    duration: [4.0, 6.0]
+    energy: high
+    camera_move: dolly_in
+    color_scheme: premium
+    transition_in: fade
+    transition_out: zoom_through
+    conversion_score: 9.4
+    sequence:
+      - step: bg_fade_in
+        target: ".bg-layer"
+        props: { autoAlpha: "0->1" }
+        duration: 0.8
+        ease: soft_entry
+      - step: product_scale
+        target: ".product-hero"
+        props: { scale: "0.92->1.00", autoAlpha: "0->1" }
+        duration: 1.0
+        ease: premium_out
+        offset: "-=0.3"
+      - step: headline_chars_stagger
+        target: ".hero-title span"
+        props: { yPercent: "120->0", scale: "1.2->1.0", autoAlpha: "0->1" }
+        duration: 0.9
+        stagger: chars
+        ease: premium_out
+        offset: "-=0.2"
+      - step: lighting_apply
+        target: ".product-hero"
+        lighting: rim_glow
+        offset: "-=0.5"
+      - step: dwell
+        duration: 1.6
+        secondary_action: true
+
+  - id: A02
+    name: punch_headline
+    best_for: [saas, startup_hype]
+    arc_step: hook
+    emotion: [urgency, premium]
+    duration: [1.0, 2.0]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: hard_cut
+    transition_out: hard_cut
+    conversion_score: 8.8
+    sequence:
+      - step: scale_punch_drop
+        target: ".punch-word"
+        props: { scale: "1.18->1.0", autoAlpha: "0->1" }
+        duration: 0.6
+        ease: premium_out
+      - step: dwell
+        duration: 0.9
+        secondary_action: false
+
+  - id: A03
+    name: rapid_problem_cut
+    best_for: [startup_hype]
+    arc_step: hook
+    emotion: [urgency]
+    duration: [0.3, 0.6]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: hard_cut
+    transition_out: hard_cut
+    conversion_score: 8.2
+    sequence:
+      - step: flash_in
+        target: ".problem-screen"
+        props: { autoAlpha: "0->1->0" }
+        duration: 0.35
+        ease: sharp_exit
+
+  - id: A04
+    name: blackout_flash
+    best_for: [startup_hype, luxury_hardware]
+    arc_step: hook
+    emotion: [urgency, premium]
+    duration: [1.0, 2.0]
+    energy: high
+    camera_move: null
+    color_scheme: luxury
+    transition_in: hard_cut
+    transition_out: directional_wipe
+    conversion_score: 8.5
+    sequence:
+      - step: blackout
+        target: ".scene-root"
+        props: { backgroundColor: "#000000", autoAlpha: "1" }
+        duration: 0.18
+        ease: sharp_exit
+      - step: flash_reveal
+        target: ".hero-element"
+        props: { autoAlpha: "0->1", scale: "1.05->1.0" }
+        duration: 0.5
+        ease: premium_out
+        offset: "+=0.1"
+      - step: dwell
+        duration: 1.0
+
+  - id: A05
+    name: zoom_from_void
+    best_for: [saas, luxury_hardware]
+    arc_step: hook
+    emotion: [innovation, premium]
+    duration: [2.0, 3.5]
+    energy: high
+    camera_move: dolly_in
+    color_scheme: innovation
+    transition_in: fade
+    transition_out: zoom_through
+    conversion_score: 9.0
+    sequence:
+      - step: void_hold
+        target: ".bg-layer"
+        props: { backgroundColor: "#000000" }
+        duration: 0.5
+      - step: zoom_in
+        target: ".hero-element"
+        props: { scale: "0.1->1.0", autoAlpha: "0->1" }
+        duration: 1.2
+        ease: zoom_scale
+        offset: "-=0.2"
+      - step: headline_chars_stagger
+        target: ".hero-title span"
+        props: { yPercent: "120->0", autoAlpha: "0->1" }
+        duration: 0.9
+        stagger: chars
+        ease: premium_out
+        offset: "-=0.3"
+
+  - id: A06
+    name: stat_shock
+    best_for: [saas, startup_hype]
+    arc_step: hook
+    emotion: [urgency, trust]
+    duration: [2.0, 3.5]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: hard_cut
+    transition_out: directional_wipe
+    conversion_score: 9.2
+    sequence:
+      - step: stat_label
+        target: ".stat-label"
+        props: { yPercent: "120->0", autoAlpha: "0->1" }
+        duration: 0.5
+        ease: premium_out
+      - step: KPI_counter
+        target: ".stat-number"
+        props: { innerText: "0->target_value" }
+        duration: 1.5
+        ease: number_roll
+        offset: "-=0.2"
+      - step: dwell
+        duration: 0.8
+
+  - id: A07
+    name: bold_word_swap
+    best_for: [saas, startup_hype]
+    arc_step: hook
+    emotion: [urgency, innovation]
+    duration: [2.0, 4.0]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: hard_cut
+    transition_out: hard_cut
+    conversion_score: 8.7
+    sequence:
+      - step: word_out
+        target: ".word-current"
+        props: { yPercent: "0->-120", autoAlpha: "1->0" }
+        duration: 0.3
+        ease: power2_in
+      - step: word_in
+        target: ".word-next"
+        props: { yPercent: "120->0", autoAlpha: "0->1" }
+        duration: 0.3
+        ease: premium_out
+        offset: "-=0.15"
+      - step: dwell
+        duration: 0.9
+
+  - id: A08
+    name: hook_drop_sync
+    best_for: [saas, startup_hype]
+    arc_step: hook
+    emotion: [urgency, innovation]
+    duration: [2.0, 4.0]
+    energy: high
+    camera_move: dolly_in
+    color_scheme: innovation
+    transition_in: hard_cut
+    transition_out: zoom_through
+    audio_cue: drop_point
+    conversion_score: 9.5
+    sequence:
+      - step: beat_hold
+        duration: 0.5
+      - step: headline_chars_stagger
+        target: ".headline span"
+        props: { yPercent: "120->0", scale: "1.18->1.0", autoAlpha: "0->1" }
+        duration: 0.9
+        stagger: chars
+        ease: premium_out
+      - step: lighting_apply
+        target: ".scene-root"
+        lighting: gradient_pulse
+        offset: "-=0.5"
+
+  - id: A09
+    name: split_screen_conflict
+    best_for: [startup_hype, saas]
+    arc_step: hook
+    emotion: [urgency]
+    duration: [2.0, 4.0]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: directional_wipe
+    transition_out: hard_cut
+    conversion_score: 8.4
+    sequence:
+      - step: left_panel_in
+        target: ".panel-left"
+        props: { x: "-100%->0%" }
+        duration: 0.6
+        ease: premium_out
+      - step: right_panel_in
+        target: ".panel-right"
+        props: { x: "100%->0%" }
+        duration: 0.6
+        ease: premium_out
+        offset: "<"
+      - step: dwell
+        duration: 1.5
+
+  - id: A10
+    name: countdown_blast
+    best_for: [startup_hype]
+    arc_step: hook
+    emotion: [urgency]
+    duration: [3.0, 5.0]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: hard_cut
+    transition_out: scale_punch
+    conversion_score: 8.6
+    sequence:
+      - step: count_3
+        target: ".count-3"
+        props: { scale: "1.2->1.0", autoAlpha: "0->1->0" }
+        duration: 0.9
+        ease: premium_out
+      - step: count_2
+        target: ".count-2"
+        props: { scale: "1.2->1.0", autoAlpha: "0->1->0" }
+        duration: 0.9
+        ease: premium_out
+      - step: count_1
+        target: ".count-1"
+        props: { scale: "1.2->1.0", autoAlpha: "0->1->0" }
+        duration: 0.9
+        ease: premium_out
+      - step: blast
+        target: ".blast-element"
+        props: { scale: "0.8->1.18->1.0", autoAlpha: "0->1" }
+        duration: 0.5
+        ease: bounce_snap
+
+  - id: A11
+    name: kinetic_typo_burst
+    best_for: [startup_hype, saas]
+    arc_step: hook
+    emotion: [urgency, innovation]
+    duration: [2.0, 3.5]
+    energy: high
+    camera_move: null
+    color_scheme: innovation
+    transition_in: hard_cut
+    transition_out: blur_dissolve
+    conversion_score: 9.0
+    sequence:
+      - step: chars_burst
+        target: ".typo-burst span"
+        props: { y: "random(-60,60)", x: "random(-40,40)", autoAlpha: "0->1->1" }
+        duration: 0.5
+        stagger: chars
+        ease: premium_out
+      - step: chars_settle
+        target: ".typo-burst span"
+        props: { y: "0", x: "0" }
+        duration: 0.8
+        stagger: 0.008
+        ease: premium_out
+        offset: "-=0.3"
+
+  - id: A12
+    name: glitch_attention
+    best_for: [startup_hype, innovation]
+    arc_step: hook
+    emotion: [urgency, innovation]
+    duration: [1.5, 3.0]
+    energy: high
+    camera_move: null
+    color_scheme: innovation
+    transition_in: hard_cut
+    transition_out: hard_cut
+    conversion_score: 8.3
+    sequence:
+      - step: glitch_shake
+        target: ".glitch-element"
+        props: { x: "random(-8,8)", skewX: "random(-3,3)" }
+        duration: 0.05
+        repeat: 6
+        ease: none
+      - step: settle
+        target: ".glitch-element"
+        props: { x: "0", skewX: "0", autoAlpha: 1 }
+        duration: 0.3
+        ease: premium_out
+
+  - id: A13
+    name: urgency_banner
+    best_for: [startup_hype]
+    arc_step: hook
+    emotion: [urgency]
+    duration: [1.5, 2.5]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.0
+    sequence:
+      - step: banner_slide_in
+        target: ".urgency-banner"
+        props: { y: "-100%->0%" }
+        duration: 0.4
+        ease: premium_out
+      - step: text_appear
+        target: ".banner-text span"
+        props: { autoAlpha: "0->1" }
+        duration: 0.3
+        stagger: words
+        ease: premium_out
+        offset: "-=0.1"
+      - step: dwell
+        duration: 1.0
+
+  - id: A14
+    name: scroll_snap_intro
+    best_for: [saas]
+    arc_step: hook
+    emotion: [premium, innovation]
+    duration: [2.5, 4.0]
+    energy: medium
+    camera_move: dolly_in
+    color_scheme: premium
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.5
+    sequence:
+      - step: snap_in
+        target: ".snap-section"
+        props: { y: "80->0", autoAlpha: "0->1" }
+        duration: 0.65
+        ease: premium_out
+      - step: content_reveal
+        target: ".snap-content"
+        props: { autoAlpha: "0->1", y: "20->0" }
+        duration: 0.5
+        stagger: lines
+        ease: premium_out
+        offset: "-=0.2"
+
+  - id: A15
+    name: motion_logo_hit
+    best_for: [saas, luxury_hardware, startup_hype]
+    arc_step: hook
+    emotion: [premium, urgency]
+    duration: [1.5, 3.0]
+    energy: high
+    camera_move: null
+    color_scheme: premium
+    transition_in: hard_cut
+    transition_out: zoom_through
+    audio_cue: beat
+    conversion_score: 8.9
+    sequence:
+      - step: logo_scale_in
+        target: ".logo"
+        props: { scale: "0.6->1.0", autoAlpha: "0->1" }
+        duration: 0.6
+        ease: bounce_snap
+      - step: lighting_apply
+        target: ".logo"
+        lighting: rim_glow
+        offset: "-=0.3"
+      - step: dwell
+        duration: 1.0
+
+  - id: A16
+    name: cinematic_silence
+    best_for: [luxury_hardware]
+    arc_step: hook
+    emotion: [premium, trust]
+    duration: [3.0, 5.0]
+    energy: low
+    camera_move: dolly_in
+    color_scheme: luxury
+    transition_in: fade
+    transition_out: blur_dissolve
+    conversion_score: 9.1
+    sequence:
+      - step: black_hold
+        target: ".scene-root"
+        props: { backgroundColor: "#000000" }
+        duration: 1.5
+      - step: product_emerge
+        target: ".product-hero"
+        props: { autoAlpha: "0->1", scale: "0.95->1.0" }
+        duration: 2.0
+        ease: luxury_float
+        offset: "-=0.5"
+      - step: lighting_apply
+        target: ".product-hero"
+        lighting: rim_glow
+        offset: "-=1.0"
+
+  - id: A17
+    name: macro_mystery
+    best_for: [luxury_hardware]
+    arc_step: hook
+    emotion: [premium, innovation]
+    duration: [3.0, 5.0]
+    energy: low
+    camera_move: macro_pan
+    color_scheme: luxury
+    transition_in: blur_dissolve
+    transition_out: focal_shift
+    conversion_score: 9.3
+    sequence:
+      - step: blur_in
+        target: ".macro-detail"
+        props: { filter: "blur(12px)->blur(0px)", autoAlpha: "0->1", scale: "2.0" }
+        duration: 1.2
+        ease: premium_out
+      - step: pan_reveal
+        target: ".macro-detail"
+        props: { x: "0->-8%" }
+        duration: 2.5
+        ease: soft_entry
+
+  - id: A18
+    name: speed_ramp_intro
+    best_for: [startup_hype]
+    arc_step: hook
+    emotion: [urgency, innovation]
+    duration: [2.0, 4.0]
+    energy: high
+    camera_move: dolly_in
+    color_scheme: urgency
+    transition_in: hard_cut
+    transition_out: blur_dissolve
+    conversion_score: 8.6
+    sequence:
+      - step: fast_cuts
+        target: ".ramp-frame"
+        props: { autoAlpha: "0->1->0" }
+        duration: 0.2
+        repeat: 3
+        ease: sharp_exit
+      - step: slow_settle
+        target: ".hero-element"
+        props: { autoAlpha: "0->1", scale: "1.05->1.0" }
+        duration: 1.2
+        ease: luxury_float
+
+  - id: A19
+    name: swipe_shock
+    best_for: [startup_hype, saas]
+    arc_step: hook
+    emotion: [urgency]
+    duration: [1.0, 2.0]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.1
+    sequence:
+      - step: wipe_in
+        target: ".shock-element"
+        props: { x: "100%->0%" }
+        duration: 0.35
+        ease: sharp_exit
+      - step: dwell
+        duration: 0.8
+
+  - id: A20
+    name: orbit_entry
+    best_for: [luxury_hardware, innovation]
+    arc_step: hook
+    emotion: [innovation, premium]
+    duration: [3.0, 5.0]
+    energy: medium
+    camera_move: orbital_15deg
+    color_scheme: innovation
+    transition_in: fade
+    transition_out: zoom_through
+    conversion_score: 9.2
+    sequence:
+      - step: orbital_rotate
+        target: ".product-3d-rig"
+        props: { rotationY: "0->15", transformPerspective: 1200 }
+        duration: 3.0
+        ease: premium_inout
+      - step: headline_reveal
+        target: ".headline span"
+        props: { autoAlpha: "0->1", y: "20->0" }
+        duration: 0.8
+        stagger: words
+        ease: premium_out
+        offset: "-=1.5"
+      - step: lighting_apply
+        target: ".product-3d-rig"
+        lighting: rim_glow
+        offset: "<"
+
+  # ============================================================
+  # B. PROOF — 신뢰·증명 (21~40)
+  # ============================================================
+
+  - id: B21
+    name: dashboard_showcase
+    best_for: [saas]
+    arc_step: proof
+    emotion: [trust, premium]
+    duration: [5.0, 7.0]
+    energy: medium
+    camera_move: macro_pan
+    color_scheme: premium
+    transition_in: directional_wipe
+    transition_out: zoom_through
+    conversion_score: 9.4
+    sequence:
+      - step: headline_mask
+        target: ".dash-headline"
+        props: { clipPath: "inset(0 100% 0 0)->inset(0 0% 0 0)" }
+        duration: 0.65
+        ease: premium_out
+      - step: cards_cascade
+        target: ".dash-card"
+        props: { y: "40->0", autoAlpha: "0->1" }
+        duration: 0.8
+        stagger: cards
+        ease: premium_out
+        offset: "-=0.2"
+      - step: lighting_apply
+        target: ".dash-card"
+        lighting: soft_shadow
+      - step: chart_draw
+        target: ".chart-path"
+        props: { strokeDashoffset: "100%->0%" }
+        duration: 1.2
+        ease: premium_inout
+      - step: KPI_counter
+        target: ".kpi-value"
+        props: { innerText: "0->target_value" }
+        duration: 1.5
+        ease: number_roll
+        offset: "-=0.8"
+      - step: dwell
+        duration: 2.8
+        secondary_action: true
+
+  - id: B22
+    name: KPI_counter
+    best_for: [saas, finance]
+    arc_step: proof
+    emotion: [trust, urgency]
+    duration: [2.5, 4.0]
+    energy: medium
+    camera_move: null
+    color_scheme: trust
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 9.1
+    sequence:
+      - step: label_reveal
+        target: ".kpi-label"
+        props: { autoAlpha: "0->1", y: "20->0" }
+        duration: 0.5
+        ease: premium_out
+      - step: counter
+        target: ".kpi-value"
+        props: { innerText: "0->target_value" }
+        duration: 1.5
+        ease: number_roll
+        offset: "-=0.2"
+      - step: unit_label
+        target: ".kpi-unit"
+        props: { autoAlpha: "0->1" }
+        duration: 0.3
+        offset: "-=0.5"
+
+  - id: B23
+    name: graph_growth_curve
+    best_for: [saas, finance]
+    arc_step: proof
+    emotion: [trust, innovation]
+    duration: [3.0, 5.0]
+    energy: medium
+    camera_move: dolly_in
+    color_scheme: trust
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 9.0
+    sequence:
+      - step: axis_draw
+        target: ".graph-axis"
+        props: { scaleX: "0->1" }
+        duration: 0.5
+        ease: premium_out
+      - step: line_draw
+        target: ".graph-line"
+        props: { strokeDashoffset: "100%->0%" }
+        duration: 1.8
+        ease: power3_inout
+        offset: "-=0.1"
+      - step: area_fill
+        target: ".graph-area"
+        props: { autoAlpha: "0->0.15" }
+        duration: 0.8
+        ease: soft_entry
+        offset: "-=1.0"
+      - step: peak_dot_pulse
+        target: ".peak-dot"
+        props: { scale: "0->1.18->1.0" }
+        duration: 0.5
+        ease: bounce_snap
+
+  - id: B24
+    name: review_quote_card
+    best_for: [saas, finance]
+    arc_step: proof
+    emotion: [trust]
+    duration: [3.0, 5.0]
+    energy: low
+    camera_move: null
+    color_scheme: trust
+    transition_in: blur_dissolve
+    transition_out: blur_dissolve
+    conversion_score: 8.6
+    sequence:
+      - step: card_rise
+        target: ".review-card"
+        props: { y: "40->0", autoAlpha: "0->1" }
+        duration: 0.8
+        ease: premium_out
+      - step: lighting_apply
+        target: ".review-card"
+        lighting: soft_shadow
+        offset: "<"
+      - step: quote_lines
+        target: ".quote-text .line"
+        props: { autoAlpha: "0->1", y: "10->0" }
+        duration: 0.5
+        stagger: lines
+        ease: premium_out
+        offset: "-=0.3"
+      - step: avatar_pop
+        target: ".reviewer-avatar"
+        props: { scale: "0->1.05->1.0" }
+        duration: 0.4
+        ease: bounce_snap
+        offset: "-=0.2"
+      - step: dwell
+        duration: 2.0
+
+  - id: B25
+    name: logo_wall_proof
+    best_for: [saas, finance]
+    arc_step: proof
+    emotion: [trust]
+    duration: [3.0, 5.0]
+    energy: low
+    camera_move: null
+    color_scheme: trust
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.8
+    sequence:
+      - step: headline
+        target: ".logo-wall-headline"
+        props: { autoAlpha: "0->1", y: "20->0" }
+        duration: 0.5
+        ease: premium_out
+      - step: logos_grid_wave
+        target: ".client-logo"
+        props: { scale: "0.8->1.0", autoAlpha: "0->1" }
+        duration: 0.6
+        stagger: { each: 0.05, grid: "auto", from: "center" }
+        ease: premium_out
+        offset: "-=0.2"
+      - step: dwell
+        duration: 1.8
+
+  - id: B26
+    name: testimonial_video_frame
+    best_for: [saas]
+    arc_step: proof
+    emotion: [trust]
+    duration: [4.0, 6.0]
+    energy: low
+    camera_move: dolly_in
+    color_scheme: trust
+    transition_in: blur_dissolve
+    transition_out: blur_dissolve
+    conversion_score: 8.7
+    sequence:
+      - step: frame_reveal
+        target: ".video-frame"
+        props: { scale: "0.9->1.0", autoAlpha: "0->1" }
+        duration: 1.0
+        ease: premium_out
+      - step: lighting_apply
+        target: ".video-frame"
+        lighting: soft_shadow
+      - step: caption_slide
+        target: ".testimonial-caption"
+        props: { y: "20->0", autoAlpha: "0->1" }
+        duration: 0.5
+        ease: premium_out
+        offset: "-=0.3"
+      - step: dwell
+        duration: 2.5
+
+  - id: B27
+    name: before_after_split
+    best_for: [saas, startup_hype, finance]
+    arc_step: proof
+    emotion: [trust, urgency]
+    duration: [3.0, 5.0]
+    energy: medium
+    camera_move: null
+    color_scheme: trust
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 9.0
+    sequence:
+      - step: before_panel
+        target: ".before-panel"
+        props: { x: "-100%->0%" }
+        duration: 0.7
+        ease: premium_out
+      - step: after_panel
+        target: ".after-panel"
+        props: { x: "100%->0%" }
+        duration: 0.7
+        ease: premium_out
+        offset: "<"
+      - step: divider_line
+        target: ".split-divider"
+        props: { scaleY: "0->1" }
+        duration: 0.4
+        ease: premium_out
+        offset: "-=0.3"
+      - step: labels
+        target: ".split-label"
+        props: { autoAlpha: "0->1" }
+        duration: 0.4
+        stagger: 0.15
+        ease: premium_out
+        offset: "-=0.2"
+
+  - id: B28
+    name: feature_checklist
+    best_for: [saas]
+    arc_step: proof
+    emotion: [trust]
+    duration: [3.0, 5.0]
+    energy: low
+    camera_move: null
+    color_scheme: trust
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.4
+    sequence:
+      - step: list_items_cascade
+        target: ".checklist-item"
+        props: { x: "-30->0", autoAlpha: "0->1" }
+        duration: 0.5
+        stagger: 0.12
+        ease: premium_out
+      - step: check_icons
+        target: ".check-icon"
+        props: { scale: "0->1.1->1.0" }
+        duration: 0.3
+        stagger: 0.12
+        ease: bounce_snap
+        offset: "<+=0.2"
+
+  - id: B29
+    name: trust_badge_stack
+    best_for: [saas, finance]
+    arc_step: proof
+    emotion: [trust]
+    duration: [2.5, 4.0]
+    energy: low
+    camera_move: null
+    color_scheme: trust
+    transition_in: blur_dissolve
+    transition_out: blur_dissolve
+    conversion_score: 8.5
+    sequence:
+      - step: badges_cascade
+        target: ".trust-badge"
+        props: { y: "30->0", autoAlpha: "0->1" }
+        duration: 0.6
+        stagger: cards
+        ease: premium_out
+      - step: lighting_apply
+        target: ".trust-badge"
+        lighting: soft_shadow
+
+  - id: B30
+    name: stat_grid
+    best_for: [saas, finance]
+    arc_step: proof
+    emotion: [trust, urgency]
+    duration: [3.0, 5.0]
+    energy: medium
+    camera_move: null
+    color_scheme: trust
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.9
+    sequence:
+      - step: grid_wave_reveal
+        target: ".stat-cell"
+        props: { scale: "0.8->1.0", autoAlpha: "0->1" }
+        duration: 0.6
+        stagger: { each: 0.06, grid: "auto", from: "center" }
+        ease: premium_out
+      - step: counters
+        target: ".stat-value"
+        props: { innerText: "0->target_value" }
+        duration: 1.2
+        stagger: 0.1
+        ease: number_roll
+        offset: "-=0.4"
+
+  - id: B31
+    name: live_usage_feed
+    best_for: [saas]
+    arc_step: proof
+    emotion: [trust, urgency]
+    duration: [3.0, 5.0]
+    energy: medium
+    camera_move: null
+    color_scheme: trust
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.6
+    sequence:
+      - step: feed_items_stream
+        target: ".feed-item"
+        props: { y: "-20->0", autoAlpha: "0->1" }
+        duration: 0.4
+        stagger: 0.3
+        ease: premium_out
+        repeat: 3
+
+  - id: B32
+    name: map_expansion
+    best_for: [saas, finance]
+    arc_step: proof
+    emotion: [trust, innovation]
+    duration: [3.0, 5.0]
+    energy: medium
+    camera_move: dolly_out
+    color_scheme: trust
+    transition_in: blur_dissolve
+    transition_out: zoom_through
+    conversion_score: 8.3
+    sequence:
+      - step: map_fade_in
+        target: ".map-layer"
+        props: { autoAlpha: "0->1", scale: "1.1->1.0" }
+        duration: 1.0
+        ease: premium_out
+      - step: dots_appear
+        target: ".map-dot"
+        props: { scale: "0->1.2->1.0" }
+        duration: 0.4
+        stagger: 0.08
+        ease: bounce_snap
+        offset: "-=0.3"
+
+  - id: B33
+    name: process_steps
+    best_for: [saas, finance]
+    arc_step: proof
+    emotion: [trust]
+    duration: [4.0, 6.0]
+    energy: low
+    camera_move: null
+    color_scheme: trust
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.5
+    sequence:
+      - step: steps_cascade
+        target: ".process-step"
+        props: { y: "30->0", autoAlpha: "0->1" }
+        duration: 0.6
+        stagger: 0.2
+        ease: premium_out
+      - step: connector_lines
+        target: ".step-connector"
+        props: { scaleX: "0->1" }
+        duration: 0.4
+        stagger: 0.2
+        ease: premium_out
+        offset: "<+=0.3"
+
+  - id: B34
+    name: benchmark_compare
+    best_for: [saas]
+    arc_step: proof
+    emotion: [trust, urgency]
+    duration: [3.0, 5.0]
+    energy: medium
+    camera_move: null
+    color_scheme: trust
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.8
+    sequence:
+      - step: table_reveal
+        target: ".benchmark-table"
+        props: { y: "30->0", autoAlpha: "0->1" }
+        duration: 0.6
+        ease: premium_out
+      - step: rows_cascade
+        target: ".benchmark-row"
+        props: { autoAlpha: "0->1", x: "-20->0" }
+        duration: 0.4
+        stagger: 0.08
+        ease: premium_out
+        offset: "-=0.2"
+      - step: winner_highlight
+        target: ".winner-row"
+        props: { backgroundColor: "highlight_color" }
+        duration: 0.3
+        ease: premium_out
+
+  - id: B35
+    name: secure_lock_scene
+    best_for: [finance, saas]
+    arc_step: proof
+    emotion: [trust]
+    duration: [3.0, 5.0]
+    energy: low
+    camera_move: dolly_in
+    color_scheme: trust
+    transition_in: blur_dissolve
+    transition_out: blur_dissolve
+    conversion_score: 8.7
+    sequence:
+      - step: lock_icon_draw
+        target: ".lock-icon path"
+        props: { strokeDashoffset: "100%->0%" }
+        duration: 1.0
+        ease: premium_out
+      - step: shield_pulse
+        target: ".shield-element"
+        props: { scale: "1.0->1.05->1.0" }
+        duration: 1.0
+        repeat: 2
+        ease: soft_entry
+      - step: trust_text
+        target: ".trust-label span"
+        props: { autoAlpha: "0->1", y: "10->0" }
+        duration: 0.5
+        stagger: words
+        ease: premium_out
+
+  - id: B36
+    name: team_expert_wall
+    best_for: [saas, finance]
+    arc_step: proof
+    emotion: [trust]
+    duration: [3.0, 5.0]
+    energy: low
+    camera_move: null
+    color_scheme: trust
+    transition_in: blur_dissolve
+    transition_out: directional_wipe
+    conversion_score: 8.2
+    sequence:
+      - step: avatars_grid_wave
+        target: ".expert-avatar"
+        props: { scale: "0.8->1.0", autoAlpha: "0->1" }
+        duration: 0.5
+        stagger: { each: 0.06, grid: "auto", from: "center" }
+        ease: premium_out
+      - step: names_cascade
+        target: ".expert-name"
+        props: { autoAlpha: "0->1", y: "10->0" }
+        duration: 0.4
+        stagger: 0.06
+        ease: premium_out
+        offset: "-=0.3"
+
+  - id: B37
+    name: media_mentions
+    best_for: [saas, startup_hype]
+    arc_step: proof
+    emotion: [trust]
+    duration: [2.5, 4.0]
+    energy: low
+    camera_move: null
+    color_scheme: trust
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.4
+    sequence:
+      - step: logos_cascade
+        target: ".media-logo"
+        props: { autoAlpha: "0->1", y: "20->0" }
+        duration: 0.5
+        stagger: 0.1
+        ease: premium_out
+      - step: quotes_swap
+        target: ".media-quote"
+        props: { autoAlpha: "0->1" }
+        duration: 0.4
+        offset: "-=0.2"
+
+  - id: B38
+    name: timeline_growth
+    best_for: [saas, finance]
+    arc_step: proof
+    emotion: [trust, innovation]
+    duration: [4.0, 6.0]
+    energy: medium
+    camera_move: macro_pan
+    color_scheme: trust
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.5
+    sequence:
+      - step: timeline_line_draw
+        target: ".timeline-line"
+        props: { scaleX: "0->1" }
+        duration: 2.0
+        ease: premium_out
+      - step: milestones_pop
+        target: ".milestone-dot"
+        props: { scale: "0->1.1->1.0" }
+        duration: 0.4
+        stagger: 0.3
+        ease: bounce_snap
+        offset: "<+=0.3"
+      - step: labels_reveal
+        target: ".milestone-label"
+        props: { autoAlpha: "0->1", y: "10->0" }
+        duration: 0.3
+        stagger: 0.3
+        ease: premium_out
+        offset: "<+=0.1"
+
+  - id: B39
+    name: precision_ui_zoom
+    best_for: [saas]
+    arc_step: proof
+    emotion: [premium, trust]
+    duration: [3.0, 5.0]
+    energy: medium
+    camera_move: macro_pan
+    color_scheme: premium
+    transition_in: zoom_through
+    transition_out: zoom_through
+    conversion_score: 9.1
+    sequence:
+      - step: ui_zoom_in
+        target: ".ui-detail"
+        props: { scale: "1.0->2.0" }
+        duration: 1.5
+        ease: zoom_scale
+      - step: feature_highlight
+        target: ".feature-element"
+        props: { boxShadow: "0 0 0px->0 0 20px highlight_color" }
+        duration: 0.5
+        ease: premium_out
+        offset: "-=0.5"
+      - step: label_appear
+        target: ".feature-label"
+        props: { autoAlpha: "0->1", y: "10->0" }
+        duration: 0.4
+        ease: premium_out
+
+  - id: B40
+    name: trust_minimal_hold
+    best_for: [finance, luxury_hardware]
+    arc_step: proof
+    emotion: [trust, premium]
+    duration: [3.0, 5.0]
+    energy: low
+    camera_move: null
+    color_scheme: trust
+    transition_in: blur_dissolve
+    transition_out: blur_dissolve
+    conversion_score: 9.0
+    sequence:
+      - step: headline_slow_reveal
+        target: ".trust-headline span"
+        props: { autoAlpha: "0->1", y: "15->0" }
+        duration: 1.2
+        stagger: words
+        ease: luxury_float
+      - step: subtext
+        target: ".trust-subtext"
+        props: { autoAlpha: "0->0.6" }
+        duration: 0.8
+        ease: soft_entry
+        offset: "-=0.3"
+      - step: dwell
+        duration: 2.5
+        secondary_action: true
+
+  # ============================================================
+  # C. BENEFIT — 기능 설명 (41~60)
+  # ============================================================
+
+  - id: C41
+    name: feature_stack
+    best_for: [saas]
+    arc_step: benefit
+    emotion: [premium, innovation]
+    duration: [4.0, 6.0]
+    energy: medium
+    camera_move: dolly_in
+    color_scheme: premium
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.8
+    sequence:
+      - step: feature_items
+        target: ".feature-item"
+        props: { y: "40->0", autoAlpha: "0->1" }
+        duration: 0.7
+        stagger: 0.15
+        ease: premium_out
+      - step: icons_pop
+        target: ".feature-icon"
+        props: { scale: "0->1.1->1.0" }
+        duration: 0.4
+        stagger: 0.15
+        ease: bounce_snap
+        offset: "<+=0.2"
+
+  - id: C42
+    name: card_cascade
+    best_for: [saas]
+    arc_step: benefit
+    emotion: [premium, trust]
+    duration: [3.0, 5.0]
+    energy: medium
+    camera_move: null
+    color_scheme: premium
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.9
+    sequence:
+      - step: cards_cascade_up
+        target: ".feature-card"
+        props: { y: "40->0", autoAlpha: "0->1" }
+        duration: 0.8
+        stagger: cards
+        ease: premium_out
+      - step: lighting_apply
+        target: ".feature-card"
+        lighting: soft_shadow
+        offset: "<"
+
+  - id: C43
+    name: workflow_chain
+    best_for: [saas]
+    arc_step: benefit
+    emotion: [innovation, trust]
+    duration: [4.0, 6.0]
+    energy: medium
+    camera_move: macro_pan
+    color_scheme: innovation
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.7
+    sequence:
+      - step: nodes_cascade
+        target: ".workflow-node"
+        props: { scale: "0->1.0", autoAlpha: "0->1" }
+        duration: 0.5
+        stagger: 0.2
+        ease: bounce_snap
+      - step: connectors_draw
+        target: ".workflow-connector"
+        props: { scaleX: "0->1" }
+        duration: 0.3
+        stagger: 0.2
+        ease: premium_out
+        offset: "<+=0.3"
+
+  - id: C44
+    name: drag_drop_demo
+    best_for: [saas]
+    arc_step: benefit
+    emotion: [premium, trust]
+    duration: [3.0, 5.0]
+    energy: medium
+    camera_move: null
+    color_scheme: premium
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.5
+    sequence:
+      - step: card_lift
+        target: ".drag-card"
+        props: { y: "0->-20", scale: "1.0->1.05", boxShadow: "lift" }
+        duration: 0.4
+        ease: premium_out
+      - step: card_move
+        target: ".drag-card"
+        props: { x: "0->200" }
+        duration: 0.8
+        ease: premium_inout
+      - step: card_drop
+        target: ".drag-card"
+        props: { y: "-20->0", scale: "1.05->1.0" }
+        duration: 0.3
+        ease: bounce_snap
+
+  - id: C45
+    name: one_click_magic
+    best_for: [saas]
+    arc_step: benefit
+    emotion: [urgency, innovation]
+    duration: [2.0, 3.5]
+    energy: high
+    camera_move: null
+    color_scheme: innovation
+    transition_in: directional_wipe
+    transition_out: zoom_through
+    conversion_score: 9.0
+    sequence:
+      - step: cursor_move
+        target: ".cursor"
+        props: { x: "0->button_pos_x", y: "0->button_pos_y" }
+        duration: 0.5
+        ease: premium_out
+      - step: click_pulse
+        target: ".click-button"
+        props: { scale: "1.0->0.95->1.08->1.0" }
+        duration: 0.4
+        ease: bounce_snap
+        offset: "-=0.1"
+      - step: result_blast
+        target: ".result-screen"
+        props: { scale: "0.9->1.0", autoAlpha: "0->1" }
+        duration: 0.5
+        ease: premium_out
+
+  - id: C46
+    name: ai_auto_generate
+    best_for: [saas]
+    arc_step: benefit
+    emotion: [innovation, premium]
+    duration: [4.0, 6.0]
+    energy: medium
+    camera_move: dolly_in
+    color_scheme: innovation
+    transition_in: blur_dissolve
+    transition_out: blur_dissolve
+    conversion_score: 9.3
+    sequence:
+      - step: input_type
+        target: ".ai-input"
+        props: { width: "0->100%" }
+        duration: 0.8
+        ease: premium_out
+      - step: loading_pulse
+        target: ".ai-loader"
+        props: { autoAlpha: "0->1->0" }
+        duration: 1.0
+        repeat: 1
+        ease: soft_entry
+      - step: output_reveal
+        target: ".ai-output"
+        props: { y: "20->0", autoAlpha: "0->1" }
+        duration: 0.8
+        ease: premium_out
+        offset: "-=0.3"
+      - step: lighting_apply
+        target: ".ai-output"
+        lighting: gradient_pulse
+
+  - id: C47
+    name: tab_switch_showcase
+    best_for: [saas]
+    arc_step: benefit
+    emotion: [premium, trust]
+    duration: [4.0, 6.0]
+    energy: medium
+    camera_move: null
+    color_scheme: premium
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.4
+    sequence:
+      - step: tab_active
+        target: ".tab-active"
+        props: { borderBottom: "2px solid accent" }
+        duration: 0.3
+        ease: premium_out
+      - step: content_swap
+        target: ".tab-content"
+        props: { autoAlpha: "0->1", y: "10->0" }
+        duration: 0.4
+        ease: premium_out
+        offset: "-=0.1"
+      - step: dwell
+        duration: 1.5
+
+  - id: C48
+    name: smart_filter_flow
+    best_for: [saas]
+    arc_step: benefit
+    emotion: [innovation, trust]
+    duration: [3.0, 5.0]
+    energy: medium
+    camera_move: null
+    color_scheme: innovation
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.5
+    sequence:
+      - step: filter_chips_cascade
+        target: ".filter-chip"
+        props: { x: "-20->0", autoAlpha: "0->1" }
+        duration: 0.4
+        stagger: 0.08
+        ease: premium_out
+      - step: results_reflow
+        target: ".result-item"
+        props: { y: "20->0", autoAlpha: "0->1" }
+        duration: 0.5
+        stagger: 0.05
+        ease: premium_out
+        offset: "-=0.2"
+
+  - id: C49
+    name: instant_search_scene
+    best_for: [saas]
+    arc_step: benefit
+    emotion: [urgency, innovation]
+    duration: [2.5, 4.0]
+    energy: high
+    camera_move: null
+    color_scheme: innovation
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.8
+    sequence:
+      - step: type_input
+        target: ".search-bar"
+        props: { width: "0->100%" }
+        duration: 0.5
+        ease: premium_out
+      - step: results_instant
+        target: ".search-result"
+        props: { y: "10->0", autoAlpha: "0->1" }
+        duration: 0.3
+        stagger: 0.04
+        ease: premium_out
+        offset: "-=0.2"
+
+  - id: C50
+    name: collaboration_nodes
+    best_for: [saas]
+    arc_step: benefit
+    emotion: [trust, innovation]
+    duration: [3.5, 5.5]
+    energy: medium
+    camera_move: dolly_out
+    color_scheme: innovation
+    transition_in: blur_dissolve
+    transition_out: zoom_through
+    conversion_score: 8.6
+    sequence:
+      - step: nodes_appear
+        target: ".collab-node"
+        props: { scale: "0->1.0", autoAlpha: "0->1" }
+        duration: 0.5
+        stagger: 0.1
+        ease: bounce_snap
+      - step: connections_draw
+        target: ".collab-line"
+        props: { strokeDashoffset: "100%->0%" }
+        duration: 0.8
+        stagger: 0.1
+        ease: premium_out
+        offset: "-=0.3"
+      - step: avatars_pop
+        target: ".collab-avatar"
+        props: { scale: "0->1.1->1.0" }
+        duration: 0.3
+        stagger: 0.1
+        ease: bounce_snap
+
+  - id: C51
+    name: mobile_sync_pair
+    best_for: [saas]
+    arc_step: benefit
+    emotion: [trust, premium]
+    duration: [3.0, 5.0]
+    energy: medium
+    camera_move: null
+    color_scheme: premium
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.3
+    sequence:
+      - step: desktop_left
+        target: ".device-desktop"
+        props: { x: "-60->0", autoAlpha: "0->1" }
+        duration: 0.8
+        ease: premium_out
+      - step: mobile_right
+        target: ".device-mobile"
+        props: { x: "60->0", autoAlpha: "0->1" }
+        duration: 0.8
+        ease: premium_out
+        offset: "<"
+      - step: sync_pulse
+        target: ".sync-indicator"
+        props: { scale: "0->1.2->1.0", autoAlpha: "0->1" }
+        duration: 0.5
+        ease: bounce_snap
+        offset: "-=0.3"
+
+  - id: C52
+    name: automation_loop
+    best_for: [saas]
+    arc_step: benefit
+    emotion: [innovation, trust]
+    duration: [3.5, 5.5]
+    energy: medium
+    camera_move: null
+    color_scheme: innovation
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.7
+    sequence:
+      - step: loop_arrow_draw
+        target: ".loop-arrow"
+        props: { strokeDashoffset: "100%->0%" }
+        duration: 1.5
+        ease: premium_inout
+        repeat: -1
+      - step: nodes_pulse
+        target: ".automation-node"
+        props: { scale: "1.0->1.08->1.0" }
+        duration: 0.6
+        stagger: 0.4
+        repeat: -1
+        ease: soft_entry
+
+  - id: C53
+    name: save_time_meter
+    best_for: [saas]
+    arc_step: benefit
+    emotion: [urgency, trust]
+    duration: [3.0, 5.0]
+    energy: medium
+    camera_move: null
+    color_scheme: trust
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.9
+    sequence:
+      - step: meter_fill
+        target: ".time-meter-bar"
+        props: { scaleX: "0->0.8" }
+        duration: 1.5
+        ease: premium_out
+      - step: counter_savings
+        target: ".time-saved-value"
+        props: { innerText: "0->target_value" }
+        duration: 1.5
+        ease: number_roll
+        offset: "<"
+      - step: label_reveal
+        target: ".savings-label"
+        props: { autoAlpha: "0->1" }
+        duration: 0.4
+        ease: premium_out
+
+  - id: C54
+    name: clean_dashboard_pan
+    best_for: [saas]
+    arc_step: benefit
+    emotion: [premium, trust]
+    duration: [4.0, 6.0]
+    energy: low
+    camera_move: macro_pan
+    color_scheme: premium
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.8
+    sequence:
+      - step: dashboard_pan
+        target: ".full-dashboard"
+        props: { x: "0->-15%" }
+        duration: 4.0
+        ease: soft_entry
+      - step: highlights_pulse
+        target: ".dashboard-highlight"
+        props: { scale: "1.0->1.03->1.0" }
+        duration: 1.0
+        stagger: 1.0
+        ease: soft_entry
+        offset: "<+=1.0"
+
+  - id: C55
+    name: data_to_action
+    best_for: [saas, finance]
+    arc_step: benefit
+    emotion: [innovation, trust]
+    duration: [3.5, 5.5]
+    energy: medium
+    camera_move: dolly_in
+    color_scheme: innovation
+    transition_in: directional_wipe
+    transition_out: zoom_through
+    conversion_score: 9.0
+    sequence:
+      - step: data_points_appear
+        target: ".data-point"
+        props: { scale: "0->1.0", autoAlpha: "0->1" }
+        duration: 0.3
+        stagger: 0.05
+        ease: bounce_snap
+      - step: arrow_insight
+        target: ".insight-arrow"
+        props: { scaleX: "0->1" }
+        duration: 0.6
+        ease: premium_out
+        offset: "-=0.2"
+      - step: action_cta_pulse
+        target: ".action-button"
+        props: { scale: "0.8->1.08->1.0" }
+        duration: 0.5
+        ease: bounce_snap
+
+  - id: C56
+    name: notification_hit
+    best_for: [saas]
+    arc_step: benefit
+    emotion: [urgency, trust]
+    duration: [2.0, 3.5]
+    energy: medium
+    camera_move: null
+    color_scheme: trust
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.4
+    sequence:
+      - step: notif_slide_down
+        target: ".notification-toast"
+        props: { y: "-60->0", autoAlpha: "0->1" }
+        duration: 0.4
+        ease: bounce_snap
+      - step: icon_bounce
+        target: ".notif-icon"
+        props: { scale: "0->1.2->1.0" }
+        duration: 0.4
+        ease: bounce_snap
+        offset: "<+=0.1"
+      - step: dwell
+        duration: 1.5
+
+  - id: C57
+    name: calendar_flow
+    best_for: [saas]
+    arc_step: benefit
+    emotion: [trust, premium]
+    duration: [3.5, 5.5]
+    energy: low
+    camera_move: null
+    color_scheme: premium
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.2
+    sequence:
+      - step: calendar_reveal
+        target: ".calendar-grid"
+        props: { y: "30->0", autoAlpha: "0->1" }
+        duration: 0.8
+        ease: premium_out
+      - step: events_cascade
+        target: ".calendar-event"
+        props: { scaleX: "0->1", autoAlpha: "0->1" }
+        duration: 0.4
+        stagger: 0.1
+        ease: premium_out
+
+  - id: C58
+    name: document_stream
+    best_for: [saas]
+    arc_step: benefit
+    emotion: [innovation, trust]
+    duration: [3.5, 5.5]
+    energy: medium
+    camera_move: null
+    color_scheme: innovation
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.5
+    sequence:
+      - step: docs_stream
+        target: ".document-card"
+        props: { y: "-30->0", autoAlpha: "0->1" }
+        duration: 0.5
+        stagger: 0.12
+        ease: premium_out
+      - step: auto_fill_animate
+        target: ".doc-field"
+        props: { scaleX: "0->1" }
+        duration: 0.8
+        stagger: 0.15
+        ease: premium_out
+        offset: "-=0.3"
+
+  - id: C59
+    name: multi_device_grid
+    best_for: [saas]
+    arc_step: benefit
+    emotion: [premium, trust]
+    duration: [3.5, 5.5]
+    energy: medium
+    camera_move: dolly_out
+    color_scheme: premium
+    transition_in: blur_dissolve
+    transition_out: directional_wipe
+    conversion_score: 8.6
+    sequence:
+      - step: devices_grid_wave
+        target: ".device-mockup"
+        props: { scale: "0.8->1.0", autoAlpha: "0->1" }
+        duration: 0.7
+        stagger: { each: 0.08, grid: "auto", from: "center" }
+        ease: premium_out
+
+  - id: C60
+    name: shortcut_speedrun
+    best_for: [saas]
+    arc_step: benefit
+    emotion: [urgency, innovation]
+    duration: [2.5, 4.0]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: hard_cut
+    transition_out: hard_cut
+    conversion_score: 8.9
+    sequence:
+      - step: keys_rapid_pop
+        target: ".shortcut-key"
+        props: { scale: "0->1.1->1.0", autoAlpha: "0->1" }
+        duration: 0.2
+        stagger: 0.1
+        ease: bounce_snap
+      - step: result_instant
+        target: ".shortcut-result"
+        props: { autoAlpha: "0->1", scale: "0.95->1.0" }
+        duration: 0.3
+        ease: premium_out
+        offset: "-=0.1"
+
+  # ============================================================
+  # D. LUXURY — Apple 스타일 (61~75)
+  # ============================================================
+
+  - id: D61
+    name: macro_detail_pan
+    best_for: [luxury_hardware]
+    arc_step: benefit
+    emotion: [premium, innovation]
+    duration: [4.0, 6.5]
+    energy: low
+    camera_move: macro_pan
+    color_scheme: luxury
+    transition_in: blur_dissolve
+    transition_out: focal_shift
+    conversion_score: 9.4
+    sequence:
+      - step: macro_focus_in
+        target: ".product-detail"
+        props: { filter: "blur(8px)->blur(0px)", scale: "1.8->2.0", autoAlpha: "0->1" }
+        duration: 1.2
+        ease: premium_out
+      - step: slow_pan
+        target: ".product-detail"
+        props: { x: "0->-10%" }
+        duration: 3.5
+        ease: soft_entry
+
+  - id: D62
+    name: rim_light_reveal
+    best_for: [luxury_hardware]
+    arc_step: hook
+    emotion: [premium, innovation]
+    duration: [3.5, 6.0]
+    energy: low
+    camera_move: dolly_in
+    color_scheme: luxury
+    transition_in: fade
+    transition_out: zoom_through
+    conversion_score: 9.5
+    sequence:
+      - step: darkness_hold
+        target: ".scene-root"
+        duration: 0.8
+      - step: rim_light_emerge
+        target: ".product-hero"
+        props: { autoAlpha: "0->1" }
+        duration: 2.0
+        ease: luxury_float
+      - step: lighting_apply
+        target: ".product-hero"
+        lighting: rim_glow
+        offset: "<"
+      - step: dwell
+        duration: 1.5
+        secondary_action: true
+
+  - id: D63
+    name: orbital_hardware
+    best_for: [luxury_hardware]
+    arc_step: proof
+    emotion: [premium, innovation]
+    duration: [4.0, 6.0]
+    energy: low
+    camera_move: orbital_15deg
+    color_scheme: luxury
+    transition_in: blur_dissolve
+    transition_out: focal_shift
+    conversion_score: 9.3
+    sequence:
+      - step: orbit_rotate
+        target: ".product-3d-rig"
+        props: { rotationY: "0->15", transformPerspective: 1200 }
+        duration: 3.5
+        ease: premium_inout
+      - step: lighting_apply
+        target: ".product-3d-rig"
+        lighting: rim_glow
+        offset: "<"
+      - step: spec_text_fade
+        target: ".spec-label"
+        props: { autoAlpha: "0->1", y: "10->0" }
+        duration: 0.6
+        stagger: words
+        ease: luxury_float
+        offset: "-=2.0"
+
+  - id: D64
+    name: floating_parts_assemble
+    best_for: [luxury_hardware]
+    arc_step: benefit
+    emotion: [premium, innovation]
+    duration: [4.0, 7.0]
+    energy: medium
+    camera_move: dolly_in
+    color_scheme: luxury
+    transition_in: fade
+    transition_out: zoom_through
+    conversion_score: 9.2
+    sequence:
+      - step: parts_scatter
+        target: ".product-part"
+        props: { x: "random(-200,200)", y: "random(-200,200)", autoAlpha: "0->1" }
+        duration: 0.1
+        stagger: 0.05
+        ease: none
+      - step: parts_assemble
+        target: ".product-part"
+        props: { x: "0", y: "0", rotation: "0" }
+        duration: 2.0
+        stagger: 0.08
+        ease: premium_inout
+      - step: lighting_apply
+        target: ".assembled-product"
+        lighting: rim_glow
+        offset: "-=0.5"
+
+  - id: D65
+    name: metal_surface_glide
+    best_for: [luxury_hardware]
+    arc_step: benefit
+    emotion: [premium]
+    duration: [3.5, 6.0]
+    energy: low
+    camera_move: macro_pan
+    color_scheme: luxury
+    transition_in: blur_dissolve
+    transition_out: blur_dissolve
+    conversion_score: 9.1
+    sequence:
+      - step: surface_pan
+        target: ".metal-surface"
+        props: { x: "0->-8%", backgroundPosition: "0%->50%" }
+        duration: 4.0
+        ease: soft_entry
+      - step: light_reflection_move
+        target: ".reflection-highlight"
+        props: { x: "-20%->120%" }
+        duration: 2.5
+        ease: soft_entry
+        offset: "<"
+
+  - id: D66
+    name: shadow_silhouette
+    best_for: [luxury_hardware]
+    arc_step: hook
+    emotion: [premium, trust]
+    duration: [3.0, 5.0]
+    energy: low
+    camera_move: dolly_in
+    color_scheme: luxury
+    transition_in: fade
+    transition_out: blur_dissolve
+    conversion_score: 8.9
+    sequence:
+      - step: silhouette_emerge
+        target: ".product-silhouette"
+        props: { autoAlpha: "0->0.6", scale: "0.95->1.0" }
+        duration: 2.0
+        ease: luxury_float
+      - step: reveal_color
+        target: ".product-colored"
+        props: { autoAlpha: "0->1" }
+        duration: 1.5
+        ease: premium_out
+        offset: "-=0.5"
+
+  - id: D67
+    name: lens_flare_pass
+    best_for: [luxury_hardware]
+    arc_step: benefit
+    emotion: [premium, innovation]
+    duration: [2.0, 3.5]
+    energy: low
+    camera_move: null
+    color_scheme: luxury
+    transition_in: null
+    transition_out: null
+    safety: { max_per_scene: 1 }
+    conversion_score: 8.7
+    sequence:
+      - step: flare_pass
+        target: ".lens-flare"
+        props: { x: "-20%->120%", autoAlpha: "0->0.3->0" }
+        duration: 0.8
+        ease: soft_entry
+
+  - id: D68
+    name: depth_black_space
+    best_for: [luxury_hardware]
+    arc_step: hook
+    emotion: [premium, trust]
+    duration: [3.0, 5.5]
+    energy: low
+    camera_move: dolly_in
+    color_scheme: luxury
+    transition_in: fade
+    transition_out: zoom_through
+    conversion_score: 9.0
+    sequence:
+      - step: black_bg_hold
+        duration: 0.8
+      - step: product_float_in
+        target: ".product-hero"
+        props: { y: "30->0", autoAlpha: "0->1" }
+        duration: 2.0
+        ease: luxury_float
+      - step: lighting_apply
+        target: ".product-hero"
+        lighting: cinematic_vignette
+      - step: dwell
+        duration: 2.0
+        secondary_action: true
+
+  - id: D69
+    name: exploded_view
+    best_for: [luxury_hardware]
+    arc_step: benefit
+    emotion: [premium, innovation]
+    duration: [5.0, 8.0]
+    energy: medium
+    camera_move: orbital_15deg
+    color_scheme: luxury
+    transition_in: blur_dissolve
+    transition_out: zoom_through
+    conversion_score: 9.3
+    sequence:
+      - step: product_explode
+        target: ".product-layer"
+        props: { y: "custom_layer_offset", autoAlpha: "0->1" }
+        duration: 2.0
+        stagger: 0.15
+        ease: premium_inout
+      - step: layer_labels
+        target: ".layer-label"
+        props: { autoAlpha: "0->1", x: "20->0" }
+        duration: 0.5
+        stagger: 0.15
+        ease: premium_out
+        offset: "-=1.0"
+      - step: dwell
+        duration: 2.0
+
+  - id: D70
+    name: precision_edge_macro
+    best_for: [luxury_hardware]
+    arc_step: benefit
+    emotion: [premium]
+    duration: [3.5, 6.0]
+    energy: low
+    camera_move: macro_pan
+    color_scheme: luxury
+    transition_in: blur_dissolve
+    transition_out: focal_shift
+    conversion_score: 9.1
+    sequence:
+      - step: edge_focus
+        target: ".product-edge"
+        props: { filter: "blur(6px)->blur(0px)", scale: "3.0" }
+        duration: 1.0
+        ease: premium_out
+      - step: edge_pan
+        target: ".product-edge"
+        props: { x: "0->-12%" }
+        duration: 3.0
+        ease: soft_entry
+
+  - id: D71
+    name: premium_text_hold
+    best_for: [luxury_hardware, finance]
+    arc_step: trust
+    emotion: [premium, trust]
+    duration: [4.0, 6.0]
+    energy: low
+    camera_move: null
+    color_scheme: luxury
+    transition_in: blur_dissolve
+    transition_out: blur_dissolve
+    conversion_score: 9.2
+    sequence:
+      - step: word_slow_reveal
+        target: ".premium-word"
+        props: { autoAlpha: "0->1", letterSpacing: "0.3em->0.1em" }
+        duration: 1.5
+        ease: luxury_float
+      - step: dwell
+        duration: 3.0
+        secondary_action: true
+
+  - id: D72
+    name: slow_zoom_glory
+    best_for: [luxury_hardware]
+    arc_step: proof
+    emotion: [premium]
+    duration: [4.0, 7.0]
+    energy: low
+    camera_move: dolly_in
+    color_scheme: luxury
+    transition_in: blur_dissolve
+    transition_out: zoom_through
+    conversion_score: 9.4
+    sequence:
+      - step: slow_zoom
+        target: ".product-hero"
+        props: { scale: "1.0->1.12" }
+        duration: 5.0
+        ease: luxury_float
+      - step: lighting_apply
+        target: ".product-hero"
+        lighting: cinematic_vignette
+        offset: "<"
+
+  - id: D73
+    name: cinematic_rotation
+    best_for: [luxury_hardware]
+    arc_step: proof
+    emotion: [premium, innovation]
+    duration: [4.0, 7.0]
+    energy: low
+    camera_move: orbital_15deg
+    color_scheme: luxury
+    transition_in: fade
+    transition_out: focal_shift
+    conversion_score: 9.3
+    sequence:
+      - step: rotation_sweep
+        target: ".product-3d-rig"
+        props: { rotationY: "-5->20", transformPerspective: 1200 }
+        duration: 5.0
+        ease: luxury_float
+      - step: lighting_shimmer
+        target: ".product-3d-rig"
+        lighting: rim_glow
+        offset: "<+=1.0"
+
+  - id: D74
+    name: reflection_slide
+    best_for: [luxury_hardware]
+    arc_step: benefit
+    emotion: [premium]
+    duration: [3.0, 5.5]
+    energy: low
+    camera_move: macro_pan
+    color_scheme: luxury
+    transition_in: blur_dissolve
+    transition_out: blur_dissolve
+    conversion_score: 8.8
+    sequence:
+      - step: reflection_sweep
+        target: ".surface-reflection"
+        props: { x: "-100%->100%", autoAlpha: "0->0.4->0" }
+        duration: 2.5
+        ease: soft_entry
+
+  - id: D75
+    name: luxury_end_pose
+    best_for: [luxury_hardware]
+    arc_step: cta
+    emotion: [premium, trust]
+    duration: [4.0, 7.0]
+    energy: low
+    camera_move: dolly_in
+    color_scheme: luxury
+    transition_in: blur_dissolve
+    transition_out: fade
+    conversion_score: 9.5
+    sequence:
+      - step: product_final_pose
+        target: ".product-hero"
+        props: { y: "20->0", autoAlpha: "0->1", scale: "0.95->1.0" }
+        duration: 2.0
+        ease: luxury_float
+      - step: lighting_apply
+        target: ".product-hero"
+        lighting: rim_glow
+        offset: "<"
+      - step: brand_wordmark
+        target: ".brand-wordmark"
+        props: { autoAlpha: "0->1" }
+        duration: 1.0
+        ease: luxury_float
+        offset: "-=0.5"
+      - step: dwell
+        duration: 3.0
+        secondary_action: true
+
+  # ============================================================
+  # E. STARTUP VIRAL — 빠른 숏폼 (76~90)
+  # ============================================================
+
+  - id: E76
+    name: meme_zoom_reaction
+    best_for: [startup_hype]
+    arc_step: hook
+    emotion: [urgency]
+    duration: [1.0, 2.0]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: hard_cut
+    transition_out: hard_cut
+    conversion_score: 8.1
+    sequence:
+      - step: zoom_punch
+        target: ".meme-element"
+        props: { scale: "1.0->1.4->1.1", autoAlpha: "0->1" }
+        duration: 0.4
+        ease: bounce_snap
+      - step: caption_slam
+        target: ".meme-caption"
+        props: { scale: "1.3->1.0", autoAlpha: "0->1" }
+        duration: 0.3
+        ease: premium_out
+
+  - id: E77
+    name: pain_text_hit
+    best_for: [startup_hype]
+    arc_step: hook
+    emotion: [urgency]
+    duration: [1.5, 3.0]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: hard_cut
+    transition_out: hard_cut
+    conversion_score: 8.8
+    sequence:
+      - step: pain_words_slam
+        target: ".pain-word"
+        props: { scale: "1.18->1.0", autoAlpha: "0->1" }
+        duration: 0.4
+        stagger: 0.08
+        ease: premium_out
+      - step: dwell
+        duration: 0.8
+
+  - id: E78
+    name: chaos_to_order
+    best_for: [startup_hype]
+    arc_step: pain
+    emotion: [urgency, innovation]
+    duration: [3.0, 5.0]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: hard_cut
+    transition_out: directional_wipe
+    conversion_score: 9.0
+    sequence:
+      - step: chaos_scatter
+        target: ".chaos-element"
+        props: { x: "random(-100,100)", y: "random(-80,80)", rotation: "random(-30,30)", autoAlpha: "0->1" }
+        duration: 0.5
+        stagger: 0.04
+        ease: none
+      - step: order_assemble
+        target: ".chaos-element"
+        props: { x: "0", y: "0", rotation: "0" }
+        duration: 1.2
+        stagger: 0.04
+        ease: premium_inout
+        offset: "+=0.5"
+
+  - id: E79
+    name: speed_card_flip
+    best_for: [startup_hype]
+    arc_step: benefit
+    emotion: [urgency, innovation]
+    duration: [2.0, 4.0]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: hard_cut
+    transition_out: hard_cut
+    conversion_score: 8.5
+    sequence:
+      - step: card_flip
+        target: ".flip-card"
+        props: { rotationY: "0->180" }
+        duration: 0.4
+        stagger: 0.12
+        ease: premium_inout
+
+  - id: E80
+    name: social_comment_pop
+    best_for: [startup_hype]
+    arc_step: proof
+    emotion: [trust, urgency]
+    duration: [3.0, 5.0]
+    energy: medium
+    camera_move: null
+    color_scheme: trust
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.6
+    sequence:
+      - step: comments_pop
+        target: ".comment-bubble"
+        props: { scale: "0->1.05->1.0", autoAlpha: "0->1" }
+        duration: 0.4
+        stagger: 0.2
+        ease: bounce_snap
+
+  - id: E81
+    name: fast_problem_loop
+    best_for: [startup_hype]
+    arc_step: hook
+    emotion: [urgency]
+    duration: [2.0, 4.0]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: hard_cut
+    transition_out: hard_cut
+    conversion_score: 8.3
+    sequence:
+      - step: problem_loop
+        target: ".problem-frame"
+        props: { autoAlpha: "0->1->0" }
+        duration: 0.6
+        repeat: 3
+        ease: sharp_exit
+
+  - id: E82
+    name: trend_caption_burst
+    best_for: [startup_hype]
+    arc_step: hook
+    emotion: [urgency, innovation]
+    duration: [2.0, 3.5]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: hard_cut
+    transition_out: hard_cut
+    conversion_score: 8.4
+    sequence:
+      - step: caption_words_burst
+        target: ".caption-word"
+        props: { scale: "1.2->1.0", autoAlpha: "0->1", y: "10->0" }
+        duration: 0.3
+        stagger: words
+        ease: premium_out
+
+  - id: E83
+    name: beat_text_swap
+    best_for: [startup_hype]
+    arc_step: hook
+    emotion: [urgency]
+    duration: [2.0, 4.0]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: hard_cut
+    transition_out: hard_cut
+    audio_cue: beat
+    conversion_score: 9.0
+    sequence:
+      - step: text_out_beat
+        target: ".beat-text-out"
+        props: { y: "0->-40", autoAlpha: "1->0" }
+        duration: 0.18
+        ease: sharp_exit
+      - step: text_in_beat
+        target: ".beat-text-in"
+        props: { y: "40->0", autoAlpha: "0->1" }
+        duration: 0.18
+        ease: premium_out
+        offset: "<"
+
+  - id: E84
+    name: swipe_stack_mania
+    best_for: [startup_hype]
+    arc_step: benefit
+    emotion: [urgency]
+    duration: [2.0, 4.0]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: hard_cut
+    transition_out: hard_cut
+    conversion_score: 8.5
+    sequence:
+      - step: stack_swipe
+        target: ".swipe-card"
+        props: { x: "0->120%", rotation: "0->15", autoAlpha: "1->0" }
+        duration: 0.3
+        stagger: 0.1
+        ease: sharp_exit
+
+  - id: E85
+    name: startup_logo_blast
+    best_for: [startup_hype]
+    arc_step: hook
+    emotion: [urgency, innovation]
+    duration: [1.5, 2.5]
+    energy: high
+    camera_move: null
+    color_scheme: innovation
+    transition_in: hard_cut
+    transition_out: zoom_through
+    audio_cue: drop_point
+    conversion_score: 8.9
+    sequence:
+      - step: logo_blast
+        target: ".startup-logo"
+        props: { scale: "0.5->1.15->1.0", autoAlpha: "0->1" }
+        duration: 0.6
+        ease: bounce_snap
+      - step: lighting_apply
+        target: ".startup-logo"
+        lighting: rim_glow
+        offset: "-=0.3"
+
+  - id: E86
+    name: founder_quote_hit
+    best_for: [startup_hype]
+    arc_step: trust
+    emotion: [trust, urgency]
+    duration: [3.0, 5.0]
+    energy: medium
+    camera_move: dolly_in
+    color_scheme: trust
+    transition_in: blur_dissolve
+    transition_out: directional_wipe
+    conversion_score: 8.7
+    sequence:
+      - step: quote_marks
+        target: ".quote-mark"
+        props: { scale: "0->1.0", autoAlpha: "0->1" }
+        duration: 0.4
+        ease: bounce_snap
+      - step: quote_lines
+        target: ".founder-quote .line"
+        props: { autoAlpha: "0->1", y: "15->0" }
+        duration: 0.5
+        stagger: lines
+        ease: premium_out
+        offset: "-=0.2"
+      - step: founder_name
+        target: ".founder-name"
+        props: { autoAlpha: "0->1" }
+        duration: 0.4
+        ease: premium_out
+
+  - id: E87
+    name: rapid_ui_montage
+    best_for: [startup_hype]
+    arc_step: benefit
+    emotion: [urgency, innovation]
+    duration: [3.0, 5.0]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: hard_cut
+    transition_out: hard_cut
+    conversion_score: 9.1
+    sequence:
+      - step: ui_rapid_cuts
+        target: ".ui-screen"
+        props: { autoAlpha: "0->1->0" }
+        duration: 0.5
+        stagger: 0.4
+        ease: sharp_exit
+        repeat: 4
+
+  - id: E88
+    name: urgency_offer_flash
+    best_for: [startup_hype]
+    arc_step: cta
+    emotion: [urgency]
+    duration: [2.0, 3.5]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: hard_cut
+    transition_out: directional_wipe
+    conversion_score: 8.8
+    sequence:
+      - step: offer_slam
+        target: ".offer-banner"
+        props: { scale: "1.1->1.0", autoAlpha: "0->1" }
+        duration: 0.4
+        ease: bounce_snap
+      - step: countdown_pulse
+        target: ".countdown-timer"
+        props: { scale: "1.0->1.05->1.0" }
+        duration: 1.0
+        repeat: -1
+        ease: soft_entry
+
+  - id: E89
+    name: speed_meter_up
+    best_for: [startup_hype, saas]
+    arc_step: benefit
+    emotion: [urgency, innovation]
+    duration: [2.5, 4.0]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: directional_wipe
+    transition_out: directional_wipe
+    conversion_score: 8.7
+    sequence:
+      - step: meter_needle_sweep
+        target: ".speed-needle"
+        props: { rotation: "-90->60" }
+        duration: 1.5
+        ease: premium_out
+      - step: speed_value_counter
+        target: ".speed-value"
+        props: { innerText: "0->target_value" }
+        duration: 1.5
+        ease: number_roll
+        offset: "<"
+
+  - id: E90
+    name: viral_end_freeze
+    best_for: [startup_hype]
+    arc_step: cta
+    emotion: [urgency, trust]
+    duration: [2.0, 4.0]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: hard_cut
+    transition_out: fade
+    conversion_score: 8.6
+    sequence:
+      - step: action_moment
+        target: ".freeze-frame"
+        props: { scale: "1.05->1.0", autoAlpha: "0->1" }
+        duration: 0.5
+        ease: premium_out
+      - step: freeze_hold
+        duration: 2.0
+      - step: cta_overlay
+        target: ".freeze-cta"
+        props: { autoAlpha: "0->1", y: "20->0" }
+        duration: 0.5
+        ease: premium_out
+
+  # ============================================================
+  # F. CTA — 전환 유도 (91~100)
+  # ============================================================
+
+  - id: F91
+    name: cta_blast
+    best_for: [saas, startup_hype, finance]
+    arc_step: cta
+    emotion: [urgency, premium]
+    duration: [2.0, 3.5]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: directional_wipe
+    transition_out: fade
+    audio_cue: drop_point
+    conversion_score: 9.5
+    sequence:
+      - step: cta_button_blast
+        target: ".cta-button"
+        props: { scale: "0.8->1.15->1.0", autoAlpha: "0->1" }
+        duration: 0.6
+        ease: bounce_snap
+      - step: headline_slam
+        target: ".cta-headline span"
+        props: { scale: "1.18->1.0", autoAlpha: "0->1" }
+        duration: 0.5
+        stagger: chars
+        ease: premium_out
+        offset: "-=0.3"
+      - step: button_pulse
+        target: ".cta-button"
+        props: { scale: "1.0->1.04->1.0" }
+        duration: 1.5
+        repeat: -1
+        ease: soft_entry
+
+  - id: F92
+    name: button_pulse_focus
+    best_for: [saas, finance]
+    arc_step: cta
+    emotion: [urgency, trust]
+    duration: [2.5, 4.0]
+    energy: medium
+    camera_move: dolly_in
+    color_scheme: urgency
+    transition_in: blur_dissolve
+    transition_out: fade
+    conversion_score: 9.2
+    sequence:
+      - step: bg_dim
+        target: ".bg-layer"
+        props: { autoAlpha: "1->0.3" }
+        duration: 0.5
+        ease: premium_out
+      - step: button_focus_in
+        target: ".cta-button"
+        props: { scale: "0.9->1.1->1.0", boxShadow: "glow" }
+        duration: 0.7
+        ease: bounce_snap
+      - step: button_pulse
+        target: ".cta-button"
+        props: { scale: "1.0->1.06->1.0" }
+        duration: 1.5
+        repeat: -1
+        ease: soft_entry
+
+  - id: F93
+    name: final_offer_countdown
+    best_for: [startup_hype]
+    arc_step: cta
+    emotion: [urgency]
+    duration: [3.0, 5.0]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: directional_wipe
+    transition_out: fade
+    conversion_score: 9.0
+    sequence:
+      - step: offer_text_slam
+        target: ".offer-text span"
+        props: { scale: "1.18->1.0", autoAlpha: "0->1" }
+        duration: 0.5
+        stagger: words
+        ease: premium_out
+      - step: timer_digits_roll
+        target: ".timer-digit"
+        props: { innerText: "countdown" }
+        duration: 1.0
+        ease: number_roll
+      - step: pulse_loop
+        target: ".countdown-container"
+        props: { scale: "1.0->1.03->1.0" }
+        duration: 1.0
+        repeat: -1
+        ease: soft_entry
+
+  - id: F94
+    name: free_trial_drop
+    best_for: [saas, startup_hype]
+    arc_step: cta
+    emotion: [urgency, trust]
+    duration: [2.5, 4.0]
+    energy: high
+    camera_move: null
+    color_scheme: premium
+    transition_in: directional_wipe
+    transition_out: fade
+    conversion_score: 9.3
+    sequence:
+      - step: badge_drop
+        target: ".free-badge"
+        props: { y: "-60->0", scale: "1.1->1.0", autoAlpha: "0->1" }
+        duration: 0.6
+        ease: bounce_snap
+      - step: trial_text_reveal
+        target: ".trial-headline span"
+        props: { autoAlpha: "0->1", y: "15->0" }
+        duration: 0.5
+        stagger: words
+        ease: premium_out
+        offset: "-=0.2"
+      - step: cta_button_rise
+        target: ".cta-button"
+        props: { y: "20->0", autoAlpha: "0->1" }
+        duration: 0.5
+        ease: premium_out
+
+  - id: F95
+    name: scan_qr_scene
+    best_for: [startup_hype, saas]
+    arc_step: cta
+    emotion: [trust, urgency]
+    duration: [3.0, 5.0]
+    energy: medium
+    camera_move: dolly_in
+    color_scheme: trust
+    transition_in: blur_dissolve
+    transition_out: fade
+    conversion_score: 8.5
+    sequence:
+      - step: qr_reveal
+        target: ".qr-code"
+        props: { scale: "0.8->1.0", autoAlpha: "0->1" }
+        duration: 0.8
+        ease: premium_out
+      - step: scan_line_sweep
+        target: ".scan-line"
+        props: { y: "-100%->100%" }
+        duration: 1.0
+        repeat: -1
+        ease: premium_inout
+      - step: instruction_text
+        target: ".scan-instruction"
+        props: { autoAlpha: "0->1", y: "10->0" }
+        duration: 0.5
+        ease: premium_out
+
+  - id: F96
+    name: swipe_up_mobile
+    best_for: [startup_hype]
+    arc_step: cta
+    emotion: [urgency]
+    duration: [2.0, 3.5]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: directional_wipe
+    transition_out: fade
+    conversion_score: 8.8
+    sequence:
+      - step: arrow_bounce_up
+        target: ".swipe-arrow"
+        props: { y: "0->-20->0" }
+        duration: 0.8
+        repeat: -1
+        ease: soft_entry
+      - step: swipe_label
+        target: ".swipe-label"
+        props: { autoAlpha: "0->1", y: "10->0" }
+        duration: 0.4
+        ease: premium_out
+
+  - id: F97
+    name: trusted_join_now
+    best_for: [finance, saas]
+    arc_step: cta
+    emotion: [trust, premium]
+    duration: [3.0, 5.0]
+    energy: medium
+    camera_move: null
+    color_scheme: trust
+    transition_in: blur_dissolve
+    transition_out: fade
+    conversion_score: 9.1
+    sequence:
+      - step: trust_icons_cascade
+        target: ".trust-icon"
+        props: { scale: "0->1.0", autoAlpha: "0->1" }
+        duration: 0.4
+        stagger: 0.1
+        ease: bounce_snap
+      - step: cta_headline
+        target: ".join-headline span"
+        props: { autoAlpha: "0->1", y: "15->0" }
+        duration: 0.6
+        stagger: words
+        ease: premium_out
+        offset: "-=0.2"
+      - step: cta_button
+        target: ".join-button"
+        props: { scale: "0.9->1.0", autoAlpha: "0->1" }
+        duration: 0.5
+        ease: premium_out
+
+  - id: F98
+    name: limited_slots
+    best_for: [startup_hype, saas]
+    arc_step: cta
+    emotion: [urgency]
+    duration: [2.5, 4.0]
+    energy: high
+    camera_move: null
+    color_scheme: urgency
+    transition_in: directional_wipe
+    transition_out: fade
+    conversion_score: 8.9
+    sequence:
+      - step: slots_bar_shrink
+        target: ".slots-remaining-bar"
+        props: { scaleX: "1.0->0.15" }
+        duration: 1.5
+        ease: premium_out
+      - step: slots_counter
+        target: ".slots-number"
+        props: { innerText: "100->target_remaining", color: "#EF4444" }
+        duration: 1.5
+        ease: number_roll
+        offset: "<"
+      - step: urgency_label
+        target: ".urgency-label"
+        props: { scale: "1.0->1.04->1.0" }
+        duration: 0.8
+        repeat: 2
+        ease: soft_entry
+
+  - id: F99
+    name: simple_logo_cta
+    best_for: [saas, luxury_hardware, finance]
+    arc_step: cta
+    emotion: [premium, trust]
+    duration: [3.0, 5.0]
+    energy: low
+    camera_move: null
+    color_scheme: premium
+    transition_in: blur_dissolve
+    transition_out: fade
+    conversion_score: 9.0
+    sequence:
+      - step: logo_fade_in
+        target: ".brand-logo"
+        props: { autoAlpha: "0->1", scale: "0.95->1.0" }
+        duration: 1.5
+        ease: luxury_float
+      - step: tagline
+        target: ".brand-tagline"
+        props: { autoAlpha: "0->1", letterSpacing: "0.3em->0.05em" }
+        duration: 1.0
+        ease: luxury_float
+        offset: "-=0.5"
+      - step: cta_minimal
+        target: ".minimal-cta"
+        props: { autoAlpha: "0->0.8" }
+        duration: 0.8
+        ease: soft_entry
+
+  - id: F100
+    name: cinematic_final_lockup
+    best_for: [luxury_hardware, finance, saas]
+    arc_step: cta
+    emotion: [premium, trust]
+    duration: [5.0, 8.0]
+    energy: low
+    camera_move: dolly_in
+    color_scheme: luxury
+    transition_in: blur_dissolve
+    transition_out: fade
+    conversion_score: 9.6
+    sequence:
+      - step: product_final_float
+        target: ".product-hero"
+        props: { y: "30->0", autoAlpha: "0->1", scale: "0.95->1.0" }
+        duration: 2.5
+        ease: luxury_float
+      - step: lighting_apply
+        target: ".product-hero"
+        lighting: rim_glow
+        offset: "<"
+      - step: vignette_apply
+        target: ".scene-root"
+        lighting: cinematic_vignette
+        offset: "<"
+      - step: brand_lockup
+        target: ".brand-lockup"
+        props: { autoAlpha: "0->1", y: "15->0" }
+        duration: 1.2
+        ease: luxury_float
+        offset: "-=0.5"
+      - step: final_dwell
+        duration: 3.5
+        secondary_action: true
+
+
+# ============================================================
+# 제품군별 추천 조합 (v1.2 호환)
+# ============================================================
+
+recommended_combinations:
+
+  saas_5scene:
+    story_template: hook_proof_cta
+    scenes: [A08, B21, C43, B22, F91]
+    audio_sync: { bpm: 124, drop_points: [0, 8.0, 24.0] }
+
+  luxury_hardware_5scene:
+    story_template: before_after_future
+    scenes: [D61, D62, D63, D70, D75]
+    audio_sync: { bpm: 90, drop_points: [6.0, 20.0] }
+
+  finance_5scene:
+    story_template: before_after_future
+    scenes: [B40, B35, B23, B27, F97]
+    audio_sync: { bpm: 100, drop_points: [8.0, 22.0] }
+
+  startup_shortform_5scene:
+    story_template: pain_solution_desire
+    scenes: [A03, E77, E78, E87, F94]
+    audio_sync: { bpm: 140, drop_points: [4.0, 14.0] }
+
+
+# ============================================================
+# 빠른 조회 인덱스
+# ============================================================
+
+index:
+  by_arc_step:
+    hook:    [A01,A02,A03,A04,A05,A06,A07,A08,A09,A10,A11,A12,A13,A14,A15,A16,A17,A18,A19,A20,D62,D66,D68,E76,E77,E81,E82,E83,E85]
+    proof:   [B21,B22,B23,B24,B25,B26,B27,B28,B29,B30,B31,B32,B33,B34,B35,B36,B37,B38,B39,B40,D63,D72,D73,E80]
+    benefit: [C41,C42,C43,C44,C45,C46,C47,C48,C49,C50,C51,C52,C53,C54,C55,C56,C57,C58,C59,C60,D61,D64,D65,D67,D69,D70,D74,E79,E84,E87,E89]
+    trust:   [D71,E86,F97]
+    cta:     [D75,E88,E90,F91,F92,F93,F94,F95,F96,F97,F98,F99,F100]
+    pain:    [E78]
+
+  by_energy:
+    high:   [A02,A03,A04,A06,A07,A08,A10,A11,A12,A13,A18,A19,C45,C49,C60,E76,E77,E78,E81,E82,E83,E84,E85,E87,E88,E89,F91,F93,F96,F98]
+    medium: [A01,A09,A14,A20,B21,B22,B23,B30,B31,B32,B34,C41,C42,C43,C44,C47,C48,C50,C51,C52,C53,C54,C55,C56,C57,C58,C59,D64,E79,E80,E86,F92,F95]
+    low:    [A16,A17,B24,B25,B26,B28,B29,B33,B36,B37,B38,B39,B40,C46,D61,D62,D63,D65,D66,D67,D68,D69,D70,D71,D72,D73,D74,D75,F99,F100]
+
+  by_conversion_score_top10:
+    - { score: 9.6, id: F100, name: cinematic_final_lockup }
+    - { score: 9.5, id: A08,  name: hook_drop_sync }
+    - { score: 9.5, id: D75,  name: luxury_end_pose }
+    - { score: 9.5, id: F91,  name: cta_blast }
+    - { score: 9.4, id: A01,  name: hero_reveal }
+    - { score: 9.4, id: B21,  name: dashboard_showcase }
+    - { score: 9.4, id: D61,  name: macro_detail_pan }
+    - { score: 9.3, id: A05,  name: zoom_from_void }
+    - { score: 9.3, id: C46,  name: ai_auto_generate }
+    - { score: 9.3, id: D64,  name: floating_parts_assemble }

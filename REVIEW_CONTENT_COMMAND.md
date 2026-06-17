@@ -1,0 +1,174 @@
+# REVIEW_CONTENT_COMMAND.md — 리뷰 콘텐츠 신규 제작 트리거
+
+이 문서는 신규 세션에서 한 줄 명령으로 리뷰 콘텐츠 제작 워크플로우를 시작하기 위한 운영 규칙이다.
+
+## 한 줄 명령
+
+사용자는 아래 중 하나만 입력해도 된다.
+
+```text
+리뷰컨텐츠 신규 만들어줘
+```
+
+```text
+리뷰패키지 새로 만들어줘
+```
+
+```text
+신규 리뷰 콘텐츠 골라서 만들어줘
+```
+
+영상/릴스까지 만들겠다는 의미의 아래 명령은 `docs/review_video_publish_workflow_v2.md`를 우선 따른다.
+
+```text
+리뷰 릴스 만들자
+```
+
+```text
+리뷰 영상 신규 발행하자
+```
+
+```text
+리뷰 릴스 신규 발행하자
+```
+
+## AI 작업자 행동
+
+이 명령을 받으면 바로 생성하지 않는다.
+먼저 후보를 보고, 사장님이 선택할 수 있게 제안한다.
+
+## 반드시 먼저 읽을 파일
+
+1. `GEMINI.md`
+2. `_context.md`
+3. `PROJECT_DASHBOARD.md`
+4. `REVIEW_INTAKE_CHECKLIST.md`
+5. `CONTENT_QUALITY_STANDARD.md`
+6. `POSTING_COPY_STANDARD.md`
+7. `reviews/pilot/README.md`
+8. 최신 운영 리뷰 묶음의 `README.md`
+   - 예: `reviews/inbox_20260609/README.md`
+
+## 리뷰 추가 요청을 받았을 때
+
+사용자가 리뷰 묶음을 주면 `REVIEW_INTAKE_CHECKLIST.md`를 따른다.
+
+리뷰 추가 작업의 완료 기준은 아래 전체가 끝나는 것이다.
+
+```text
+원문 파싱
+중복 검사
+1리뷰 1파일 저장
+읽기 좋은 줄바꿈 정리
+1차 채점
+상위 후보 선별
+배치 기록
+PROJECT_DASHBOARD.md 갱신
+_context.md 갱신
+PROJECT_TASKS.md 갱신
+무결성 검증
+```
+
+파일만 나누고 끝내면 미완료다.
+
+## 기본 후보 폴더
+
+가장 최근 운영 리뷰 묶음을 우선 본다.
+
+예:
+
+```text
+reviews/inbox_20260609/
+```
+
+`reviews/pilot/`은 레퍼런스/파일럿용이다.
+정식 운영 콘텐츠 후보는 최신 `reviews/inbox_*` 폴더에서 고른다.
+
+## 1단계 — 후보 선별
+
+최신 운영 리뷰 폴더의 `.txt` 파일을 읽고, 사연성이 좋은 후보 3개를 고른다.
+
+평가 기준:
+
+- 사건이 있는가
+- 불편/갈등이 체감되는가
+- 전후 변화가 선명한가
+- 반전 포인트가 있는가
+- 사진 매칭 가치가 있는가
+- 릴스 첫 3초 HOOK이 나오는가
+
+## 2단계 — 사용자에게 선택 요청
+
+아래 형식으로만 먼저 보고한다.
+
+```text
+리뷰 후보 3개 골라봤습니다.
+
+1. 010_구축소음
+   - 방향: 구축 빌라 현관 소음/냄새 탈출 사연
+   - HOOK 후보: "구축 빌라 현관 소음 지옥, 드디어 해방됐습니다"
+   - 강점: 불편이 선명하고 전후 변화가 큼
+
+2. 005_여름에어컨
+   - 방향: 좁아 보일까 망설였는데 여름 냉방 때문에 후회한 사연
+   - HOOK 후보: "좁아 보일까 미뤘는데, 여름에 바로 후회했습니다"
+   - 강점: 계절 공감과 후회 포인트가 좋음
+
+3. 003_자동중문
+   - 방향: 자동 중문 처음 써보고 손님마다 놀란 사연
+   - HOOK 후보: "손님들이 처음 본다며 놀란 자동 중문"
+   - 강점: 반응/반전 포인트가 있음
+
+어떤 걸로 만들까요?
+번호로 골라주세요.
+```
+
+사용자가 선택하기 전에는 `generate.py`를 실행하지 않는다.
+
+## 3단계 — 선택 후 패키지 생성
+
+사용자가 후보를 고르면 아래 명령으로 생성한다.
+
+```powershell
+$env:PYTHONPATH='.codex_deps'; & 'C:\Users\hjh\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' generate.py --input reviews\inbox_YYYYMMDD\선택파일.txt --with-tts
+```
+
+`python`이 정상 동작하면 아래처럼 실행해도 된다.
+
+```powershell
+python generate.py --input reviews\inbox_YYYYMMDD\선택파일.txt --with-tts
+```
+
+## 4단계 — 생성 후 보고
+
+생성 후에는 아래만 짧게 보고한다.
+
+```text
+완료했습니다.
+
+생성 폴더:
+output/inbox_YYYYMMDD/010_구축소음_YYYYMMDD_HHMMSS
+
+파일:
+- 010_구축소음_script.md
+- 010_구축소음_subtitle.srt
+- 010_구축소음_voice.mp3
+
+음원 길이:
+- 31.25초
+
+확인 포인트:
+- script.md에 review_number/product_order_number 포함됨
+- TTS는 리뷰2 레퍼런스 속도 기준
+- 내용 길이에 맞춰 음원 길이는 자연스럽게 달라질 수 있음
+```
+
+## 절대 금지
+
+- 후보 제안 없이 바로 생성 금지
+- 품질 기준 충족용으로 얕게 생성 금지. `CONTENT_QUALITY_STANDARD.md` 기준으로 실제 발행 가능한 수준이어야 함
+- 음원 길이에 맞추려고 내레이션 내용 삭제 금지
+- `caption.txt`, `hashtag.txt` 별도 생성 금지
+- 캡션/해시태그 누락 금지. 반드시 `*_script.md` 안에 `## 캡션`, `## 해시태그` 섹션으로 포함
+- `reviews/pilot/`을 정식 운영 후보로 우선 선택 금지
+- output 루트에 직접 저장하도록 구조 변경 금지
