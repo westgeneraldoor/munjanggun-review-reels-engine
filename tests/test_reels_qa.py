@@ -11,6 +11,7 @@ from video_engine_v2.reels_qa import (
     build_status_markdown,
     run_reels_qa,
     validate_html_preflight,
+    validate_review_source_integrity,
     validate_sync,
     write_package_control_files,
     write_sync_manifest,
@@ -18,6 +19,118 @@ from video_engine_v2.reels_qa import (
 
 
 class ReelsQaTest(unittest.TestCase):
+    def test_review_source_gate_rejects_quote_not_found_in_original_review(self):
+        review_text = "설치하고 나니 집 분위기와 잘 어울리고 기사님도 친절했습니다."
+        planning = {
+            "review_source": {
+                "text": review_text,
+                "review_quote_for_proof": "소음이 거의 안 들려요",
+                "inferred_fields": [],
+                "unsupported_story_elements": [],
+            },
+            "scenes": [
+                {
+                    "caption": {"text": "집 분위기가 달라졌습니다"},
+                    "narration": "설치하고 나니 집 분위기가 달라졌다는 후기입니다.",
+                }
+            ],
+        }
+
+        result = validate_review_source_integrity(planning)
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(any(issue["code"] == "REVIEW_QUOTE_NOT_IN_SOURCE" for issue in result["issues"]))
+
+    def test_review_source_gate_rejects_risk_topic_missing_from_original_review(self):
+        review_text = "집 분위기와 잘 어울리고 상담도 친절해서 만족합니다."
+        planning = {
+            "review_source": {
+                "text": review_text,
+                "review_quote_for_proof": "집 분위기와 잘 어울리고",
+                "inferred_fields": [],
+                "unsupported_story_elements": [],
+            },
+            "scenes": [
+                {
+                    "caption": {"text": "복도 소음과 냄새를 줄인 중문"},
+                    "narration": "복도 소음과 냄새 때문에 설치한 집입니다.",
+                }
+            ],
+        }
+
+        result = validate_review_source_integrity(planning)
+
+        self.assertFalse(result["ok"])
+        codes = {issue["code"] for issue in result["issues"]}
+        self.assertIn("UNSUPPORTED_RISK_TOPIC", codes)
+
+    def test_review_source_gate_rejects_strong_claim_without_source_or_inference(self):
+        review_text = "설치하고 나니 훨씬 깔끔하고 만족스럽습니다."
+        planning = {
+            "review_source": {
+                "text": review_text,
+                "review_quote_for_proof": "훨씬 깔끔하고 만족스럽습니다",
+                "inferred_fields": [],
+                "unsupported_story_elements": [],
+            },
+            "scenes": [
+                {
+                    "caption": {"text": "소음 완벽 차단"},
+                    "narration": "소음까지 완벽하게 차단된 시공입니다.",
+                }
+            ],
+        }
+
+        result = validate_review_source_integrity(planning)
+
+        self.assertFalse(result["ok"])
+        codes = {issue["code"] for issue in result["issues"]}
+        self.assertIn("UNSUPPORTED_RISK_TOPIC", codes)
+        self.assertIn("UNSUPPORTED_STRONG_CLAIM", codes)
+
+    def test_review_source_gate_accepts_supported_quote_and_disclosed_inference(self):
+        review_text = "설치하고 나니 냄새 차단이나 소음 감소에도 도움이 되고 집 분위기도 좋아졌어요."
+        planning = {
+            "review_source": {
+                "text": review_text,
+                "review_quote_for_proof": "냄새 차단이나 소음 감소에도 도움이 되고",
+                "inferred_fields": ["현관 공기 흐름은 리뷰 표현을 바탕으로 한 편집 추론"],
+                "unsupported_story_elements": [],
+            },
+            "scenes": [
+                {
+                    "caption": {"text": "소음과 냄새 체감이 달라진 집"},
+                    "narration": "리뷰에는 냄새 차단이나 소음 감소에도 도움이 됐다고 남았습니다.",
+                }
+            ],
+        }
+
+        result = validate_review_source_integrity(planning)
+
+        self.assertTrue(result["ok"], result["issues"])
+
+    def test_review_source_gate_does_not_allow_unrelated_inference_to_excuse_risk_topic(self):
+        review_text = "설치하고 나니 집 분위기가 밝아져서 만족합니다."
+        planning = {
+            "review_source": {
+                "text": review_text,
+                "review_quote_for_proof": "집 분위기가 밝아져서 만족합니다",
+                "inferred_fields": ["현관 공기 흐름은 리뷰 표현을 바탕으로 한 편집 추론"],
+                "unsupported_story_elements": [],
+            },
+            "scenes": [
+                {
+                    "caption": {"text": "반려견 소음 걱정을 줄인 집"},
+                    "narration": "반려견이 복도 소리에 짖어서 설치한 집입니다.",
+                }
+            ],
+        }
+
+        result = validate_review_source_integrity(planning)
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(any(issue["code"] == "UNSUPPORTED_RISK_TOPIC" for issue in result["issues"]))
+
     def test_sync_qa_rejects_scene_cps_over_hard_limit(self):
         recipe = {
             "beats": [
@@ -166,12 +279,50 @@ class ReelsQaTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertTrue(any(issue["code"] == "MEANING_MATCH_UNVERIFIED" for issue in result["issues"]))
 
+    def test_preflight_rejects_missing_review_source_metadata(self):
+        planning = {
+            "customer_problem": "상담 일정이 걱정됨",
+            "before_pain": "시공 일정이 밀릴까 불안함",
+            "after_change": "실측 후 일정대로 시공됨",
+            "customer_emotion": ["안심"],
+            "hooks": [{"caption": "금요일 실측,\n수요일 시공까지"}],
+            "selected_hook": {"caption": "금요일 실측,\n수요일 시공까지"},
+        }
+        edit_recipe = {
+            "source": {"privacy_review": {"checked": True, "risk_items": [], "unresolved_risks": []}},
+            "audio_plan": {"sync_policy": {"raw_tts_duration_sec": 3.0, "final_voice_duration_sec": 3.0, "render_duration_sec": 3.0}},
+            "beats": [
+                {
+                    "id": "b01",
+                    "time": [0.0, 3.0],
+                    "asset": "measure_width",
+                    "caption": "금요일 실측,\n수요일 시공까지",
+                    "narration_ref": "금요일 실측하고 수요일에 시공까지 이어진 집입니다.",
+                    "meaning_match": True,
+                    "meaning_match_source": "planning_scene:s01",
+                }
+            ],
+        }
+
+        result = validate_html_preflight(planning, edit_recipe)
+
+        self.assertFalse(result["ok"])
+        codes = {issue["code"] for issue in result["issues"]}
+        self.assertIn("REVIEW_SOURCE_MISSING", codes)
+        self.assertIn("REVIEW_QUOTE_FOR_PROOF_MISSING", codes)
+
     def test_preflight_accepts_current_top_level_planning_schema(self):
         planning = {
             "customer_problem": "상담 일정이 걱정됨",
             "before_pain": "시공 일정이 밀릴까 불안함",
             "after_change": "실측 후 일정대로 시공됨",
             "customer_emotion": ["안심"],
+            "review_source": {
+                "text": "금요일에 실측하고 다음 주 수요일에 시공까지 잘 마쳤습니다.",
+                "review_quote_for_proof": "다음 주 수요일에 시공까지 잘 마쳤습니다",
+                "inferred_fields": [],
+                "unsupported_story_elements": [],
+            },
             "hooks": [{"caption": "금요일 실측,\n수요일 시공까지"}],
             "selected_hook": {"caption": "금요일 실측,\n수요일 시공까지"},
         }
@@ -230,6 +381,12 @@ class ReelsQaTest(unittest.TestCase):
             "before_pain": "시공 일정이 밀릴까 불안함",
             "after_change": "실측 후 일정대로 시공됨",
             "customer_emotion": ["안심"],
+            "review_source": {
+                "text": "금요일에 실측하고 다음 주 수요일에 시공까지 잘 마쳤습니다.",
+                "review_quote_for_proof": "다음 주 수요일에 시공까지 잘 마쳤습니다",
+                "inferred_fields": [],
+                "unsupported_story_elements": [],
+            },
             "hooks": [{"caption": "금요일 실측,\n수요일 시공까지"}],
             "selected_hook": {"caption": "금요일 실측,\n수요일 시공까지"},
         }

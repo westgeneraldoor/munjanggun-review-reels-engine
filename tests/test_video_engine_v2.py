@@ -77,6 +77,23 @@ class VideoEngineV2Test(unittest.TestCase):
         self.assertEqual(recipe["review_proof"]["display_mode"], "blurred_capture_plus_large_quote")
         self.assertNotIn("완벽", json.dumps(recipe, ensure_ascii=False))
 
+    def test_planning_recipe_tracks_review_source_for_claim_safety(self):
+        recipe = build_planning_recipe(
+            review_id="005_여름에어컨",
+            package_dir="output/test",
+            image_dir="005_여름에어컨",
+            review_text=REVIEW_005,
+            voice="voice.mp3",
+            existing_script="script.md",
+            existing_srt="subtitle.srt",
+            asset_roles=ASSETS,
+        )
+
+        self.assertEqual(recipe["review_source"]["text"], REVIEW_005)
+        self.assertIn("확실이 더 시원합니다", recipe["review_source"]["review_quote_for_proof"])
+        self.assertEqual(recipe["review_source"]["inferred_fields"], [])
+        self.assertEqual(recipe["review_source"]["unsupported_story_elements"], [])
+
     def test_planning_converts_to_current_edit_recipe_shape(self):
         planning = build_planning_recipe(
             review_id="005_여름에어컨",

@@ -16,6 +16,16 @@ def _quote_text(analysis: ReviewAnalysis) -> str:
     return "실제 고객 리뷰로 확인된 변화예요"
 
 
+def _quote_source_text(analysis: ReviewAnalysis) -> str:
+    for quote in analysis.strongest_review_quotes:
+        if quote.get("selected"):
+            return str(quote.get("raw") or quote.get("edited") or "")
+    if analysis.strongest_review_quotes:
+        quote = analysis.strongest_review_quotes[0]
+        return str(quote.get("raw") or quote.get("edited") or "")
+    return ""
+
+
 def _cooling_hooks() -> list[dict[str, Any]]:
     return [
         {
@@ -56,6 +66,7 @@ def build_planning_recipe(
 ) -> dict[str, Any]:
     analysis = analyze_review(review_text)
     quote = _quote_text(analysis)
+    proof_quote = _quote_source_text(analysis)
     hooks = _cooling_hooks()
     selected_hook = hooks[0]
 
@@ -250,6 +261,12 @@ def build_planning_recipe(
             "selected_quote": quote,
             "display_mode": "blurred_capture_plus_large_quote",
             "time": [16.0, 20.3],
+        },
+        "review_source": {
+            "text": review_text,
+            "review_quote_for_proof": proof_quote,
+            "inferred_fields": [],
+            "unsupported_story_elements": [],
         },
         "cta": {
             "time": [20.3, 23.0],
