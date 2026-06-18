@@ -131,6 +131,49 @@ class ReelsQaTest(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertTrue(any(issue["code"] == "UNSUPPORTED_RISK_TOPIC" for issue in result["issues"]))
 
+    def test_review_source_gate_rejects_emotion_claim_missing_from_original_review(self):
+        review_text = "설치가 깔끔했습니다."
+        planning = {
+            "review_source": {
+                "text": review_text,
+                "review_quote_for_proof": "설치가 깔끔했습니다",
+                "inferred_fields": [],
+                "unsupported_story_elements": [],
+            },
+            "scenes": [
+                {
+                    "caption": {"text": "시공 전부터 불안했던 집"},
+                    "narration": "고객님은 시공 전부터 불안했던 상황이었습니다.",
+                }
+            ],
+        }
+
+        result = validate_review_source_integrity(planning)
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(any(issue["code"] == "UNSUPPORTED_EMOTION_CLAIM" for issue in result["issues"]))
+
+    def test_review_source_gate_accepts_emotion_claim_when_source_supports_it(self):
+        review_text = "처음엔 걱정했는데 설치가 깔끔해서 안심했습니다."
+        planning = {
+            "review_source": {
+                "text": review_text,
+                "review_quote_for_proof": "처음엔 걱정했는데 설치가 깔끔해서 안심했습니다",
+                "inferred_fields": [],
+                "unsupported_story_elements": [],
+            },
+            "scenes": [
+                {
+                    "caption": {"text": "걱정에서 안심으로"},
+                    "narration": "처음엔 걱정했지만 시공 후 안심했다는 후기입니다.",
+                }
+            ],
+        }
+
+        result = validate_review_source_integrity(planning)
+
+        self.assertTrue(result["ok"], result["issues"])
+
     def test_sync_qa_rejects_scene_cps_over_hard_limit(self):
         recipe = {
             "beats": [

@@ -39,6 +39,12 @@ STRONG_CLAIM_KEYWORDS = (
     "완전 차단",
     "완벽 차단",
 )
+EMOTION_CLAIM_KEYWORDS = {
+    "anxiety": ("불안", "걱정", "초조", "망설"),
+    "relief": ("안심", "다행", "마음놓", "마음 놓", "후련"),
+    "satisfaction": ("만족", "대만족", "흡족"),
+    "surprise": ("놀랐", "생각보다", "기대이상", "기대 이상"),
+}
 
 
 def _issue(code: str, message: str, *, scene_id: str | None = None, severity: str = "fail") -> dict[str, Any]:
@@ -157,6 +163,18 @@ def validate_review_source_integrity(planning_recipe: dict[str, Any]) -> dict[st
                 _issue(
                     "UNSUPPORTED_STRONG_CLAIM",
                     f"원문 근거 없는 강한 claim 표현이 있습니다: {keyword}",
+                )
+            )
+
+    for emotion, keywords in EMOTION_CLAIM_KEYWORDS.items():
+        story_has_emotion = any(_compact_text(keyword) in compact_story for keyword in keywords)
+        source_has_emotion = any(_compact_text(keyword) in compact_source for keyword in keywords)
+        inference_has_emotion = any(_compact_text(keyword) in compact_inferences for keyword in keywords)
+        if story_has_emotion and not source_has_emotion and not inference_has_emotion:
+            issues.append(
+                _issue(
+                    "UNSUPPORTED_EMOTION_CLAIM",
+                    f"원문에 없는 고객 감정 표현이 대본/기획에 등장합니다: {emotion}",
                 )
             )
 
