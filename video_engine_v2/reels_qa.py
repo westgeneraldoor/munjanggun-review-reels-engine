@@ -21,6 +21,30 @@ WEAK_HOOK_PHRASES = (
     "설치한 집",
     "드디어 해방",
 )
+RISK_TOPIC_KEYWORDS = {
+    "noise": ("소음", "층간소음", "방음", "시끄", "소리", "복도소리"),
+    "smell": ("냄새", "악취"),
+    "dust": ("먼지", "분진"),
+    "pet": ("강아지", "고양이", "반려동물", "반려견", "반려묘", "짖"),
+    "child": ("아이", "아기", "자녀", "애기", "유아"),
+    "difficult_install": ("어려운", "난이도", "포기", "불가", "까다", "비대칭", "수평"),
+}
+STRONG_CLAIM_KEYWORDS = (
+    "90%",
+    "100%",
+    "완벽",
+    "무조건",
+    "보장",
+    "확실한 방음",
+    "완전 차단",
+    "완벽 차단",
+)
+EMOTION_CLAIM_KEYWORDS = {
+    "anxiety": ("불안", "걱정", "초조", "망설"),
+    "relief": ("안심", "다행", "마음놓", "마음 놓", "후련"),
+    "satisfaction": ("만족", "대만족", "흡족"),
+    "surprise": ("놀랐", "생각보다", "기대이상", "기대 이상"),
+}
 
 
 def _issue(code: str, message: str, *, scene_id: str | None = None, severity: str = "fail") -> dict[str, Any]:
@@ -44,6 +68,120 @@ def _as_text(value: Any) -> str:
     if isinstance(value, str):
         return value
     return str(value)
+
+
+def _compact_text(value: Any) -> str:
+    return re.sub(r"\s+", "", _as_text(value))
+
+
+def _flatten_planning_story_text(planning_recipe: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for hook in planning_recipe.get("hooks") or []:
+        if isinstance(hook, dict):
+            parts.extend(_as_text(hook.get(key)) for key in ("text", "caption", "headline"))
+        else:
+            parts.append(_as_text(hook))
+    selected_hook = planning_recipe.get("selected_hook") or {}
+    if isinstance(selected_hook, dict):
+        parts.extend(_as_text(selected_hook.get(key)) for key in ("text", "caption", "headline"))
+    for scene in planning_recipe.get("scenes") or []:
+        caption = scene.get("caption")
+        if isinstance(caption, dict):
+            parts.append(_as_text(caption.get("text")))
+        else:
+            parts.append(_as_text(caption))
+        parts.append(_as_text(scene.get("narration")))
+    narration = planning_recipe.get("narration") or {}
+    if isinstance(narration, dict):
+        parts.append(_as_text(narration.get("text")))
+    return "\n".join(part for part in parts if part)
+
+
+def _review_source_metadata(planning_recipe: dict[str, Any]) -> dict[str, Any]:
+    source = planning_recipe.get("review_source")
+    if isinstance(source, dict):
+        return source
+
+    review_proof = planning_recipe.get("review_proof") or {}
+    if isinstance(review_proof, dict):
+        selected_quote = review_proof.get("review_quote_for_proof") or review_proof.get("selected_quote")
+    else:
+        selected_quote = ""
+
+    return {
+        "text": planning_recipe.get("review_text") or planning_recipe.get("source_review_text") or "",
+        "review_quote_for_proof": selected_quote or planning_recipe.get("review_quote_for_proof") or "",
+        "inferred_fields": planning_recipe.get("inferred_fields") or [],
+        "unsupported_story_elements": planning_recipe.get("unsupported_story_elements") or [],
+    }
+
+
+def validate_review_source_integrity(planning_recipe: dict[str, Any]) -> dict[str, Any]:
+    issues: list[dict[str, Any]] = []
+    source = _review_source_metadata(planning_recipe)
+    review_text = _as_text(source.get("text")).strip()
+    proof_quote = _as_text(source.get("review_quote_for_proof")).strip()
+    inferred_fields = source.get("inferred_fields") or []
+    unsupported_story_elements = source.get("unsupported_story_elements") or []
+
+    if not review_text:
+        issues.append(_issue("REVIEW_SOURCE_MISSING", "원본 리뷰 텍스트 메타데이터가 없습니다."))
+    if not proof_quote:
+        issues.append(_issue("REVIEW_QUOTE_FOR_PROOF_MISSING", "review_quote_for_proof가 없습니다."))
+    elif review_text and _compact_text(proof_quote) not in _compact_text(review_text):
+        issues.append(_issue("REVIEW_QUOTE_NOT_IN_SOURCE", "review_quote_for_proof가 원본 리뷰에 실제로 포함되어 있지 않습니다."))
+
+    if unsupported_story_elements:
+        issues.append(
+            _issue(
+                "UNSUPPORTED_STORY_ELEMENTS_PRESENT",
+                "원문 근거 없는 스토리 요소가 남아 있습니다: " + ", ".join(map(str, unsupported_story_elements)),
+            )
+        )
+
+    story_text = _flatten_planning_story_text(planning_recipe)
+    compact_source = _compact_text(review_text)
+    compact_story = _compact_text(story_text)
+    compact_inferences = _compact_text(" ".join(map(str, inferred_fields)))
+
+    for topic, keywords in RISK_TOPIC_KEYWORDS.items():
+        story_has_topic = any(_compact_text(keyword) in compact_story for keyword in keywords)
+        source_has_topic = any(_compact_text(keyword) in compact_source for keyword in keywords)
+        inference_has_topic = any(_compact_text(keyword) in compact_inferences for keyword in keywords)
+        if story_has_topic and not source_has_topic and not inference_has_topic:
+            issues.append(
+                _issue(
+                    "UNSUPPORTED_RISK_TOPIC",
+                    f"원문에 없는 위험 소재가 대본/기획에 등장합니다: {topic}",
+                )
+            )
+
+    for keyword in STRONG_CLAIM_KEYWORDS:
+        compact_keyword = _compact_text(keyword)
+        if compact_keyword and compact_keyword in compact_story and compact_keyword not in compact_source:
+            issues.append(
+                _issue(
+                    "UNSUPPORTED_STRONG_CLAIM",
+                    f"원문 근거 없는 강한 claim 표현이 있습니다: {keyword}",
+                )
+            )
+
+    for emotion, keywords in EMOTION_CLAIM_KEYWORDS.items():
+        story_has_emotion = any(_compact_text(keyword) in compact_story for keyword in keywords)
+        source_has_emotion = any(_compact_text(keyword) in compact_source for keyword in keywords)
+        inference_has_emotion = any(_compact_text(keyword) in compact_inferences for keyword in keywords)
+        if story_has_emotion and not source_has_emotion and not inference_has_emotion:
+            issues.append(
+                _issue(
+                    "UNSUPPORTED_EMOTION_CLAIM",
+                    f"원문에 없는 고객 감정 표현이 대본/기획에 등장합니다: {emotion}",
+                )
+            )
+
+    return {
+        "ok": not any(issue["severity"] == "fail" for issue in issues),
+        "issues": issues,
+    }
 
 
 def _beat_duration(beat: dict[str, Any]) -> float:
@@ -508,6 +646,7 @@ def validate_html_preflight(planning_recipe: dict[str, Any], edit_recipe: dict[s
     issues.extend(_validate_generated_asset_metadata(beats))
     issues.extend(_validate_audio_metadata(edit_recipe, require_raw_tts=True))
     issues.extend(_validate_privacy_metadata(edit_recipe))
+    issues.extend(validate_review_source_integrity(planning_recipe)["issues"])
 
     sync_result = validate_sync(edit_recipe)
     issues.extend(sync_result["issues"])
