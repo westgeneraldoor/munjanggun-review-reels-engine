@@ -91,6 +91,7 @@ npm run validate
 - `docs/review_video_publish_workflow_v2.md`
 - `docs/reels_operations_dashboard_v1.md`
 - `docs/reels_writer_persona_v1.md`
+- `docs/reels_hook_formula_v1.md`
 - `docs/reels_privacy_asset_qa_rules_v1.md`
 - `docs/render_qa_rules_v2.md`
 - `docs/github_pr_workflow.md`

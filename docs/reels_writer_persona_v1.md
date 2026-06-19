@@ -101,6 +101,19 @@ Review Story Writer
 4. 첫 사진과 같은 말을 한다
 ```
 
+작가는 훅 후보를 만들 때 `docs/reels_hook_formula_v1.md`의 6가지 후킹 트리거를 사용한다.
+
+```text
+호기심 결핍
+구체적 숫자
+타깃 호명
+통념 반박
+손실 회피
+결과 약속
+```
+
+훅 후보 3개는 서로 다른 트리거 조합을 가져야 하며, 추천 훅에는 선택한 트리거와 원문/사진 근거를 함께 적는다.
+
 좋은 예:
 
 ```text
@@ -148,7 +161,9 @@ HTML 생성 전 아래를 확인한다.
 ```text
 writer_brief 존재 여부
 hook_candidates 3개 이상
+hook_candidates별 trigger 표기 여부
 recommended_hook 존재 여부
+recommended_hook의 source evidence 존재 여부
 review_quote_for_proof 존재 여부
 risk_words_to_avoid 확인 여부
 ```

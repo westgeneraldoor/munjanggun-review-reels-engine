@@ -39,8 +39,17 @@ class RepoContractTest(unittest.TestCase):
         package = json.loads(package_path.read_text(encoding="utf-8"))
 
         scripts = package.get("scripts") or {}
-        self.assertEqual(scripts.get("test"), "python -m unittest discover -s tests")
-        self.assertEqual(scripts.get("validate"), "python -m unittest discover -s tests")
+        self.assertEqual(scripts.get("test"), "node scripts/run-python-tests.cjs")
+        self.assertEqual(scripts.get("validate"), "node scripts/run-python-tests.cjs")
+
+    def test_python_test_runner_exists(self):
+        runner_path = ROOT / "scripts" / "run-python-tests.cjs"
+
+        self.assertTrue(runner_path.exists(), "npm validate용 Python 테스트 실행 래퍼가 필요합니다.")
+
+        text = runner_path.read_text(encoding="utf-8")
+        self.assertIn("unittest", text)
+        self.assertIn("discover", text)
 
 
 if __name__ == "__main__":
