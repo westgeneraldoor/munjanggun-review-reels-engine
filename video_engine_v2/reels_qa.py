@@ -21,6 +21,67 @@ WEAK_HOOK_PHRASES = (
     "설치한 집",
     "드디어 해방",
 )
+HOOK_TRIGGER_PATTERNS = {
+    "curiosity_gap": (
+        "이것",
+        "이 구조",
+        "이유",
+        "진짜 이유",
+        "따로",
+        "왜",
+        "어떻게",
+        "?",
+    ),
+    "concrete_number": (
+        r"\d",
+        "한 달",
+        "두 곳",
+        "세 곳",
+        "금요일",
+        "수요일",
+        "30분",
+        "cm",
+        "센티",
+        "3연동",
+    ),
+    "target_callout": (
+        "라면",
+        "분들",
+        "집이라면",
+        "사는",
+        "쓰는 집",
+        "입주민",
+        "구축",
+        "반려",
+        "로봇청소기",
+    ),
+    "counter_belief": (
+        "아닙니다",
+        "때문이 아닙니다",
+        "보다 중요한",
+        "비싼",
+        "좋은",
+        "따로 있습니다",
+    ),
+    "loss_aversion": (
+        "후회",
+        "놓치",
+        "손해",
+        "망하",
+        "떠나",
+        "추가 비용",
+        "주의",
+    ),
+    "result_promise": (
+        "달라졌",
+        "바뀌",
+        "만든 결과",
+        "가능",
+        "줄인",
+        "해결",
+        "완성",
+    ),
+}
 RISK_TOPIC_KEYWORDS = {
     "noise": ("소음", "층간소음", "방음", "시끄", "소리", "복도소리"),
     "smell": ("냄새", "악취"),
@@ -467,6 +528,38 @@ def _is_weak_hook(text: str) -> bool:
     return any(re.sub(r"\s+", "", phrase) in compact for phrase in WEAK_HOOK_PHRASES)
 
 
+def _hook_has_pattern(text: str, pattern: str) -> bool:
+    if pattern == r"\d":
+        return re.search(pattern, text) is not None
+    return _compact_text(pattern) in _compact_text(text)
+
+
+def detect_hook_triggers(text: str) -> list[str]:
+    triggers: list[str] = []
+    for trigger, patterns in HOOK_TRIGGER_PATTERNS.items():
+        if any(_hook_has_pattern(text, pattern) for pattern in patterns):
+            triggers.append(trigger)
+    return triggers
+
+
+def validate_hook_formula(text: str) -> dict[str, Any]:
+    issues: list[dict[str, Any]] = []
+    hook = _as_text(text).strip()
+    triggers = detect_hook_triggers(hook)
+    if not triggers:
+        issues.append(
+            _issue(
+                "HOOK_TRIGGER_MISSING",
+                "최종 훅에 호기심/숫자/타깃/통념반박/손실/결과 트리거가 없습니다.",
+            )
+        )
+    return {
+        "ok": not any(issue["severity"] == "fail" for issue in issues),
+        "issues": issues,
+        "triggers": triggers,
+    }
+
+
 def _review_capture_count(beats: list[dict[str, Any]]) -> int:
     count = 0
     for beat in beats:
@@ -627,6 +720,7 @@ def validate_html_preflight(planning_recipe: dict[str, Any], edit_recipe: dict[s
     hook = _hook_text(planning_recipe)
     if _is_weak_hook(hook):
         issues.append(_issue("WEAK_HOOK", f"최종 첫 화면 훅이 약하거나 추상적입니다: {hook}"))
+    issues.extend(validate_hook_formula(hook)["issues"])
 
     beats = edit_recipe.get("beats") or []
     review_capture_count = _review_capture_count(beats)

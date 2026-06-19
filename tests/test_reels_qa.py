@@ -11,6 +11,7 @@ from video_engine_v2.reels_qa import (
     build_status_markdown,
     run_reels_qa,
     validate_html_preflight,
+    validate_hook_formula,
     validate_review_source_integrity,
     validate_sync,
     write_package_control_files,
@@ -19,6 +20,61 @@ from video_engine_v2.reels_qa import (
 
 
 class ReelsQaTest(unittest.TestCase):
+    def test_hook_formula_rejects_plain_review_summary_without_trigger(self):
+        result = validate_hook_formula("중문 설치 후기입니다")
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(any(issue["code"] == "HOOK_TRIGGER_MISSING" for issue in result["issues"]))
+
+    def test_hook_formula_accepts_counter_belief_hook(self):
+        result = validate_hook_formula("비싼 중문이 좋은 중문은 아닙니다")
+
+        self.assertTrue(result["ok"], result["issues"])
+        self.assertIn("counter_belief", result["triggers"])
+
+    def test_hook_formula_accepts_loss_and_curiosity_hook(self):
+        result = validate_hook_formula("입주 전에 이 구조 놓치면 후회합니다")
+
+        self.assertTrue(result["ok"], result["issues"])
+        self.assertIn("loss_aversion", result["triggers"])
+        self.assertIn("curiosity_gap", result["triggers"])
+
+    def test_preflight_rejects_hook_without_formula_trigger(self):
+        planning = {
+            "customer_problem": "중문 설치 후기",
+            "before_pain": "설치 전 고민",
+            "after_change": "설치 후 만족",
+            "customer_emotion": ["만족"],
+            "review_source": {
+                "text": "설치가 깔끔해서 만족합니다.",
+                "review_quote_for_proof": "설치가 깔끔해서 만족합니다",
+                "inferred_fields": [],
+                "unsupported_story_elements": [],
+            },
+            "hooks": [{"text": "중문 설치 후기입니다"}],
+            "selected_hook": {"text": "중문 설치 후기입니다"},
+        }
+        edit_recipe = {
+            "source": {"privacy_review": {"checked": True, "risk_items": [], "unresolved_risks": []}},
+            "audio_plan": {"sync_policy": {"raw_tts_duration_sec": 3.0, "final_voice_duration_sec": 3.0, "render_duration_sec": 3.0}},
+            "beats": [
+                {
+                    "id": "b01",
+                    "time": [0.0, 3.0],
+                    "asset": "after_main",
+                    "caption": "중문 설치 후기입니다",
+                    "narration_ref": "설치가 깔끔해서 만족했다는 후기입니다.",
+                    "meaning_match": True,
+                    "meaning_match_source": "planning_scene:s01",
+                }
+            ],
+        }
+
+        result = validate_html_preflight(planning, edit_recipe)
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(any(issue["code"] == "HOOK_TRIGGER_MISSING" for issue in result["issues"]))
+
     def test_review_source_gate_rejects_quote_not_found_in_original_review(self):
         review_text = "설치하고 나니 집 분위기와 잘 어울리고 기사님도 친절했습니다."
         planning = {
