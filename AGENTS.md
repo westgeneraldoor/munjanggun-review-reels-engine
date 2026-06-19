@@ -29,6 +29,10 @@ GitHub는 엔진 코드, 문서, 테스트만 관리합니다. 실제 고객 자
 
 ## 필수 제작 순서
 
+모든 제작 판단은 먼저 `docs/munjanggun_content_operating_principles_v1.md`를 따릅니다.
+
+문장군 콘텐츠는 중문을 설명하는 콘텐츠가 아니라 고객의 문제와 사건을 보여주는 콘텐츠입니다.
+
 1. 리뷰 원문 확인
 2. 사진/영상 소스 확인
 3. 개인정보 위험 검수
@@ -88,6 +92,7 @@ npm run validate
 ## 핵심 문서
 
 - `README.md`
+- `docs/munjanggun_content_operating_principles_v1.md`
 - `docs/review_video_publish_workflow_v2.md`
 - `docs/reels_operations_dashboard_v1.md`
 - `docs/reels_writer_persona_v1.md`
