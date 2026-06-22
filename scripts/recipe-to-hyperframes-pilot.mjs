@@ -614,7 +614,7 @@ writeJson(path.join(outDir, "package.json"), {
   scripts: {
     dev: `npx --yes hyperframes@${HYPERFRAMES_VERSION} preview`,
     check: `npx --yes hyperframes@${HYPERFRAMES_VERSION} lint && npx --yes hyperframes@${HYPERFRAMES_VERSION} validate && npx --yes hyperframes@${HYPERFRAMES_VERSION} inspect`,
-    render: `npx --yes hyperframes@${HYPERFRAMES_VERSION} render`,
+    render: `node -e "console.error('Use Munjanggun render gate from the repository root. Direct HyperFrames render is blocked.'); process.exit(2)"`,
   },
 });
 

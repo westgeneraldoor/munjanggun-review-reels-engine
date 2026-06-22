@@ -71,13 +71,22 @@ For the Stage 2 scene-isolated pilot, add `--subcompositions` and use a separate
 node scripts/recipe-to-hyperframes-pilot.mjs --recipe "<edit_recipe.json>" --out "scratch/hf-pilot-<review-id>-subcomp" --subcompositions
 ```
 
+Official HyperFrames render must go through the Munjanggun render gate.
+The generated pilot blocks direct `npm run render` so approval cannot be bypassed:
+
+```powershell
+node scripts/hyperframes-render-gate.mjs --project "scratch/hf-pilot-<review-id>" --package "<output review package>" --sync-manifest "<output review package>/sync_manifest.json" --out "<output review package>/<review-id>_final_render_YYYYMMDD_hyperframes_upload_10mbps.mp4"
+```
+
+The command above is a dry-run and does not create MP4. Add `--render-approved` only after explicit user MP4 render approval.
+
 Render approved HTML to upload MP4:
 
 ```powershell
 node render_html_preview_v2.js --html "<html_preview>/index.html" --out "<output>_upload_10mbps.mp4" --fps 30 --width 1080 --height 1920
 ```
 
-The command above is the current production render path. HyperFrames render is introduced only after the staged gates in `docs/hyperframes_official_adoption_plan_v1.md`.
+The command above is the current production render path. HyperFrames render is allowed only through `scripts/hyperframes-render-gate.mjs` and the staged gates in `docs/hyperframes_official_adoption_plan_v1.md`.
 
 ## Operating Rules
 
