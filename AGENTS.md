@@ -101,6 +101,12 @@ python -m video_engine_v2.reels_qa --planning "<planning_recipe.json>" --edit "<
 node scripts/recipe-to-hyperframes-pilot.mjs --recipe "<edit_recipe.json>" --out "scratch/hf-pilot-<review-id>"
 ```
 
+Stage 2 장면 분리 파일럿:
+
+```powershell
+node scripts/recipe-to-hyperframes-pilot.mjs --recipe "<edit_recipe.json>" --out "scratch/hf-pilot-<review-id>-subcomp" --subcompositions
+```
+
 이 명령은 production 렌더러가 아니라 공식 HyperFrames Studio 검수용 파일럿입니다.
 `sync_manifest.ok: true`, `final_voice_duration_sec`, beat별 `meaning_match: true`가 없으면 실패해야 합니다.
 

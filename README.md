@@ -65,6 +65,12 @@ npm run check
 npm run dev
 ```
 
+For the Stage 2 scene-isolated pilot, add `--subcompositions` and use a separate local output folder:
+
+```powershell
+node scripts/recipe-to-hyperframes-pilot.mjs --recipe "<edit_recipe.json>" --out "scratch/hf-pilot-<review-id>-subcomp" --subcompositions
+```
+
 Render approved HTML to upload MP4:
 
 ```powershell

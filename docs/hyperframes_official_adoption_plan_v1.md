@@ -86,10 +86,19 @@ node scripts/recipe-to-hyperframes-pilot.mjs `
   --out "scratch/hf-pilot-<review-id>"
 ```
 
+For Stage 2 scene isolation, add `--subcompositions`:
+
+```powershell
+node scripts/recipe-to-hyperframes-pilot.mjs `
+  --recipe "<approved_edit_recipe.json>" `
+  --out "scratch/hf-pilot-<review-id>-subcomp" `
+  --subcompositions
+```
+
 Then:
 
 ```powershell
-cd "scratch/hf-pilot-<review-id>"
+cd "<the same folder passed to --out>"
 npm run check
 npm run dev
 ```
@@ -147,6 +156,11 @@ Goal:
 - reduce dense-track warnings
 - make scenes easier to inspect and revise
 - isolate scene-specific CSS and GSAP
+
+The Stage 2 adapter is enabled with `--subcompositions`.
+It keeps root `index.html` responsible for overall timing, narration audio, and scene-to-scene transition sweeps.
+Each beat-specific scene lives in `compositions/scene-XX.html` with its own scoped CSS and registered GSAP timeline.
+This is still a pilot preview/check surface, not the production MP4 render path.
 
 ### Stage 3. Studio-Friendly Motion
 
