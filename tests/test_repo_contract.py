@@ -1,4 +1,5 @@
 import json
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -59,11 +60,13 @@ class RepoContractTest(unittest.TestCase):
     def test_official_hyperframes_adoption_is_documented(self):
         plan_path = ROOT / "docs" / "hyperframes_official_adoption_plan_v1.md"
         adapter_path = ROOT / "scripts" / "recipe-to-hyperframes-pilot.mjs"
+        render_gate_path = ROOT / "scripts" / "hyperframes-render-gate.mjs"
         agents_path = ROOT / "AGENTS.md"
         readme_path = ROOT / "README.md"
 
         self.assertTrue(plan_path.exists(), "공식 HyperFrames 도입 계획 문서가 필요합니다.")
         self.assertTrue(adapter_path.exists(), "edit_recipe -> HyperFrames 파일럿 어댑터가 필요합니다.")
+        self.assertTrue(render_gate_path.exists(), "공식 HyperFrames 렌더 승인 게이트가 필요합니다.")
 
         plan = plan_path.read_text(encoding="utf-8")
         self.assertIn("Munjanggun engine = judgment and safety", plan)
@@ -77,6 +80,14 @@ class RepoContractTest(unittest.TestCase):
         self.assertIn("validateApprovedRecipe", adapter)
         self.assertIn("data-composition-id", adapter)
         self.assertIn("npx --yes hyperframes", adapter)
+        self.assertIn("Direct HyperFrames render is blocked", adapter)
+
+        render_gate = render_gate_path.read_text(encoding="utf-8")
+        self.assertIn("html_approved_by_user", render_gate)
+        self.assertIn("mp4_allowed", render_gate)
+        self.assertIn("sync_manifest.ok must be true", render_gate)
+        self.assertIn("HYPERFRAMES_VERSION", render_gate)
+        self.assertIn("positive approved_scope", render_gate)
 
         agents = agents_path.read_text(encoding="utf-8")
         self.assertIn("docs/hyperframes_official_adoption_plan_v1.md", agents)
@@ -98,6 +109,70 @@ class RepoContractTest(unittest.TestCase):
 
         agents = agents_path.read_text(encoding="utf-8")
         self.assertIn("docs/munjanggun_content_operating_principles_v1.md", agents)
+
+    def test_git_does_not_track_customer_or_generated_assets(self):
+        result = subprocess.run(
+            ["git", "ls-files"],
+            cwd=ROOT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            check=True,
+        )
+
+        forbidden_prefixes = ("reviews/", "output/", "scratch/", ".codex_deps/", "node_modules/")
+        forbidden_suffixes = (
+            ".mp4",
+            ".mov",
+            ".avi",
+            ".mkv",
+            ".mp3",
+            ".wav",
+            ".m4a",
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".webp",
+            ".zip",
+            ".7z",
+            ".rar",
+            ".ttf",
+            ".otf",
+        )
+        tracked = [line.strip().replace("\\", "/") for line in result.stdout.splitlines() if line.strip()]
+        forbidden = [
+            file_path
+            for file_path in tracked
+            if file_path != ".env.example"
+            and (file_path.startswith(forbidden_prefixes) or file_path == ".env" or file_path.startswith(".env.") or file_path.lower().endswith(forbidden_suffixes))
+        ]
+
+        self.assertEqual(forbidden, [], "GitHub에 고객자료/산출물/미디어/폰트가 추적되면 안 됩니다.")
+
+    def test_gitignore_keeps_customer_and_generated_assets_ignored(self):
+        gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+        required_patterns = [
+            ".env",
+            "output/",
+            "reviews/",
+            "scratch/",
+            "node_modules/",
+            ".codex_deps/",
+            "*.mp4",
+            "*.mp3",
+            "*.wav",
+            "*.jpg",
+            "*.jpeg",
+            "*.png",
+            "*.zip",
+            "*.ttf",
+            "*.otf",
+        ]
+
+        for pattern in required_patterns:
+            with self.subTest(pattern=pattern):
+                self.assertIn(pattern, gitignore)
 
 
 if __name__ == "__main__":

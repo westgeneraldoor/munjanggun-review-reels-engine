@@ -118,6 +118,16 @@ npm run check
 npm run dev
 ```
 
+공식 HyperFrames 렌더 게이트:
+
+```powershell
+node scripts/hyperframes-render-gate.mjs --project "scratch/hf-pilot-<review-id>" --package "<output review package>" --sync-manifest "<output review package>/sync_manifest.json" --out "<output review package>/<review-id>_final_render_YYYYMMDD_hyperframes_upload_10mbps.mp4"
+```
+
+위 명령은 기본적으로 dry-run이며 MP4를 만들지 않습니다.
+사용자의 명시적 MP4 렌더 승인 후에만 `--render-approved`를 붙입니다.
+생성된 HyperFrames 파일럿의 `npm run render` 직접 실행은 금지되며, 렌더는 반드시 `scripts/hyperframes-render-gate.mjs`를 통해서만 진행합니다.
+
 저장소 테스트:
 
 ```powershell

@@ -184,10 +184,40 @@ It prevents the most important layout anchors from being GSAP-owned, which makes
 
 ### Stage 4. Official Render Gate
 
-Only after user approves HyperFrames Studio preview:
+Official HyperFrames render is allowed only through the Munjanggun render gate.
+This stage exists to prevent the Studio render button from bypassing the existing approval and QA rules.
+
+The gate requires:
+
+- a local HyperFrames project under `scratch/` or `output/`
+- a review package under `output/`
+- `STATUS.md` with `html_approved_by_user: true` and `mp4_allowed: true`
+- `APPROVAL_LOG.md` recording both HTML/Studio preview approval and explicit MP4 render approval
+- `sync_manifest.json` with `ok: true`, no issues, verified final voice duration, safe total CPS, and beat-level meaning match
+- a HyperFrames project with `package.json`, `index.html`, `DESIGN.md`, a HyperFrames `check` script, and a blocked direct `render` script
+- no extra npm script that exposes direct `hyperframes render`
+
+Dry-run first:
 
 ```powershell
-npm run render
+node scripts/hyperframes-render-gate.mjs `
+  --project "scratch/hf-pilot-<review-id>" `
+  --package "output/inbox_YYYYMMDD/<review-package>" `
+  --sync-manifest "output/inbox_YYYYMMDD/<review-package>/sync_manifest.json" `
+  --out "output/inbox_YYYYMMDD/<review-package>/<review-id>_final_render_YYYYMMDD_hyperframes_upload_10mbps.mp4"
+```
+
+The dry-run must pass without creating an MP4.
+
+Only after explicit user render approval:
+
+```powershell
+node scripts/hyperframes-render-gate.mjs `
+  --project "scratch/hf-pilot-<review-id>" `
+  --package "output/inbox_YYYYMMDD/<review-package>" `
+  --sync-manifest "output/inbox_YYYYMMDD/<review-package>/sync_manifest.json" `
+  --out "output/inbox_YYYYMMDD/<review-package>/<review-id>_final_render_YYYYMMDD_hyperframes_upload_10mbps.mp4" `
+  --render-approved
 ```
 
 Then run the existing Munjanggun final QA:
@@ -197,6 +227,9 @@ Then run the existing Munjanggun final QA:
 - representative frames
 - privacy check
 - voice/sync sanity check
+
+The official HyperFrames render output is still a local customer asset.
+It must not be committed to GitHub.
 
 ## Final Direction
 

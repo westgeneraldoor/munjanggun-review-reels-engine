@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import subprocess
 import unittest
@@ -7,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "recipe-to-hyperframes-pilot.mjs"
-SCRATCH = ROOT / "scratch" / "_test_hyperframes_adapter"
+SCRATCH = ROOT / "scratch" / f"_test_hyperframes_adapter_{os.getpid()}"
 
 
 class HyperFramesAdapterTest(unittest.TestCase):
@@ -87,6 +88,8 @@ class HyperFramesAdapterTest(unittest.TestCase):
 
         package = json.loads((out_dir / "package.json").read_text(encoding="utf-8"))
         self.assertIn("hyperframes@0.6.121", package["scripts"]["check"])
+        self.assertIn("Direct HyperFrames render is blocked", package["scripts"]["render"])
+        self.assertNotIn("render:hyperframes", package["scripts"])
 
     def test_can_generate_scene_subcompositions(self):
         recipe_path = self.write_recipe()
