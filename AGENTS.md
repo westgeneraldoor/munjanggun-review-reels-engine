@@ -73,6 +73,20 @@ HTML 생성 전:
 python -m video_engine_v2.reels_qa --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --sync-manifest-out "<sync_manifest.json>"
 ```
 
+공식 HyperFrames 파일럿 생성:
+
+```powershell
+node scripts/recipe-to-hyperframes-pilot.mjs --recipe "<edit_recipe.json>" --out "scratch/hf-pilot-<review-id>"
+```
+
+공식 HyperFrames 검수:
+
+```powershell
+cd "scratch/hf-pilot-<review-id>"
+npm run check
+npm run dev
+```
+
 저장소 테스트:
 
 ```powershell
@@ -92,6 +106,7 @@ npm run validate
 - `docs/reels_operations_dashboard_v1.md`
 - `docs/reels_writer_persona_v1.md`
 - `docs/reels_hook_formula_v1.md`
+- `docs/hyperframes_official_adoption_plan_v1.md`
 - `docs/reels_privacy_asset_qa_rules_v1.md`
 - `docs/render_qa_rules_v2.md`
 - `docs/github_pr_workflow.md`

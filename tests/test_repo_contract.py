@@ -51,6 +51,33 @@ class RepoContractTest(unittest.TestCase):
         self.assertIn("unittest", text)
         self.assertIn("discover", text)
 
+    def test_official_hyperframes_adoption_is_documented(self):
+        plan_path = ROOT / "docs" / "hyperframes_official_adoption_plan_v1.md"
+        adapter_path = ROOT / "scripts" / "recipe-to-hyperframes-pilot.mjs"
+        agents_path = ROOT / "AGENTS.md"
+        readme_path = ROOT / "README.md"
+
+        self.assertTrue(plan_path.exists(), "공식 HyperFrames 도입 계획 문서가 필요합니다.")
+        self.assertTrue(adapter_path.exists(), "edit_recipe -> HyperFrames 파일럿 어댑터가 필요합니다.")
+
+        plan = plan_path.read_text(encoding="utf-8")
+        self.assertIn("Munjanggun engine = judgment and safety", plan)
+        self.assertIn("HyperFrames = timeline UI", plan)
+        self.assertIn("Never call the old local HTML preview \"official HyperFrames\"", plan)
+
+        adapter = adapter_path.read_text(encoding="utf-8")
+        self.assertIn('HYPERFRAMES_VERSION = "0.6.121"', adapter)
+        self.assertIn("data-composition-id", adapter)
+        self.assertIn("npx --yes hyperframes", adapter)
+
+        agents = agents_path.read_text(encoding="utf-8")
+        self.assertIn("docs/hyperframes_official_adoption_plan_v1.md", agents)
+        self.assertIn("recipe-to-hyperframes-pilot.mjs", agents)
+
+        readme = readme_path.read_text(encoding="utf-8")
+        self.assertIn("official HyperFrames Studio pilot", readme)
+        self.assertIn("docs/hyperframes_official_adoption_plan_v1.md", readme)
+
 
 if __name__ == "__main__":
     unittest.main()
