@@ -17,6 +17,10 @@ function argValue(name) {
   return index >= 0 && index + 1 < process.argv.length ? process.argv[index + 1] : null;
 }
 
+function hasFlag(name) {
+  return process.argv.includes(name);
+}
+
 function requireArg(name) {
   const value = argValue(name);
   if (!value) {
@@ -143,6 +147,7 @@ function validateApprovedRecipe(recipe) {
 
 const recipePath = path.resolve(requireArg("--recipe"));
 const outDir = path.resolve(requireArg("--out"));
+const useSubcompositions = hasFlag("--subcompositions");
 ensureLocalOutputPath(outDir);
 
 const recipe = JSON.parse(fs.readFileSync(recipePath, "utf8"));
@@ -252,6 +257,208 @@ Warm Korean review proof reel for Munjanggun. The viewer should feel a real cust
 - Do not use product-first hooks.
 - Do not use generic web fonts or purple/blue AI-looking gradients.
 `;
+
+function sceneCompositionHtml(beat, index) {
+  const start = Number(beat.time[0]);
+  const end = Number(beat.time[1]);
+  const durationSec = Math.max(0.05, end - start - 0.006);
+  const sceneId = `scene-${String(index + 1).padStart(2, "0")}`;
+  const proofClass = String(beat.phase || "").includes("review") ? " proof-scene" : "";
+  const image = `../${assetUrls[beat.asset]}`;
+  const photoScale = index % 2 === 0 ? 1.06 : 1.04;
+  const photoX = index % 2 === 0 ? -18 : 16;
+  const photoY = index % 3 === 0 ? -14 : 10;
+  const delay = Number(beat.caption_delay_sec || 0.16);
+
+  return `<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  </head>
+  <body>
+    <template id="${sceneId}-template">
+      <div id="${sceneId}" data-composition-id="${sceneId}" data-width="1080" data-height="1920">
+        <div class="scene${proofClass}">
+          <img class="photo" src="${image}" alt="" data-layout-allow-overflow />
+          <div class="shade"></div>
+          <div class="${captionClass(beat.caption_layout)}">
+            ${captionHtml(beat)}
+          </div>
+        </div>
+        <style>
+          @font-face {
+            font-family: "MunjangBody";
+            src: url("../${assetUrls.font || ""}") format("truetype");
+            font-display: swap;
+          }
+          #${sceneId} {
+            position: relative;
+            width: 1080px;
+            height: 1920px;
+            overflow: hidden;
+            background: #171410;
+            font-family: "MunjangBody", sans-serif;
+          }
+          #${sceneId} * { box-sizing: border-box; }
+          #${sceneId} .scene {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+            background: #171410;
+          }
+          #${sceneId} .photo {
+            position: absolute;
+            inset: -24px;
+            width: calc(100% + 48px);
+            height: calc(100% + 48px);
+            object-fit: cover;
+            transform-origin: center;
+            will-change: transform;
+          }
+          #${sceneId} .shade {
+            position: absolute;
+            inset: 0;
+            background:
+              linear-gradient(to bottom, rgba(0,0,0,0.14), rgba(0,0,0,0.02) 32%, rgba(0,0,0,0.18) 66%, rgba(0,0,0,0.42)),
+              radial-gradient(circle at 50% 42%, rgba(255,216,77,0.04), rgba(0,0,0,0.12) 70%);
+          }
+          #${sceneId} .proof-scene .photo {
+            object-fit: contain;
+            background: rgba(20,17,12,0.92);
+          }
+          #${sceneId} .proof-scene .shade {
+            background: linear-gradient(to bottom, rgba(0,0,0,0.10), rgba(0,0,0,0.28));
+          }
+          #${sceneId} .caption {
+            position: absolute;
+            left: 90px;
+            right: 90px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            text-align: center;
+            color: #ffd84d;
+            font-weight: 900;
+            font-size: 112px;
+            line-height: 1.02;
+            letter-spacing: -0.025em;
+            text-shadow: 0 8px 0 rgba(0,0,0,0.72), 0 18px 46px rgba(0,0,0,0.58);
+            -webkit-text-stroke: 3px rgba(23,20,16,0.78);
+            paint-order: stroke fill;
+            word-break: keep-all;
+            z-index: 4;
+          }
+          #${sceneId} .caption.center { top: 50%; transform: translateY(-50%); }
+          #${sceneId} .caption.upper { top: 150px; font-size: 84px; }
+          #${sceneId} .caption.lower { bottom: 210px; font-size: 94px; }
+          #${sceneId} .caption.bottom { bottom: 145px; font-size: 94px; }
+          #${sceneId} .caption .line { display: block; }
+        </style>
+        <script>
+          window.__timelines = window.__timelines || {};
+          const tl = gsap.timeline({ paused: true });
+          tl.fromTo(".photo", { scale: 1.01, x: 0, y: 0 }, { scale: ${photoScale}, x: ${photoX}, y: ${photoY}, duration: ${Math.max(1.2, durationSec).toFixed(3)}, ease: "sine.inOut" }, 0);
+          tl.from(".caption .line", { y: 34, opacity: 0, scale: 0.98, stagger: 0.08, duration: 0.46, ease: "power3.out" }, ${delay.toFixed(3)});
+          tl.from(".caption", { scale: 0.985, duration: 0.34, ease: "power2.out" }, ${(delay + 0.18).toFixed(3)});
+          window.__timelines["${sceneId}"] = tl;
+        </script>
+      </div>
+    </template>
+  </body>
+</html>
+`;
+}
+
+function subcompositionClipHtml(beat, index) {
+  const start = Number(beat.time[0]);
+  const end = Number(beat.time[1]);
+  const durationSec = Math.max(0.05, end - start - 0.006);
+  const sceneId = `scene-${String(index + 1).padStart(2, "0")}`;
+
+  return `
+      <div
+        id="${sceneId}-clip"
+        class="clip composition-clip"
+        data-composition-id="${sceneId}"
+        data-composition-src="compositions/${sceneId}.html"
+        data-start="${start.toFixed(3)}"
+        data-duration="${durationSec.toFixed(3)}"
+        data-track-index="0"
+      ></div>`;
+}
+
+function subcompositionRootHtml() {
+  const clips = (recipe.beats || []).map(subcompositionClipHtml).join("\n");
+
+  return `<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        background: #171410;
+      }
+      #root {
+        position: relative;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        background: #171410;
+      }
+      .clip {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        background: #171410;
+      }
+      .transition-sweep {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(103deg,
+          rgba(255,216,77,0) 0%,
+          rgba(255,246,220,0.05) 28%,
+          rgba(255,246,220,0.72) 48%,
+          rgba(255,216,77,0.42) 56%,
+          rgba(255,216,77,0) 78%);
+        mix-blend-mode: screen;
+        opacity: 0;
+        pointer-events: none;
+        z-index: 8;
+      }
+      audio { display: none; }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="${duration.toFixed(3)}"
+      data-width="1080"
+      data-height="1920"
+    >
+${clips}
+${transitionHtml}
+      <audio id="voice" src="${assetUrls.voice}" data-start="0" data-duration="${duration.toFixed(3)}" data-track-index="3" data-volume="1"></audio>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+${transitionTweens}
+      tl.to("#root", { opacity: 0, duration: 0.35, ease: "sine.inOut" }, ${(duration - 0.35).toFixed(3)});
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>
+`;
+}
 
 const html = `<!doctype html>
 <html lang="ko">
@@ -404,8 +611,19 @@ writeJson(path.join(outDir, "meta.json"), {
 });
 
 fs.writeFileSync(path.join(outDir, "DESIGN.md"), design, "utf8");
-fs.writeFileSync(path.join(outDir, "index.html"), html, "utf8");
+if (useSubcompositions) {
+  const compositionsDir = path.join(outDir, "compositions");
+  mkdirp(compositionsDir);
+  for (const [index, beat] of (recipe.beats || []).entries()) {
+    const sceneId = `scene-${String(index + 1).padStart(2, "0")}`;
+    fs.writeFileSync(path.join(compositionsDir, `${sceneId}.html`), sceneCompositionHtml(beat, index), "utf8");
+  }
+  fs.writeFileSync(path.join(outDir, "index.html"), subcompositionRootHtml(), "utf8");
+} else {
+  fs.writeFileSync(path.join(outDir, "index.html"), html, "utf8");
+}
 
 console.log(`Wrote official HyperFrames pilot: ${outDir}`);
+console.log(`Mode: ${useSubcompositions ? "sub-compositions" : "single-file"}`);
 console.log(`Run: cd "${outDir}" && npm run check`);
 console.log(`Preview: cd "${outDir}" && npm run dev`);

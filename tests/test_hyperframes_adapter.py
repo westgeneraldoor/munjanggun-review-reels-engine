@@ -58,9 +58,9 @@ class HyperFramesAdapterTest(unittest.TestCase):
         recipe_path.write_text(json.dumps(recipe, ensure_ascii=False), encoding="utf-8")
         return recipe_path
 
-    def run_adapter(self, recipe_path, out_dir):
+    def run_adapter(self, recipe_path, out_dir, *extra_args):
         return subprocess.run(
-            ["node", str(SCRIPT), "--recipe", str(recipe_path), "--out", str(out_dir)],
+            ["node", str(SCRIPT), "--recipe", str(recipe_path), "--out", str(out_dir), *extra_args],
             cwd=ROOT,
             text=True,
             encoding="utf-8",
@@ -87,6 +87,27 @@ class HyperFramesAdapterTest(unittest.TestCase):
 
         package = json.loads((out_dir / "package.json").read_text(encoding="utf-8"))
         self.assertIn("hyperframes@0.6.121", package["scripts"]["check"])
+
+    def test_can_generate_scene_subcompositions(self):
+        recipe_path = self.write_recipe()
+        out_dir = SCRATCH / "subcompositions"
+
+        result = self.run_adapter(recipe_path, out_dir, "--subcompositions")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((out_dir / "index.html").exists())
+        self.assertTrue((out_dir / "compositions" / "scene-01.html").exists())
+        self.assertTrue((out_dir / "assets" / "after_main.jpg").exists())
+
+        index_html = (out_dir / "index.html").read_text(encoding="utf-8")
+        self.assertIn('data-composition-src="compositions/scene-01.html"', index_html)
+        self.assertIn('data-composition-id="main"', index_html)
+
+        scene_html = (out_dir / "compositions" / "scene-01.html").read_text(encoding="utf-8")
+        self.assertIn('<template id="scene-01-template">', scene_html)
+        self.assertIn('data-composition-id="scene-01"', scene_html)
+        self.assertIn('../assets/after_main.jpg', scene_html)
+        self.assertIn('window.__timelines["scene-01"]', scene_html)
 
     def test_rejects_recipe_without_passing_sync_manifest(self):
         recipe_path = self.write_recipe(sync_ok=False)
