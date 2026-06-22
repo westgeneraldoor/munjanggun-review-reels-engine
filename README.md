@@ -80,6 +80,14 @@ node scripts/hyperframes-render-gate.mjs --project "scratch/hf-pilot-<review-id>
 
 The command above is a dry-run and does not create MP4. Add `--render-approved` only after explicit user MP4 render approval.
 
+After an approved MP4 is rendered, create the post-render QA evidence package:
+
+```powershell
+node scripts/render-post-qa.mjs --mp4 "<output review package>/<review-id>_final_render_YYYYMMDD_hyperframes_upload_10mbps.mp4" --package "<output review package>" --sync-manifest "<output review package>/sync_manifest.json"
+```
+
+This writes local `render_post_qa_report.json`, `render_post_qa_report.md`, and representative frames under the ignored review package `_work/` folder. Passing automatic checks still leaves `overall_status: manual_review_required` until a human reviews privacy, captions, and sync.
+
 Render approved HTML to upload MP4:
 
 ```powershell
