@@ -17,14 +17,15 @@ TTS and sync QA
 planning_recipe / edit_recipe
 ```
 
-Official HyperFrames should be introduced at the composition layer:
+Official HyperFrames should be introduced at the composition layer.
+The current adapter is a pilot bridge, not the production renderer:
 
 ```text
 edit_recipe
 -> HyperFrames project
 -> npx hyperframes lint / validate / inspect
 -> npx hyperframes preview Studio
--> npx hyperframes render after user approval
+-> production render only after a later Stage 4 gate
 ```
 
 In short:
@@ -65,16 +66,19 @@ The 105 pilot proved that official HyperFrames can load a Munjanggun recipe-deri
 ## Non-Negotiable Rules
 
 - Never call the old local HTML preview "official HyperFrames".
+- Never call the Stage 1 adapter a production renderer.
 - Never render MP4 before user approval.
 - Never commit generated HyperFrames projects that contain customer media.
 - Generated HyperFrames pilots must live under ignored local paths such as `scratch/` or `output/`.
+- The pilot adapter must reject recipes without passing `sync_manifest.ok`, verified final voice duration, and per-beat `meaning_match`.
 - Every official HyperFrames project must include a `DESIGN.md`.
 - Every generated composition must pass `npx hyperframes lint`, `validate`, and `inspect` before preview handoff.
 - HyperFrames render does not replace final privacy/ffprobe/representative-frame QA.
 
 ## Pilot Command
 
-Generate a local official HyperFrames pilot from an approved edit recipe:
+Generate a local official HyperFrames pilot from an approved edit recipe.
+The recipe must already have passed `video_engine_v2.reels_qa` and contain `sync_manifest.ok: true`:
 
 ```powershell
 node scripts/recipe-to-hyperframes-pilot.mjs `
@@ -123,6 +127,7 @@ Goal:
 - prove preview/check/render flow
 - compare Studio experience against old `file://` HTML preview
 - keep all customer media local and ignored
+- fail early if the recipe has not passed the existing Munjanggun sync/meaning QA
 
 ### Stage 2. Sub-Composition Adapter
 

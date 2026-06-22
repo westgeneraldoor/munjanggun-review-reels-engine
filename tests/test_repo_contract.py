@@ -64,9 +64,12 @@ class RepoContractTest(unittest.TestCase):
         self.assertIn("Munjanggun engine = judgment and safety", plan)
         self.assertIn("HyperFrames = timeline UI", plan)
         self.assertIn("Never call the old local HTML preview \"official HyperFrames\"", plan)
+        self.assertIn("Never call the Stage 1 adapter a production renderer", plan)
+        self.assertIn("sync_manifest.ok: true", plan)
 
         adapter = adapter_path.read_text(encoding="utf-8")
         self.assertIn('HYPERFRAMES_VERSION = "0.6.121"', adapter)
+        self.assertIn("validateApprovedRecipe", adapter)
         self.assertIn("data-composition-id", adapter)
         self.assertIn("npx --yes hyperframes", adapter)
 

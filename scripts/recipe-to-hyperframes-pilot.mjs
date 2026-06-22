@@ -7,6 +7,11 @@ const __filename = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(__filename), "..");
 const HYPERFRAMES_VERSION = "0.6.121";
 
+function die(message) {
+  console.error(message);
+  process.exit(2);
+}
+
 function argValue(name) {
   const index = process.argv.indexOf(name);
   return index >= 0 && index + 1 < process.argv.length ? process.argv[index + 1] : null;
@@ -50,13 +55,13 @@ function safeAssetName(role, filename) {
 
 function ensureLocalOutputPath(outDir) {
   const relative = path.relative(repoRoot, outDir);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) return;
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    die("Refusing to copy customer media outside this repository. Use --out under scratch/ or output/.");
+  }
 
   const first = relative.split(path.sep)[0];
   if (!["scratch", "output"].includes(first)) {
-    console.error("Refusing to generate customer-media HyperFrames project inside a tracked repo path.");
-    console.error("Use --out under scratch/ or output/, or choose a path outside this repository.");
-    process.exit(2);
+    die("Refusing to generate customer-media HyperFrames project inside a tracked repo path. Use --out under scratch/ or output/.");
   }
 }
 
@@ -80,11 +85,68 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
+function validateApprovedRecipe(recipe) {
+  const issues = [];
+  const beats = recipe.beats || [];
+  const syncManifest = recipe.sync_manifest || {};
+  const syncPolicy = recipe.audio_plan?.sync_policy || {};
+
+  if (!Array.isArray(beats) || beats.length === 0) {
+    issues.push("beats must be a non-empty array");
+  }
+  if (!recipe.source?.image_dir) {
+    issues.push("source.image_dir is required");
+  }
+  if (!recipe.source?.voice && !recipe.audio_plan?.narration) {
+    issues.push("source.voice or audio_plan.narration is required");
+  }
+  if (!recipe.asset_roles || Object.keys(recipe.asset_roles).length === 0) {
+    issues.push("asset_roles must be present");
+  }
+  if (syncManifest.ok !== true) {
+    issues.push("sync_manifest.ok must be true; run reels_qa before generating a HyperFrames pilot");
+  }
+  if (Array.isArray(syncManifest.issues) && syncManifest.issues.length > 0) {
+    issues.push("sync_manifest.issues must be empty");
+  }
+  if (!Number.isFinite(Number(syncPolicy.final_voice_duration_sec)) || Number(syncPolicy.final_voice_duration_sec) <= 0) {
+    issues.push("audio_plan.sync_policy.final_voice_duration_sec must be present and positive");
+  }
+
+  let previousEnd = -Infinity;
+  for (const [index, beat] of beats.entries()) {
+    const label = `beat[${index}]`;
+    const start = Number(beat.time?.[0]);
+    const end = Number(beat.time?.[1]);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+      issues.push(`${label}.time must be [start, end] with end > start`);
+    }
+    if (Number.isFinite(start) && start < previousEnd - 0.02) {
+      issues.push(`${label}.time overlaps the previous beat`);
+    }
+    if (Number.isFinite(end)) previousEnd = end;
+    if (!beat.asset || !recipe.asset_roles?.[beat.asset]) {
+      issues.push(`${label}.asset must reference asset_roles`);
+    }
+    if (!beat.caption) {
+      issues.push(`${label}.caption is required`);
+    }
+    if (beat.meaning_match !== true) {
+      issues.push(`${label}.meaning_match must be true`);
+    }
+  }
+
+  if (issues.length > 0) {
+    die(`Refusing to generate official HyperFrames pilot:\n- ${issues.join("\n- ")}`);
+  }
+}
+
 const recipePath = path.resolve(requireArg("--recipe"));
 const outDir = path.resolve(requireArg("--out"));
 ensureLocalOutputPath(outDir);
 
 const recipe = JSON.parse(fs.readFileSync(recipePath, "utf8"));
+validateApprovedRecipe(recipe);
 const packageDir = resolveSource(path.dirname(recipePath), recipe.source?.package_dir || ".");
 const imageDir = resolveSource(packageDir, recipe.source?.image_dir || ".");
 const assetsDir = path.join(outDir, "assets");

@@ -55,7 +55,8 @@ Build HTML preview:
 python build_html_preview_v2.py --recipe "<edit_recipe.json>"
 ```
 
-Build an official HyperFrames Studio pilot from an approved edit recipe:
+Build an official HyperFrames Studio pilot from an approved edit recipe.
+This is a pilot preview path, not the production renderer yet:
 
 ```powershell
 node scripts/recipe-to-hyperframes-pilot.mjs --recipe "<edit_recipe.json>" --out "scratch/hf-pilot-<review-id>"
@@ -69,6 +70,8 @@ Render approved HTML to upload MP4:
 ```powershell
 node render_html_preview_v2.js --html "<html_preview>/index.html" --out "<output>_upload_10mbps.mp4" --fps 30 --width 1080 --height 1920
 ```
+
+The command above is the current production render path. HyperFrames render is introduced only after the staged gates in `docs/hyperframes_official_adoption_plan_v1.md`.
 
 ## Operating Rules
 
