@@ -98,6 +98,36 @@ total_voice_cps = 전체 narration_ref 공백 제외 글자수 / final_voice_dur
 음성-자막-화면 싱크 확인
 ```
 
+렌더 후 자동 증거 생성:
+
+```powershell
+node scripts/render-post-qa.mjs `
+  --mp4 "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4" `
+  --package "<output review package>" `
+  --sync-manifest "<output review package>/sync_manifest.json"
+```
+
+이 스크립트는 아래를 자동으로 검사하고 기록합니다.
+
+```text
+MP4가 패키지 폴더 안에 있는지
+파일명이 upload_10mbps 규칙을 따르는지
+sync_manifest.ok / total_voice_cps / meaning_match evidence가 유효한지
+final_voice_duration_sec가 있고 MP4 길이와 ±2초 이내인지
+ffprobe 기준 1080x1920 / 30fps / H.264 / yuv420p / AAC 44.1kHz stereo인지
+대표 프레임 5장을 _work/render_post_qa_*/representative_frames/ 아래 추출했는지
+```
+
+자동 검사 통과는 최종 승인이 아닙니다.
+리포트는 반드시 아래 상태로 남아야 합니다.
+
+```text
+overall_status: manual_review_required
+manual_review.status: pending
+```
+
+총괄 PD가 대표 프레임을 열어 개인정보, 자막 크기/위치, 상품/리뷰 가림, 음성-자막-화면 싱크를 확인한 뒤에만 최종 완료로 봅니다.
+
 ## 장면 의미 일치 기준
 
 렌더 전에는 JSON 구조와 화면을 모두 확인합니다.

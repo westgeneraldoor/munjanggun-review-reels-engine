@@ -128,6 +128,15 @@ node scripts/hyperframes-render-gate.mjs --project "scratch/hf-pilot-<review-id>
 사용자의 명시적 MP4 렌더 승인 후에만 `--render-approved`를 붙입니다.
 생성된 HyperFrames 파일럿의 `npm run render` 직접 실행은 금지되며, 렌더는 반드시 `scripts/hyperframes-render-gate.mjs`를 통해서만 진행합니다.
 
+렌더 후 QA 증거 생성:
+
+```powershell
+node scripts/render-post-qa.mjs --mp4 "<output review package>/<review-id>_final_render_YYYYMMDD_hyperframes_upload_10mbps.mp4" --package "<output review package>" --sync-manifest "<output review package>/sync_manifest.json"
+```
+
+이 명령은 최종 승인자가 아니라 증거 기록자입니다.
+자동 검사 통과 후에도 `overall_status: manual_review_required`, `manual_review.status: pending` 상태로 남아야 하며, 총괄 PD가 대표 프레임의 개인정보/자막/싱크를 직접 확인해야 최종 완료입니다.
+
 저장소 테스트:
 
 ```powershell

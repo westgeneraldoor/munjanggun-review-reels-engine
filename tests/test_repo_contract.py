@@ -61,12 +61,15 @@ class RepoContractTest(unittest.TestCase):
         plan_path = ROOT / "docs" / "hyperframes_official_adoption_plan_v1.md"
         adapter_path = ROOT / "scripts" / "recipe-to-hyperframes-pilot.mjs"
         render_gate_path = ROOT / "scripts" / "hyperframes-render-gate.mjs"
+        post_render_qa_path = ROOT / "scripts" / "render-post-qa.mjs"
         agents_path = ROOT / "AGENTS.md"
         readme_path = ROOT / "README.md"
+        render_qa_path = ROOT / "docs" / "render_qa_rules_v2.md"
 
         self.assertTrue(plan_path.exists(), "공식 HyperFrames 도입 계획 문서가 필요합니다.")
         self.assertTrue(adapter_path.exists(), "edit_recipe -> HyperFrames 파일럿 어댑터가 필요합니다.")
         self.assertTrue(render_gate_path.exists(), "공식 HyperFrames 렌더 승인 게이트가 필요합니다.")
+        self.assertTrue(post_render_qa_path.exists(), "렌더 후 QA 증거 생성 스크립트가 필요합니다.")
 
         plan = plan_path.read_text(encoding="utf-8")
         self.assertIn("Munjanggun engine = judgment and safety", plan)
@@ -89,13 +92,25 @@ class RepoContractTest(unittest.TestCase):
         self.assertIn("HYPERFRAMES_VERSION", render_gate)
         self.assertIn("positive approved_scope", render_gate)
 
+        post_render_qa = post_render_qa_path.read_text(encoding="utf-8")
+        self.assertIn("ffprobe", post_render_qa)
+        self.assertIn("representative_frames", post_render_qa)
+        self.assertIn("manual_review_required", post_render_qa)
+        self.assertIn("upload_10mbps", post_render_qa)
+
         agents = agents_path.read_text(encoding="utf-8")
         self.assertIn("docs/hyperframes_official_adoption_plan_v1.md", agents)
         self.assertIn("recipe-to-hyperframes-pilot.mjs", agents)
+        self.assertIn("scripts/render-post-qa.mjs", agents)
 
         readme = readme_path.read_text(encoding="utf-8")
         self.assertIn("official HyperFrames Studio pilot", readme)
         self.assertIn("docs/hyperframes_official_adoption_plan_v1.md", readme)
+        self.assertIn("scripts/render-post-qa.mjs", readme)
+
+        render_qa = render_qa_path.read_text(encoding="utf-8")
+        self.assertIn("scripts/render-post-qa.mjs", render_qa)
+        self.assertIn("overall_status: manual_review_required", render_qa)
 
     def test_content_operating_principles_are_linked_from_agents(self):
         principles_path = ROOT / "docs" / "munjanggun_content_operating_principles_v1.md"

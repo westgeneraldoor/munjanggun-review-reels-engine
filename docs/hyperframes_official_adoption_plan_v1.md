@@ -231,6 +231,44 @@ Then run the existing Munjanggun final QA:
 The official HyperFrames render output is still a local customer asset.
 It must not be committed to GitHub.
 
+### Stage 5. Post-Render QA Evidence
+
+After an approved MP4 exists, run the post-render QA script:
+
+```powershell
+node scripts/render-post-qa.mjs `
+  --mp4 "output/inbox_YYYYMMDD/<review-package>/<review-id>_final_render_YYYYMMDD_hyperframes_upload_10mbps.mp4" `
+  --package "output/inbox_YYYYMMDD/<review-package>" `
+  --sync-manifest "output/inbox_YYYYMMDD/<review-package>/sync_manifest.json"
+```
+
+This script is an evidence recorder and blocker, not a final approver.
+
+It automatically checks:
+
+- MP4 path and `upload_10mbps` filename rule
+- `sync_manifest.ok`, total CPS, final voice duration, and beat-level meaning-match evidence
+- MP4 duration within ±2 seconds of `final_voice_duration_sec`
+- `ffprobe` video/audio specs: MP4 container, 1080x1920, 30fps, H.264, yuv420p, upload bitrate range, AAC 44.1kHz stereo audio
+- representative frame extraction under the local package `_work/` folder
+
+It writes:
+
+```text
+output/.../<review-package>/_work/render_post_qa_*/render_post_qa_report.json
+output/.../<review-package>/_work/render_post_qa_*/render_post_qa_report.md
+output/.../<review-package>/_work/render_post_qa_*/representative_frames/*.jpg
+```
+
+Even when automatic checks pass, the report status remains:
+
+```text
+overall_status: manual_review_required
+manual_review.status: pending
+```
+
+The final human review must still inspect representative frames for caption placement, privacy exposure, review-capture readability, voice-caption-screen sync, and CTA flow.
+
 ## Final Direction
 
 The best future state is not "old renderer or HyperFrames".
