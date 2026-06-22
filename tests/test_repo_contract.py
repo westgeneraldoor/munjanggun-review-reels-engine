@@ -17,6 +17,11 @@ class RepoContractTest(unittest.TestCase):
             "reviews/",
             "output/",
             "사진검수 전 script/SRT/TTS/HTML 생성 금지",
+            "총괄 PD 팀 운영 방식",
+            "리뷰 각색 작가",
+            "사진 큐레이터",
+            "편집 설계자",
+            "QA 감시자",
             "review_quote_for_proof",
             "reels_qa",
             "HTML 승인 전 MP4 렌더 금지",
@@ -50,6 +55,19 @@ class RepoContractTest(unittest.TestCase):
         text = runner_path.read_text(encoding="utf-8")
         self.assertIn("unittest", text)
         self.assertIn("discover", text)
+
+    def test_content_operating_principles_are_linked_from_agents(self):
+        principles_path = ROOT / "docs" / "munjanggun_content_operating_principles_v1.md"
+        agents_path = ROOT / "AGENTS.md"
+
+        self.assertTrue(principles_path.exists(), "문장군 콘텐츠 운영 원칙 문서가 필요합니다.")
+
+        principles = principles_path.read_text(encoding="utf-8")
+        self.assertIn("고객의 문제와 사건을 보여주는 콘텐츠", principles)
+        self.assertIn("20점 미만 콘텐츠는 발행하지 않습니다", principles)
+
+        agents = agents_path.read_text(encoding="utf-8")
+        self.assertIn("docs/munjanggun_content_operating_principles_v1.md", agents)
 
 
 if __name__ == "__main__":
