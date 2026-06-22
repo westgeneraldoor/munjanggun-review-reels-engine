@@ -172,6 +172,16 @@ Goal:
 - reduce `gsap_studio_edit_blocked`
 - make manual timeline adjustment easier
 
+The Stage 3 adapter keeps edit-sensitive layout containers out of GSAP targets:
+
+- `.photo-frame` owns the photo region and can be inspected as the layout anchor.
+- `.photo-motion` owns Ken Burns-style motion.
+- `.caption` owns caption placement.
+- `.caption-motion` owns caption entrance and micro-scale motion.
+
+This does not eliminate every `gsap_studio_edit_blocked` warning, because intentional animated internals are still GSAP-owned.
+It prevents the most important layout anchors from being GSAP-owned, which makes Studio review and future manual adjustment safer.
+
 ### Stage 4. Official Render Gate
 
 Only after user approves HyperFrames Studio preview:
