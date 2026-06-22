@@ -274,11 +274,10 @@ function sceneCompositionHtml(beat, index) {
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
   </head>
   <body>
     <template id="${sceneId}-template">
-      <div id="${sceneId}" data-composition-id="${sceneId}" data-width="1080" data-height="1920">
+      <div id="${sceneId}" data-composition-id="${sceneId}" data-start="0" data-width="1080" data-height="1920">
         <div class="scene${proofClass}">
           <div class="photo-frame" data-studio-editable="photo-frame">
             <img class="photo-motion" src="${image}" alt="" data-layout-allow-overflow />
@@ -380,6 +379,7 @@ function sceneCompositionHtml(beat, index) {
           #${sceneId} .caption.bottom .caption-motion { font-size: 94px; }
           #${sceneId} .caption .line { display: block; }
         </style>
+        <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
         <script>
           window.__timelines = window.__timelines || {};
           const tl = gsap.timeline({ paused: true });
