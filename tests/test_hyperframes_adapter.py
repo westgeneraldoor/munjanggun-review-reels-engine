@@ -105,8 +105,12 @@ class HyperFramesAdapterTest(unittest.TestCase):
 
         scene_html = (out_dir / "compositions" / "scene-01.html").read_text(encoding="utf-8")
         self.assertIn('<template id="scene-01-template">', scene_html)
-        self.assertIn('data-composition-id="scene-01"', scene_html)
+        self.assertIn('<div id="scene-01" data-composition-id="scene-01" data-start="0" data-width="1080" data-height="1920">', scene_html)
         self.assertIn('../assets/after_main.jpg', scene_html)
+        head_html = scene_html.split("</head>", 1)[0]
+        template_html = scene_html.split('<template id="scene-01-template">', 1)[1].split("</template>", 1)[0]
+        self.assertNotIn("gsap.min.js", head_html)
+        self.assertIn('src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"', template_html)
         self.assertIn('window.__timelines["scene-01"]', scene_html)
         self.assertIn('class="photo-frame" data-studio-editable="photo-frame"', scene_html)
         self.assertIn('class="photo-motion"', scene_html)
