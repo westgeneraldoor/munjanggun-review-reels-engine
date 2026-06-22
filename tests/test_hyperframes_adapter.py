@@ -108,6 +108,15 @@ class HyperFramesAdapterTest(unittest.TestCase):
         self.assertIn('data-composition-id="scene-01"', scene_html)
         self.assertIn('../assets/after_main.jpg', scene_html)
         self.assertIn('window.__timelines["scene-01"]', scene_html)
+        self.assertIn('class="photo-frame" data-studio-editable="photo-frame"', scene_html)
+        self.assertIn('class="photo-motion"', scene_html)
+        self.assertIn('data-studio-editable="caption-layout"', scene_html)
+        self.assertIn('class="caption-motion"', scene_html)
+        self.assertIn('tl.fromTo(".photo-motion"', scene_html)
+        self.assertIn('tl.from(".caption-motion .line"', scene_html)
+        self.assertNotIn('tl.fromTo(".photo"', scene_html)
+        self.assertNotIn('tl.from(".caption .line"', scene_html)
+        self.assertNotIn('tl.from(".caption",', scene_html)
 
     def test_rejects_recipe_without_passing_sync_manifest(self):
         recipe_path = self.write_recipe(sync_ok=False)

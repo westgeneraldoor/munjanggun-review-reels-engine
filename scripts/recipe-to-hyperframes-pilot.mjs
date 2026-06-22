@@ -280,10 +280,14 @@ function sceneCompositionHtml(beat, index) {
     <template id="${sceneId}-template">
       <div id="${sceneId}" data-composition-id="${sceneId}" data-width="1080" data-height="1920">
         <div class="scene${proofClass}">
-          <img class="photo" src="${image}" alt="" data-layout-allow-overflow />
+          <div class="photo-frame" data-studio-editable="photo-frame">
+            <img class="photo-motion" src="${image}" alt="" data-layout-allow-overflow />
+          </div>
           <div class="shade"></div>
-          <div class="${captionClass(beat.caption_layout)}">
-            ${captionHtml(beat)}
+          <div class="${captionClass(beat.caption_layout)}" data-studio-editable="caption-layout">
+            <div class="caption-motion">
+              ${captionHtml(beat)}
+            </div>
           </div>
         </div>
         <style>
@@ -307,7 +311,14 @@ function sceneCompositionHtml(beat, index) {
             overflow: hidden;
             background: #171410;
           }
-          #${sceneId} .photo {
+          #${sceneId} .photo-frame {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+          }
+          #${sceneId} .photo-motion {
             position: absolute;
             inset: -24px;
             width: calc(100% + 48px);
@@ -323,7 +334,16 @@ function sceneCompositionHtml(beat, index) {
               linear-gradient(to bottom, rgba(0,0,0,0.14), rgba(0,0,0,0.02) 32%, rgba(0,0,0,0.18) 66%, rgba(0,0,0,0.42)),
               radial-gradient(circle at 50% 42%, rgba(255,216,77,0.04), rgba(0,0,0,0.12) 70%);
           }
-          #${sceneId} .proof-scene .photo {
+          #${sceneId} .proof-scene .photo-frame {
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(20,17,12,0.92);
+          }
+          #${sceneId} .proof-scene .photo-motion {
+            inset: 0;
+            width: 100%;
+            height: 100%;
             object-fit: contain;
             background: rgba(20,17,12,0.92);
           }
@@ -334,6 +354,9 @@ function sceneCompositionHtml(beat, index) {
             position: absolute;
             left: 90px;
             right: 90px;
+            z-index: 4;
+          }
+          #${sceneId} .caption-motion {
             display: flex;
             flex-direction: column;
             gap: 12px;
@@ -347,20 +370,22 @@ function sceneCompositionHtml(beat, index) {
             -webkit-text-stroke: 3px rgba(23,20,16,0.78);
             paint-order: stroke fill;
             word-break: keep-all;
-            z-index: 4;
           }
           #${sceneId} .caption.center { top: 50%; transform: translateY(-50%); }
-          #${sceneId} .caption.upper { top: 150px; font-size: 84px; }
-          #${sceneId} .caption.lower { bottom: 210px; font-size: 94px; }
-          #${sceneId} .caption.bottom { bottom: 145px; font-size: 94px; }
+          #${sceneId} .caption.upper { top: 150px; }
+          #${sceneId} .caption.lower { bottom: 210px; }
+          #${sceneId} .caption.bottom { bottom: 145px; }
+          #${sceneId} .caption.upper .caption-motion { font-size: 84px; }
+          #${sceneId} .caption.lower .caption-motion,
+          #${sceneId} .caption.bottom .caption-motion { font-size: 94px; }
           #${sceneId} .caption .line { display: block; }
         </style>
         <script>
           window.__timelines = window.__timelines || {};
           const tl = gsap.timeline({ paused: true });
-          tl.fromTo(".photo", { scale: 1.01, x: 0, y: 0 }, { scale: ${photoScale}, x: ${photoX}, y: ${photoY}, duration: ${Math.max(1.2, durationSec).toFixed(3)}, ease: "sine.inOut" }, 0);
-          tl.from(".caption .line", { y: 34, opacity: 0, scale: 0.98, stagger: 0.08, duration: 0.46, ease: "power3.out" }, ${delay.toFixed(3)});
-          tl.from(".caption", { scale: 0.985, duration: 0.34, ease: "power2.out" }, ${(delay + 0.18).toFixed(3)});
+          tl.fromTo(".photo-motion", { scale: 1.01, x: 0, y: 0 }, { scale: ${photoScale}, x: ${photoX}, y: ${photoY}, duration: ${Math.max(1.2, durationSec).toFixed(3)}, ease: "sine.inOut" }, 0);
+          tl.from(".caption-motion .line", { y: 34, opacity: 0, scale: 0.98, stagger: 0.08, duration: 0.46, ease: "power3.out" }, ${delay.toFixed(3)});
+          tl.from(".caption-motion", { scale: 0.985, duration: 0.34, ease: "power2.out" }, ${(delay + 0.18).toFixed(3)});
           window.__timelines["${sceneId}"] = tl;
         </script>
       </div>
