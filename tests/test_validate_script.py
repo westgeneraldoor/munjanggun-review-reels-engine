@@ -3,6 +3,7 @@ import re
 import sys
 import tempfile
 import types
+from unittest import mock
 from pathlib import Path
 
 sys.modules.setdefault("dotenv", types.SimpleNamespace(load_dotenv=lambda *args, **kwargs: None))
@@ -156,6 +157,24 @@ class ValidateScriptTest(unittest.TestCase):
         issues = validate_script(script)
 
         self.assertTrue(any("HOOK" in issue and "상품명" in issue for issue in issues))
+
+    def test_allows_product_term_in_hook_when_it_is_part_of_choice_conflict(self):
+        script = VALID_SCRIPT.replace(
+            "# 택배 가지러 나갔다가 고양이를 잃어버릴 뻔한 집사님",
+            "# 방묘문 고민하던 집, 중문으로 바꾼 이유",
+        ).replace(
+            "택배 가지러 나갔다가 고양이를 잃어버릴 뻔한 집사님",
+            "방묘문 고민하던 집, 중문으로 바꾼 이유",
+            1,
+        ).replace(
+            "택배 가지러 나갔다가 고양이를 잃어버릴 뻔한 집사님이 계세요.",
+            "방묘문을 고민하던 집이 중문으로 바꾼 이유가 있습니다.",
+            1,
+        )
+
+        issues = validate_script(script)
+
+        self.assertFalse(any("HOOK" in issue and "상품명" in issue for issue in issues), issues)
 
     def test_rejects_hook_empathy_question_ad_pattern(self):
         script = VALID_SCRIPT.replace(
@@ -365,6 +384,16 @@ class ValidateScriptTest(unittest.TestCase):
         filters = split_atempo_filters(2.4)
 
         self.assertEqual(filters, [2.0, 1.2])
+
+    def test_speed_adjust_mp3_slows_down_audio_when_raw_tts_is_shorter_than_target(self):
+        with mock.patch("generate.get_audio_duration_seconds", return_value=22.0), mock.patch(
+            "imageio_ffmpeg.get_ffmpeg_exe", return_value="ffmpeg"
+        ), mock.patch("generate.subprocess.run") as run:
+            generate.speed_adjust_mp3(Path("raw.mp3"), Path("final.mp3"), target_seconds=26.0)
+
+        command = run.call_args.args[0]
+        filter_arg = command[command.index("-filter:a") + 1]
+        self.assertEqual(filter_arg, "atempo=0.846")
 
 
 if __name__ == "__main__":
