@@ -647,7 +647,7 @@ def speed_adjust_mp3(input_path: Path, output_path: Path, target_seconds: float)
     if duration <= 0:
         raise RuntimeError(f"오디오 길이가 올바르지 않습니다: {input_path}")
 
-    speed_ratio = max(duration / target_seconds, 1.0)
+    speed_ratio = duration / target_seconds
     filters = ",".join(f"atempo={value}" for value in split_atempo_filters(speed_ratio))
     ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
     command = [
@@ -805,7 +805,18 @@ def validate_script(script_text: str) -> list[str]:
         fail("[CLOSE]에 '문장군 리뷰에서 가져왔어요' 앵커가 없습니다.")
 
     # HOOK 상품명 금지 확인
+    # 제품 설명형 훅은 막되, "방묘문 고민 -> 중문 선택"처럼 선택 갈등 자체가 사건인 경우는 허용한다.
     product_terms = ["중문", "도어", "문장군"]
+    choice_conflict_markers = [
+        "방묘문",
+        "대신",
+        "바꾼 이유",
+        "바꾼",
+        "고민",
+        "선택",
+        "왜",
+        "이유",
+    ]
     hook_text_parts = []
     if title_match:
         hook_text_parts.append(title_match.group(1))
@@ -816,6 +827,10 @@ def validate_script(script_text: str) -> list[str]:
     hook_text = " ".join(hook_text_parts)
     for word in product_terms:
         if word in hook_text:
+            is_brand_term = word == "문장군"
+            is_choice_conflict = any(marker in hook_text for marker in choice_conflict_markers)
+            if not is_brand_term and is_choice_conflict:
+                continue
             fail(f"HOOK 제목/자막/내레이션에 상품명 금지어가 있습니다: '{word}'")
 
     hook_fail_patterns = [
