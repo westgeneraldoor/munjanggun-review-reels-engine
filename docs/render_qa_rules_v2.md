@@ -26,6 +26,10 @@
 
 검수용 프리뷰와 최종 업로드용은 구분합니다.
 
+v2 production의 preflight/HTML/render는 `scripts/produce_review_v2.py`만 사용합니다.
+내부 `render_html_preview_v2.js`는 gate receipt 없이는 실행할 수 없으며,
+기존 MP4나 frame directory를 삭제하거나 덮어쓰지 않습니다.
+
 ```text
 검수용: 720x1280 / 12fps 또는 30fps / 2~3 Mbps
 최종 업로드용: 1080x1920 / 30fps / video 11000k / audio AAC 44.1kHz stereo 192k
@@ -42,6 +46,46 @@
 --audio-channels 2
 ```
 
+## 개인정보 증거 바인딩
+
+v2 production의 `privacy_asset_manifest.json`은 단순 체크 표시가 아니라
+렌더 직전까지 검증되는 증거 계약입니다.
+
+```text
+checked: true
+checked_at: 비어 있지 않은 시각
+sanitization_report: package 내부의 실제 보고서 경로
+unresolved_risks: []
+selected_assets: edit_recipe.asset_roles와 정확히 같은 asset 집합
+  - relative_path: package 기준 경로
+  - bytes: 검수 시점 바이트 수
+  - sha256: 검수 시점 SHA-256
+```
+
+선택 asset의 내용, asset 집합, privacy manifest가 바뀌면 기존
+`sync_manifest.json`은 stale입니다. `produce_review_v2.py preflight`부터 다시
+통과해야 하며, HTML/MP4 단계에는 이를 무시하는 옵션이 없습니다.
+
+## HTML 승인 dependency 결속
+
+`html_artifact_evidence.json`은 HTML 본문 hash만 보관하지 않습니다. renderer가
+실제로 쓰는 모든 image asset, `voice.mp3`, repository 내부 engine font를 아래처럼
+기록합니다.
+
+```text
+kind / scope / relative_path / bytes / sha256
+```
+
+image·voice는 package 내부여야 하고 font는 repository 내부 허용 경로여야 합니다.
+상대경로 탈출, 절대경로, symlink 우회, 누락·중복 dependency는 실패입니다. 생성된 HTML의
+asset URL과 edit recipe의 사용 집합도 evidence와 정확히 같아야 합니다. HTML 승인 파일은
+artifact evidence SHA-256을 통해 이 전체 목록에 결속됩니다.
+
+`sync_manifest.json`의 `gate_inputs.voice`는 voice 상대경로/bytes/SHA-256을 별도로
+보관합니다. 따라서 같은 크기의 다른 voice로 바꿔도 sync가 stale이며, Python gate와
+Node renderer는 frame directory를 만들기 전에 현재 image/voice/font hash를 다시
+검증합니다.
+
 ## 렌더 전 필수 검수
 
 렌더 전:
@@ -49,7 +93,8 @@
 ```text
 STATUS.md의 mp4_allowed가 true인지 확인
 APPROVAL_LOG.md에 HTML 승인 범위가 기록되어 있는지 확인
-video_engine_v2.reels_qa preflight가 OK인지 확인
+`scripts/produce_review_v2.py preflight`와 HTML artifact evidence가 유효한지 확인
+`HTML_APPROVAL.json`의 package/path/SHA-256이 현재 HTML과 정확히 같은지 확인
 사용자 기획 승인 없이 생성된 HTML이면 렌더 금지
 HTML에서 자막 위치/크기/가림 확인
 `docs/reels_privacy_asset_qa_rules_v1.md` 기준 privacy_review 또는 privacy_sanitization_report 확인
@@ -66,16 +111,20 @@ voice.mp3 실제 길이 확인
 주소/건물명/가족사진/얼굴/차량번호가 보이면 렌더 금지
 ```
 
-HTML 생성 전/렌더 전 공통 QA 명령:
+HTML 생성 전 공식 preflight 명령:
 
 ```powershell
-python -m video_engine_v2.reels_qa `
+python scripts/produce_review_v2.py preflight `
+  --package "<output review package>" `
   --planning "<planning_recipe.json>" `
   --edit "<edit_recipe.json>" `
-  --sync-manifest-out "<sync_manifest.json>"
+  --privacy-manifest "<privacy_asset_manifest.json>" `
+  --sync-manifest "<output review package>/sync_manifest.json"
 ```
 
-`[FAIL]`이 하나라도 있으면 MP4 렌더를 진행하지 않습니다.
+`video_engine_v2.reels_qa`는 이 공식 경로가 내부에서 사용하는 diagnostic
+module이며, production 산출물 생성의 직접 진입점이 아닙니다. gate가 실패하면
+MP4 렌더를 진행하지 않습니다.
 
 `sync_manifest.json`은 MP4 렌더 전 보관해야 하는 검증 증거입니다.
 이 파일이 없거나, `ok: false`이면 렌더를 진행하지 않습니다.
@@ -116,6 +165,8 @@ sync_manifest.ok / total_voice_cps / meaning_match evidence가 유효한지
 final_voice_duration_sec가 있고 MP4 길이와 ±2초 이내인지
 ffprobe 기준 1080x1920 / 30fps / H.264 / yuv420p / AAC 44.1kHz stereo인지
 대표 프레임 5장을 _work/render_post_qa_*/representative_frames/ 아래 추출했는지
+대상 MP4의 package identity, package-relative path, bytes, SHA-256
+사용한 sync manifest의 package-relative path, bytes, SHA-256
 ```
 
 자동 검사 통과는 최종 승인이 아닙니다.
@@ -127,6 +178,15 @@ manual_review.status: pending
 ```
 
 총괄 PD가 대표 프레임을 열어 개인정보, 자막 크기/위치, 상품/리뷰 가림, 음성-자막-화면 싱크를 확인한 뒤에만 최종 완료로 봅니다.
+
+## Post-render QA와 현재 MP4의 구분
+
+`auto_status: pass`는 과거 QA pass 증거입니다. package state scan은 report의 package
+identity, upload MP4 상대경로, bytes, SHA-256이 현재 package의 upload artifact와 모두
+일치할 때만 `render_complete: true`로 계산합니다. hash가 없는 legacy QA report는
+`post_render_qa_pass_evidence_present: true`일 수 있어도 `render_complete: unknown`이며
+`legacy_report_missing_mp4_hash` limitation으로 남습니다. 이는 기존 upload MP4 package
+삭제·재렌더 지시가 아니며, published/performance도 별도 증거 없이는 `unknown`입니다.
 
 ## 장면 의미 일치 기준
 

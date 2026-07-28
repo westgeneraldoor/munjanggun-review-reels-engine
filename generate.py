@@ -14,6 +14,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime
+from itertools import count
 from pathlib import Path
 import wave
 
@@ -387,34 +388,33 @@ def get_source_key(review_record: ReviewRecord) -> str:
         return str(review_record.source_path)
 
 
+def create_versioned_output_folder(output_collection_dir: Path, artifact_stem: str) -> Path:
+    """Create a new, collision-free output package without touching existing runs."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_name = f"{artifact_stem}_{timestamp}"
+
+    for version in count():
+        suffix = "" if version == 0 else f"_{version:03d}"
+        output_folder = output_collection_dir / f"{base_name}{suffix}"
+        try:
+            output_folder.mkdir(parents=True)
+        except FileExistsError:
+            continue
+        return output_folder
+
+
 def save_script(script_text: str, input_path: str, review_record: ReviewRecord | None = None) -> Path:
     """생성된 스크립트를 output 폴더에 저장한다.
-    
-    폴더명: {제목}_{YYYYMMDD_HHMMSS}
-    같은 리뷰 파일로 재생성하면 기존 폴더를 삭제하고 새로 생성한다.
-    """
-    import shutil
 
+    폴더명: {제목}_{YYYYMMDD_HHMMSS}[_NNN]
+    같은 리뷰 파일을 재생성해도 기존 결과를 보존하고 새 run을 만든다.
+    """
     review_record = review_record or make_review_record_from_input_path(input_path)
     safe_title = get_artifact_stem(script_text, review_record)
 
     output_collection_dir = get_output_collection_dir(review_record)
     source_key = get_source_key(review_record)
-
-    # 같은 리뷰 파일(소재)로 생성된 기존 폴더 삭제
-    if output_collection_dir.exists():
-        for existing in output_collection_dir.iterdir():
-            if existing.is_dir():
-                marker = existing / ".source"
-                if marker.exists() and marker.read_text(encoding="utf-8").strip() == source_key:
-                    shutil.rmtree(existing)
-                    safe_print(f"[정리] 이전 결과 삭제: {existing.name}")
-
-    # 새 폴더 생성
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    folder_name = f"{safe_title}_{timestamp}"
-    output_folder = output_collection_dir / folder_name
-    output_folder.mkdir(parents=True, exist_ok=True)
+    output_folder = create_versioned_output_folder(output_collection_dir, safe_title)
 
     # 스크립트 저장
     script_path = output_folder / f"{safe_title}_script.md"

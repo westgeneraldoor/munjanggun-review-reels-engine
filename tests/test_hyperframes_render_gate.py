@@ -1,26 +1,24 @@
 import json
 import os
-import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "hyperframes-render-gate.mjs"
-SCRATCH = ROOT / "scratch" / f"_test_hyperframes_render_gate_{os.getpid()}"
-OUTPUT = ROOT / "output" / f"_test_hyperframes_render_gate_{os.getpid()}"
-
-
 class HyperFramesRenderGateTest(unittest.TestCase):
     def setUp(self):
-        for path in [SCRATCH, OUTPUT]:
-            if path.exists():
-                shutil.rmtree(path)
-        SCRATCH.mkdir(parents=True)
-        OUTPUT.mkdir(parents=True)
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+        self.local_root = Path(self.tempdir.name) / "테스트 공백 경로"
+        self.scratch = self.local_root / "scratch"
+        self.output_root = self.local_root / "output"
+        self.scratch.mkdir(parents=True)
+        self.output_root.mkdir(parents=True)
 
-        self.project_dir = SCRATCH / "hf-project"
+        self.project_dir = self.scratch / "hf-project"
         self.project_dir.mkdir()
         (self.project_dir / "index.html").write_text('<div data-composition-id="main"></div>', encoding="utf-8")
         (self.project_dir / "DESIGN.md").write_text("# fixture design\n", encoding="utf-8")
@@ -36,7 +34,7 @@ class HyperFramesRenderGateTest(unittest.TestCase):
             encoding="utf-8",
         )
 
-        self.package_dir = OUTPUT / "review-package"
+        self.package_dir = self.output_root / "review-package"
         self.package_dir.mkdir()
         (self.package_dir / "STATUS.md").write_text(
             "- html_approved_by_user: true\n- mp4_allowed: true\n",
@@ -60,12 +58,9 @@ class HyperFramesRenderGateTest(unittest.TestCase):
         )
         self.output_mp4 = self.package_dir / "fixture_upload_10mbps.mp4"
 
-    def tearDown(self):
-        for path in [SCRATCH, OUTPUT]:
-            if path.exists():
-                shutil.rmtree(path)
-
     def run_gate(self, *extra_args):
+        env = os.environ.copy()
+        env["MUNJANGGUN_TEST_LOCAL_ROOT"] = str(self.local_root)
         return subprocess.run(
             [
                 "node",
@@ -81,6 +76,7 @@ class HyperFramesRenderGateTest(unittest.TestCase):
                 *extra_args,
             ],
             cwd=ROOT,
+            env=env,
             text=True,
             encoding="utf-8",
             errors="replace",
@@ -202,7 +198,7 @@ class HyperFramesRenderGateTest(unittest.TestCase):
         self.assertFalse(self.output_mp4.exists())
 
     def test_rejects_sync_manifest_outside_package_folder(self):
-        external_manifest = OUTPUT / "external_sync_manifest.json"
+        external_manifest = self.output_root / "external_sync_manifest.json"
         external_manifest.write_text(self.sync_manifest.read_text(encoding="utf-8"), encoding="utf-8")
         self.sync_manifest = external_manifest
 
@@ -214,20 +210,15 @@ class HyperFramesRenderGateTest(unittest.TestCase):
 
     def test_rejects_project_inside_tracked_repo_path(self):
         tracked_project = ROOT / "docs" / "_hf_render_gate_should_not_exist"
-        if tracked_project.exists():
-            shutil.rmtree(tracked_project)
-        tracked_project.mkdir()
-        try:
-            self.project_dir = tracked_project
-            result = self.run_gate()
+        self.assertFalse(tracked_project.exists())
+        self.project_dir = tracked_project
+        result = self.run_gate()
 
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("scratch/ or output/", result.stderr)
-        finally:
-            shutil.rmtree(tracked_project)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scratch/ or output/", result.stderr)
 
     def test_rejects_output_outside_package_folder(self):
-        self.output_mp4 = OUTPUT / "outside_package_upload_10mbps.mp4"
+        self.output_mp4 = self.output_root / "outside_package_upload_10mbps.mp4"
 
         result = self.run_gate()
 

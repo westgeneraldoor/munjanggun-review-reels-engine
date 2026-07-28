@@ -1,8 +1,9 @@
 import json
+import hashlib
 import os
-import shutil
 import stat
 import subprocess
+import tempfile
 import textwrap
 import unittest
 from pathlib import Path
@@ -10,8 +11,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "render-post-qa.mjs"
-OUTPUT = ROOT / "output" / f"_test_render_post_qa_{os.getpid()}"
-SCRATCH = ROOT / "scratch" / f"_test_render_post_qa_{os.getpid()}"
 
 
 def good_ffprobe_payload():
@@ -44,17 +43,19 @@ def good_ffprobe_payload():
 
 class RenderPostQaTest(unittest.TestCase):
     def setUp(self):
-        for path in [OUTPUT, SCRATCH]:
-            if path.exists():
-                shutil.rmtree(path)
-        OUTPUT.mkdir(parents=True)
-        SCRATCH.mkdir(parents=True)
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+        temp_root = Path(self.tempdir.name) / "테스트 공백 경로"
+        self.output_root = temp_root / "output"
+        scratch_root = temp_root / "scratch"
+        self.output_root.mkdir(parents=True)
+        scratch_root.mkdir(parents=True)
 
-        self.bin_dir = SCRATCH / "bin"
+        self.bin_dir = scratch_root / "bin"
         self.bin_dir.mkdir()
         self.write_fake_media_tools()
 
-        self.package_dir = OUTPUT / "review-package"
+        self.package_dir = self.output_root / "review-package"
         self.package_dir.mkdir()
         self.mp4 = self.package_dir / "fixture_final_render_20260622_upload_10mbps.mp4"
         self.mp4.write_bytes(b"fake mp4")
@@ -80,11 +81,6 @@ class RenderPostQaTest(unittest.TestCase):
             encoding="utf-8",
         )
         self.report_dir = self.package_dir / "_work" / "render_post_qa_fixture"
-
-    def tearDown(self):
-        for path in [OUTPUT, SCRATCH]:
-            if path.exists():
-                shutil.rmtree(path)
 
     def write_fake_media_tools(self):
         ffprobe_js = self.bin_dir / "fake_ffprobe.cjs"
@@ -116,9 +112,12 @@ class RenderPostQaTest(unittest.TestCase):
                   console.error(`No image output path found in args: ${process.argv.slice(2).join(' ')}`);
                   process.exit(2);
                 }
-                const cleanOut = String(out).replace(/^['"]|['"]$/g, '');
-                fs.mkdirSync(path.dirname(cleanOut), { recursive: true });
-                fs.writeFileSync(cleanOut, 'fake frame');
+                 const cleanOut = String(out).replace(/^['"]|['"]$/g, '');
+                 fs.mkdirSync(path.dirname(cleanOut), { recursive: true });
+                 fs.writeFileSync(cleanOut, 'fake frame');
+                 if (process.env.FAKE_FFMPEG_MUTATE_MP4_PATH) {
+                   fs.writeFileSync(process.env.FAKE_FFMPEG_MUTATE_MP4_PATH, 'changed after frame extraction');
+                 }
                 """
             ).strip(),
             encoding="utf-8",
@@ -131,8 +130,19 @@ class RenderPostQaTest(unittest.TestCase):
             cmd_path = self.bin_dir / f"{name}.cmd"
             cmd_path.write_text(f"@echo off\r\nnode \"%~dp0\\{target}\" %*\r\n", encoding="utf-8")
 
-    def run_qa(self, *, ffprobe_payload=None, extra_args=None, mp4=None, report_dir=None, sync_manifest=None):
+    def run_qa(
+        self,
+        *,
+        ffprobe_payload=None,
+        extra_args=None,
+        extra_env=None,
+        mp4=None,
+        node_args=None,
+        report_dir=None,
+        sync_manifest=None,
+    ):
         env = os.environ.copy()
+        env["MUNJANGGUN_TEST_LOCAL_ROOT"] = str(self.output_root.parent)
         env["PATH"] = f"{self.bin_dir}{os.pathsep}{env.get('PATH', '')}"
         env["FFPROBE_BIN"] = "node"
         env["FFPROBE_ARGS_JSON"] = json.dumps([str(self.bin_dir / "fake_ffprobe.cjs")])
@@ -140,10 +150,13 @@ class RenderPostQaTest(unittest.TestCase):
         env["FFMPEG_ARGS_JSON"] = json.dumps([str(self.bin_dir / "fake_ffmpeg.cjs")])
         if ffprobe_payload is not None:
             env["FAKE_FFPROBE_JSON"] = json.dumps(ffprobe_payload)
+        if extra_env:
+            env.update(extra_env)
 
         return subprocess.run(
             [
                 "node",
+                *(node_args or []),
                 str(SCRIPT),
                 "--mp4",
                 str(mp4 or self.mp4),
@@ -174,6 +187,14 @@ class RenderPostQaTest(unittest.TestCase):
         self.assertTrue(markdown_path.exists())
 
         report = json.loads(report_path.read_text(encoding="utf-8"))
+        self.assertEqual(report["schema_version"], "1.2")
+        self.assertEqual(report["package_identity"], {"package_path": str(self.package_dir.resolve()), "package_name": self.package_dir.name})
+        self.assertEqual(report["mp4_relative_path"], self.mp4.name)
+        self.assertEqual(report["mp4_bytes"], self.mp4.stat().st_size)
+        self.assertEqual(report["mp4_sha256"], hashlib.sha256(self.mp4.read_bytes()).hexdigest())
+        self.assertEqual(report["sync_manifest_relative_path"], "sync_manifest.json")
+        self.assertEqual(report["sync_manifest_bytes"], self.sync_manifest.stat().st_size)
+        self.assertEqual(report["sync_manifest_sha256"], hashlib.sha256(self.sync_manifest.read_bytes()).hexdigest())
         self.assertEqual(report["auto_status"], "pass")
         self.assertEqual(report["overall_status"], "manual_review_required")
         self.assertEqual(report["final_status"], "needs_human_review")
@@ -181,6 +202,54 @@ class RenderPostQaTest(unittest.TestCase):
         self.assertEqual(len(report["representative_frames"]), 5)
         for frame in report["representative_frames"]:
             self.assertTrue(Path(frame["path"]).exists())
+
+    def test_fails_when_mp4_changes_during_representative_frame_extraction(self):
+        result = self.run_qa(extra_env={"FAKE_FFMPEG_MUTATE_MP4_PATH": str(self.mp4)})
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("MP4 changed during representative frame extraction", result.stderr)
+        self.assertFalse((self.report_dir / "render_post_qa_report.json").exists())
+
+    def test_rejects_sync_manifest_bytes_that_differ_from_the_parsed_snapshot(self):
+        valid_sync_text = self.sync_manifest.read_text(encoding="utf-8")
+        stale_sync = json.loads(valid_sync_text)
+        stale_sync["audio"]["total_voice_cps"] = 99.0
+        self.sync_manifest.write_text(json.dumps(stale_sync), encoding="utf-8")
+        preload = self.bin_dir / "swap_sync_read.cjs"
+        preload.write_text(
+            textwrap.dedent(
+                """
+                const fs = require('node:fs');
+                const path = require('node:path');
+                const originalReadFileSync = fs.readFileSync;
+                const target = path.resolve(process.env.FAKE_SYNC_READ_TARGET);
+                let targetReads = 0;
+                fs.readFileSync = function(filePath, options) {
+                  if (path.resolve(String(filePath)) === target) {
+                    targetReads += 1;
+                    if (targetReads > 1) {
+                      const replacement = Buffer.from(process.env.FAKE_SYNC_SECOND_READ, 'utf8');
+                      return typeof options === 'string' ? replacement.toString(options) : replacement;
+                    }
+                  }
+                  return originalReadFileSync.apply(this, arguments);
+                };
+                """
+            ).strip(),
+            encoding="utf-8",
+        )
+
+        result = self.run_qa(
+            node_args=["--require", str(preload)],
+            extra_env={
+                "FAKE_SYNC_READ_TARGET": str(self.sync_manifest),
+                "FAKE_SYNC_SECOND_READ": valid_sync_text,
+            },
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("total_voice_cps", result.stderr)
+        self.assertFalse((self.report_dir / "render_post_qa_report.json").exists())
 
     def test_fails_on_wrong_render_spec_but_writes_report(self):
         payload = good_ffprobe_payload()
@@ -195,7 +264,7 @@ class RenderPostQaTest(unittest.TestCase):
         self.assertEqual(report["final_status"], "blocked")
 
     def test_rejects_report_dir_outside_package(self):
-        outside_report_dir = OUTPUT / "outside_report"
+        outside_report_dir = self.output_root / "outside_report"
 
         result = self.run_qa(report_dir=outside_report_dir)
 

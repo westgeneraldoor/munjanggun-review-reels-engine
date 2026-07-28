@@ -1,33 +1,30 @@
 import json
 import os
-import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "recipe-to-hyperframes-pilot.mjs"
-SCRATCH = ROOT / "scratch" / f"_test_hyperframes_adapter_{os.getpid()}"
 
 
 class HyperFramesAdapterTest(unittest.TestCase):
     def setUp(self):
-        if SCRATCH.exists():
-            shutil.rmtree(SCRATCH)
-        (SCRATCH / "package" / "images").mkdir(parents=True)
-        (SCRATCH / "package" / "images" / "after.jpg").write_bytes(b"fake image")
-        (SCRATCH / "package" / "voice.mp3").write_bytes(b"fake audio")
-
-    def tearDown(self):
-        if SCRATCH.exists():
-            shutil.rmtree(SCRATCH)
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+        self.local_root = Path(self.tempdir.name) / "테스트 공백 경로"
+        self.scratch = self.local_root / "scratch"
+        (self.scratch / "package" / "images").mkdir(parents=True)
+        (self.scratch / "package" / "images" / "after.jpg").write_bytes(b"fake image")
+        (self.scratch / "package" / "voice.mp3").write_bytes(b"fake audio")
 
     def write_recipe(self, *, sync_ok=True, meaning_match=True):
         recipe = {
             "title": "fixture pilot",
             "source": {
-                "package_dir": str(SCRATCH / "package"),
+                "package_dir": str(self.scratch / "package"),
                 "image_dir": "images",
                 "voice": "voice.mp3",
             },
@@ -55,14 +52,17 @@ class HyperFramesAdapterTest(unittest.TestCase):
                 "issues": [] if sync_ok else [{"code": "fixture_fail"}],
             },
         }
-        recipe_path = SCRATCH / "package" / "fixture_edit_recipe.json"
+        recipe_path = self.scratch / "package" / "fixture_edit_recipe.json"
         recipe_path.write_text(json.dumps(recipe, ensure_ascii=False), encoding="utf-8")
         return recipe_path
 
     def run_adapter(self, recipe_path, out_dir, *extra_args):
+        env = os.environ.copy()
+        env["MUNJANGGUN_TEST_LOCAL_ROOT"] = str(self.local_root)
         return subprocess.run(
             ["node", str(SCRIPT), "--recipe", str(recipe_path), "--out", str(out_dir), *extra_args],
             cwd=ROOT,
+            env=env,
             text=True,
             encoding="utf-8",
             errors="replace",
@@ -72,7 +72,7 @@ class HyperFramesAdapterTest(unittest.TestCase):
 
     def test_generates_hyperframes_pilot_from_qa_passed_recipe(self):
         recipe_path = self.write_recipe()
-        out_dir = SCRATCH / "out"
+        out_dir = self.scratch / "out"
 
         result = self.run_adapter(recipe_path, out_dir)
 
@@ -93,7 +93,7 @@ class HyperFramesAdapterTest(unittest.TestCase):
 
     def test_can_generate_scene_subcompositions(self):
         recipe_path = self.write_recipe()
-        out_dir = SCRATCH / "subcompositions"
+        out_dir = self.scratch / "subcompositions"
 
         result = self.run_adapter(recipe_path, out_dir, "--subcompositions")
 
@@ -127,7 +127,7 @@ class HyperFramesAdapterTest(unittest.TestCase):
 
     def test_rejects_recipe_without_passing_sync_manifest(self):
         recipe_path = self.write_recipe(sync_ok=False)
-        out_dir = SCRATCH / "bad-sync"
+        out_dir = self.scratch / "bad-sync"
 
         result = self.run_adapter(recipe_path, out_dir)
 
@@ -137,7 +137,7 @@ class HyperFramesAdapterTest(unittest.TestCase):
 
     def test_rejects_recipe_without_meaning_match(self):
         recipe_path = self.write_recipe(meaning_match=False)
-        out_dir = SCRATCH / "bad-meaning"
+        out_dir = self.scratch / "bad-meaning"
 
         result = self.run_adapter(recipe_path, out_dir)
 

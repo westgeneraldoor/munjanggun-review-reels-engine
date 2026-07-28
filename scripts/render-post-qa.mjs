@@ -1,11 +1,17 @@
 #!/usr/bin/env node
 import fs from "fs";
+import crypto from "crypto";
 import path from "path";
 import { spawnSync } from "child_process";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(__filename), "..");
+// Test-only boundary: unit tests may supply a TemporaryDirectory that mirrors
+// the ignored output/ and scratch/ layout. Production commands never set this.
+const testLocalRoot = process.env.MUNJANGGUN_TEST_LOCAL_ROOT
+  ? path.resolve(process.env.MUNJANGGUN_TEST_LOCAL_ROOT)
+  : null;
 
 function die(message) {
   console.error(message);
@@ -23,9 +29,17 @@ function requireArg(name) {
   return value;
 }
 
-function readJson(filePath) {
+function readBoundJson(filePath, packageDir) {
+  const bytes = fs.readFileSync(filePath);
   try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+    return {
+      evidence: {
+        relative_path: path.relative(packageDir, filePath).split(path.sep).join("/"),
+        bytes: bytes.length,
+        sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+      },
+      value: JSON.parse(bytes.toString("utf8")),
+    };
   } catch (error) {
     die(`Invalid JSON: ${filePath}\n${error.message}`);
   }
@@ -36,20 +50,30 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
-function relativeFromRepo(targetPath) {
-  return path.relative(repoRoot, path.resolve(targetPath));
+function localRootKind(targetPath) {
+  for (const root of [repoRoot, testLocalRoot].filter(Boolean)) {
+    const relative = path.relative(root, path.resolve(targetPath));
+    if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) {
+      return relative.split(path.sep)[0];
+    }
+  }
+  return null;
 }
 
-function isInsideRepo(targetPath) {
-  const relative = relativeFromRepo(targetPath);
-  return relative && !relative.startsWith("..") && !path.isAbsolute(relative);
+function sha256(filePath) {
+  return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+}
+
+function boundFileEvidence(filePath, packageDir) {
+  return {
+    relative_path: path.relative(packageDir, filePath).split(path.sep).join("/"),
+    bytes: fs.statSync(filePath).size,
+    sha256: sha256(filePath),
+  };
 }
 
 function ensureInsideOutput(targetPath, label) {
-  if (!isInsideRepo(targetPath)) {
-    die(`${label} must stay inside this repository.`);
-  }
-  const first = relativeFromRepo(targetPath).split(path.sep)[0];
+  const first = localRootKind(targetPath);
   if (first !== "output") {
     die(`${label} must be under output/.`);
   }
@@ -255,7 +279,8 @@ if (!path.basename(mp4Path).includes("upload_10mbps")) {
   die("MP4 filename must include upload_10mbps.");
 }
 
-const syncManifest = readJson(syncManifestPath);
+const mp4Input = boundFileEvidence(mp4Path, packageDir);
+const { evidence: syncManifestInput, value: syncManifest } = readBoundJson(syncManifestPath, packageDir);
 if (syncManifest.ok !== true) {
   die("sync_manifest.ok must be true for post-render QA.");
 }
@@ -324,13 +349,27 @@ const autoChecks = [
 
 const failedChecks = autoChecks.filter((item) => item.status === "fail");
 const frames = extractRepresentativeFrames(mp4Path, reportDir, duration);
+const mp4AfterFrames = boundFileEvidence(mp4Path, packageDir);
+if (mp4AfterFrames.bytes !== mp4Input.bytes || mp4AfterFrames.sha256 !== mp4Input.sha256) {
+  die("MP4 changed during representative frame extraction; post-render QA report was not written.");
+}
 
 const report = {
-  schema_version: "1.0",
+  schema_version: "1.2",
   generated_at: new Date().toISOString(),
   mp4_path: mp4Path,
+  mp4_relative_path: mp4Input.relative_path,
+  mp4_bytes: mp4Input.bytes,
+  mp4_sha256: mp4Input.sha256,
   package_dir: packageDir,
+  package_identity: {
+    package_path: packageDir,
+    package_name: path.basename(packageDir),
+  },
   sync_manifest_path: syncManifestPath,
+  sync_manifest_relative_path: syncManifestInput.relative_path,
+  sync_manifest_bytes: syncManifestInput.bytes,
+  sync_manifest_sha256: syncManifestInput.sha256,
   auto_status: failedChecks.length === 0 ? "pass" : "fail",
   overall_status: failedChecks.length === 0 ? "manual_review_required" : "blocked",
   final_status: failedChecks.length === 0 ? "needs_human_review" : "blocked",

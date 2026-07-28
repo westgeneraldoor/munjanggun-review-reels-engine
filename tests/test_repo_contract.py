@@ -37,8 +37,8 @@ class RepoContractTest(unittest.TestCase):
         self.assertTrue(workflow_path.exists(), "GitHub Actions validate.yml이 필요합니다.")
 
         text = workflow_path.read_text(encoding="utf-8")
-        self.assertIn("python -m unittest discover -s tests", text)
-        self.assertIn("npm run validate", text)
+        self.assertEqual(text.count("run: npm run validate"), 1)
+        self.assertNotIn("python -m unittest discover -s tests", text)
 
     def test_package_json_exposes_test_and_validate_scripts(self):
         package_path = ROOT / "package.json"

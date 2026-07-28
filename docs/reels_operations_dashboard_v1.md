@@ -1,6 +1,6 @@
 # 문장군 리뷰 릴스 운영 대시보드 v1
 
-마지막 업데이트: 2026-06-17
+마지막 운영 원칙 갱신: 2026-07-28
 
 이 문서는 신규 세션에서 `리뷰 릴스 만들자`라고 했을 때 가장 먼저 보는 릴스 운영 현황판입니다.
 `PROJECT_DASHBOARD.md`가 전체 프로젝트 현황판이라면, 이 문서는 **인스타 릴스 제작/발행 관제판**입니다.
@@ -15,29 +15,36 @@
 | 캡션/해시태그 기준 | `docs/instagram_caption_hashtag_rules_v2.md` |
 | 소재 개인정보 기준 | `docs/reels_privacy_asset_qa_rules_v1.md` |
 | 작가 페르소나 | `docs/reels_writer_persona_v1.md` |
-| HTML 전 QA | `python -m video_engine_v2.reels_qa --planning ... --edit ...` |
+| HTML 전 공식 preflight | `python scripts/produce_review_v2.py preflight --package ... --planning ... --edit ... --privacy-manifest ... --sync-manifest ...` |
 | 정식 리뷰 원본 | `reviews/inbox_20260609/` |
-| 현재 제작 완료 릴스 | 9개 |
-| 다음 추천 후보 | 후보 보충 필요 |
-| 현재 진행 상태 | 036/088/100/115/116 업로드용 MP4 렌더 완료, 다음 후보 보충 단계 |
+| live package state 원본 | `python -m video_engine_v2.package_state --output-root "<output root>" --report "<outside-output>/package-state.json"` |
+| published / performance | 증거 장부가 없으면 `unknown`; 수동 숫자로 추정하지 않음 |
 | 사진 투입 안내 | `docs/reels_photo_intake_20260612.md` |
 | 최종 MP4 스펙 | 1080x1920 / 30fps / 약 9~10Mbps / AAC 44.1kHz stereo 192k |
 
-## 제작 완료 릴스
+## Live package state
 
-| ID | 콘텐츠명 | 목적 | 최신 최종 MP4 | 상태 |
-|----|----------|------|---------------|------|
-| 005 | 여름에어컨 | 광고 테스트 1순위 / 계절 공감 | `005_여름에어컨_ad_v2_final_render_20260612_upload_10mbps.mp4` | 업로드용 완료 |
-| 010 | 구축소음 | 구축/빌라 전환형 | `010_구축소음_old_building_noise_v2_final_render_20260612_upload_10mbps.mp4` | 업로드용 완료 |
-| 004 | 어려운시공 | 브랜드 신뢰/전문성 | `004_difficult_installation_privacyfix_v1_final_render_20260616_upload_10mbps.mp4` | privacyfix 재렌더 |
-| 020 | 로봇청소구축리모델링 | 생활동선/방문교체 | `020_로봇청소구축리모델링_living_flow_geninsert_v3_final_render_20260612_upload_10mbps.mp4` | 업로드용 완료 |
-| 036 | 냄새먼지깔끔시공 | 방문교체/생활불편 | `036_냄새먼지깔끔시공_damp_bathroom_door_v1_final_render_20260617_upload_10mbps.mp4` | 업로드용 완료 |
-| 088 | 소음차단냄새먼지 | 종합 전환형 | `088_소음차단냄새먼지_open_privacy_noise_cold_v1_final_render_20260617_upload_10mbps.mp4` | 업로드용 완료 |
-| 100 | 층간소음구축리모델링 | 전문성/난이도 | `100_층간소음구축리모델링_difficult_three_openings_v1_final_render_20260617_upload_10mbps.mp4` | 업로드용 완료 |
-| 115 | 구축리모델링이사중문 | 구축/현장제약 | `115_구축리모델링이사중문_crooked_gapwall_v1_final_render_20260617_upload_10mbps.mp4` | 업로드용 완료 |
-| 116 | 친절상담기사칭찬 | 가격비교/마감신뢰 | `116_친절상담기사칭찬_top_finish_trust_v1_final_render_20260617_upload_10mbps.mp4` | 업로드용 완료 |
+이 문서는 수동 완료 목록이나 발행·성과 숫자의 진실 원본이 아닙니다. 숫자 package,
+upload MP4 artifact, render QA, published, performance는 매 세션 위
+`package_state.py` read-only scan 결과로만 판단합니다. 2026-07-28 read-only
+snapshot에서도 published와 performance는 증거 부족으로 `unknown`이며, 사용자가
+약 12편 이상 게시했다고 기억해도 장부 없이 true/false로 바꾸지 않습니다.
+
+scan summary의 `upload_mp4_package_count`와 `upload_mp4_artifact_count`는 파일 존재
+숫자이고, `post_render_qa_pass_evidence_package_count`는 과거 `auto_status: pass`
+기록 숫자입니다. `render_complete_true_count`는 현재 MP4의 package-relative path,
+bytes, SHA-256까지 QA report와 일치한 경우만 셉니다. hash 없는 legacy QA pass는
+`render_complete_unknown_count`와 `render_evidence_limitation_count`로 남으며, 기존
+upload MP4 package를 삭제하거나 자동 재렌더 대상으로 해석하지 않습니다.
+
+`video_engine_v2.reels_qa`는 internal diagnostic module이고, production
+산출물 생성은 `scripts/produce_review_v2.py`만 사용합니다.
 
 ## 다음 제작 후보
+
+아래 후보 표는 과거 기획 메모이며 package completion, published, performance의
+live 원본이 아닙니다. 신규 세션은 package state scan과 리뷰 원문·사진 상태를
+우선합니다.
 
 | 우선순위 | ID | 리뷰 파일 | 점수 | 추천 목적 | 예상 훅 방향 | 필요한 사진 |
 |----------|----|-----------|------|-----------|--------------|-------------|
@@ -60,25 +67,16 @@
 
 ## 릴스 제작 칸반
 
-| 단계 | 의미 | 현재 대상 | 다음 액션 |
-|------|------|-----------|-----------|
-| 후보선정 | 리뷰 후보 3개 제안/선택 | 없음 | 5개 렌더 후 후보 보충 |
-| 폴더준비 | output 패키지 + 이미지 폴더 생성 | 033, 114, 098, 034, 025, 105 | 완료 |
-| 사진대기 | 사용자가 현장 사진 투입 | 없음 | 5개 렌더 후 다음 후보 폴더 준비 |
-| 사진검수 | 사진 내용/파일명/부족 컷 확인 | 없음 | 이미지 역할 매핑 후 우선 제작 후보 결정 |
-| 기획 | 목적/훅/타임라인/CTA/scene 의미 일치 계획 결정 | 없음 | PD 기획안 제시 후 사용자 승인 |
-| HTML | HTML 프리뷰 제작 | 없음 | 다음 후보 보충 후 진행 |
-| 수정 | 사용자 피드백 반영 | 없음 | 싱크/자막/전환/사진 보정 |
-| 렌더 | 업로드용 MP4 생성 | 없음 | 완료 |
-| 발행준비 | 캡션/해시태그 최종 점검 | 없음 | script.md 내부 섹션 확인 |
-| 후보보충 | 완료 후 다음 후보군 준비 | 상위 미제작 A/B권 | 대시보드 갱신 + 새 사진 폴더 생성 |
+칸반의 현재 대상·완료 표시는 수동 상태를 유지하지 않습니다. 신규 세션은 live
+package state scan으로 package를 확인한 뒤 사진/승인/QA 증거에 따라 다음 액션을
+결정합니다.
 
 ## 신규 세션에서 Codex가 먼저 할 일
 
 `리뷰 릴스 만들자` 요청을 받으면:
 
 1. 이 문서와 `docs/review_video_publish_workflow_v2.md`를 읽습니다.
-2. 제작 완료 릴스 4개를 중복 제작하지 않습니다.
+2. live package state scan에서 같은 review ID의 package와 증거를 확인해 중복 제작을 막습니다.
 3. 다음 후보 033, 114, 098을 먼저 제안합니다.
 4. 사용자가 특정 리뷰 번호를 말하면 후보 제안보다 해당 리뷰 확인을 우선합니다. 단, 번호 지정은 HTML 제작 승인이 아닙니다.
 5. 리뷰 패키지의 `STATUS.md`와 `APPROVAL_LOG.md`를 먼저 확인합니다. 없으면 생성하고 `mp4_allowed: false`로 둡니다.
@@ -88,11 +86,13 @@
 9. `docs/reels_writer_persona_v1.md` 기준으로 작가 브리프를 작성합니다.
 10. 훅 후보/PD 기획안/scene 의미 일치 계획표까지만 먼저 작성합니다.
 11. 사용자 기획 승인 전에는 script/SRT/TTS/HTML을 생성하지 않습니다.
-12. HTML 생성 전 `video_engine_v2.reels_qa` preflight를 통과해야 합니다. privacy review 또는 sanitization report가 없으면 실패입니다.
+12. HTML 생성 전 `scripts/produce_review_v2.py preflight`를 통과해야 합니다. privacy report/manifest/asset hash 결속이 없으면 실패입니다.
 13. HTML 승인 전에는 최종 MP4를 렌더하지 않습니다.
-14. 최종 MP4는 `*_upload_10mbps.mp4` 스펙으로만 완료 처리합니다.
+14. 최종 MP4는 `*_upload_10mbps.mp4` 스펙과 현재 MP4·sync manifest 모두에 결속된
+    post-render QA evidence가 함께 있을 때만 `render_complete`로 처리합니다. 과거 QA
+    pass와 upload MP4 존재는 별도 상태입니다.
 15. 마지막에 `*_script.md`의 캡션/해시태그까지 점검합니다.
-16. 릴스 1건이 완료되면 이 대시보드에서 완료 목록/칸반/다음 후보를 즉시 갱신합니다.
+16. 릴스 1건이 완료되면 package evidence를 남기고 다음 세션에서 live package state scan으로 다시 확인합니다.
 17. 다음 후보군이 3개 미만으로 줄면 새 후보를 보충하고, 필요 시 사진 투입 폴더까지 미리 생성합니다.
 
 ## 사용자가 결정하는 지점
@@ -131,19 +131,18 @@
 - planning/edit recipe
 - contact sheet
 - 캡션/해시태그
-- `_context.md` 또는 이 대시보드의 진행 상태 업데이트
+- package evidence 및 다음 후보 판단 기록
 - 다음 후보군 보충 여부 확인
 
 ## 완료 후 자동 운영 규칙
 
 릴스 1건이 끝나면 Codex는 아래를 같은 턴에 처리해야 합니다.
 
-1. `제작 완료 릴스` 표에 완료 리뷰를 추가하거나 상태를 `업로드용 완료`로 변경합니다.
-2. `릴스 제작 칸반`에서 해당 리뷰를 제거하고 다음 단계 대상을 갱신합니다.
-3. `다음 제작 후보`에서 완료된 리뷰를 제외합니다.
-4. 후보가 3개 미만이면 `PROJECT_DASHBOARD.md`와 점수표에서 미제작 A/B권 후보를 보충합니다.
-5. 새 후보군이 확정되면 사용자가 바로 사진을 넣을 수 있도록 output 패키지 폴더와 `*_이미지` 폴더를 준비합니다.
-6. 새 사진 폴더 안내 문서를 만들거나 기존 `docs/reels_photo_intake_YYYYMMDD.md`를 갱신합니다.
-7. `_context.md`에 완료 리뷰, 새 후보, 사진대기 폴더를 기록합니다.
+1. 수동 완료 표나 수동 발행·성과 숫자를 이 문서에 추가하지 않습니다.
+2. package의 approval/privacy/sync/post-render evidence를 보존하고 다음 세션에서 package state scan으로 다시 확인합니다.
+3. 후보가 3개 미만이면 `PROJECT_DASHBOARD.md`와 점수표에서 미제작 A/B권 후보를 보충합니다.
+4. 새 후보군이 확정되면 사용자가 바로 사진을 넣을 수 있도록 output 패키지 폴더와 `*_이미지` 폴더를 준비합니다.
+5. 새 사진 폴더 안내 문서를 만들거나 기존 `docs/reels_photo_intake_YYYYMMDD.md`를 갱신합니다.
+6. `_context.md`에는 후보·사진대기 판단만 기록하고, 완료·발행·성과의 진실 원본으로 사용하지 않습니다.
 
 이 규칙 때문에 `리뷰 릴스 만들자` 워크플로는 한 건 제작 후에도 다음 제작 대기열이 끊기지 않아야 합니다.

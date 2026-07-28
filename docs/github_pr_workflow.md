@@ -64,10 +64,11 @@ git status --short
 python -m unittest discover -s tests
 ```
 
-릴스 엔진 변경이면 해당 릴스의 QA도 실행합니다.
+릴스 엔진 변경에서 production preflight 계약을 점검해야 하면 공식
+오케스트레이터를 사용합니다.
 
 ```powershell
-python -m video_engine_v2.reels_qa --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --sync-manifest-out "<sync_manifest.json>"
+python scripts/produce_review_v2.py preflight --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json"
 ```
 
 렌더 관련 변경이면 ffprobe, 대표 프레임, 개인정보 노출 검수까지 확인합니다.

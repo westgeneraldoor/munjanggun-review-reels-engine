@@ -23,6 +23,16 @@
 - `node_modules/`, `.codex_deps/`
 - 로컬 폰트 파일
 
+## Format Status
+
+- v2: current production
+- v3: experimental
+- v3.1: experimental
+
+See `docs/reels_format_status_v1.md` for the distinct v3/v3.1 hypotheses,
+shared Instagram and Naver Clip engine, and the boundary that keeps experiments
+from changing v2 production rules.
+
 ## Local Setup
 
 1. Copy `.env.example` to `.env`.
@@ -43,17 +53,47 @@ npm install
 
 ## Core Commands
 
-Run QA before HTML or MP4 work:
+Current v2 production work must use the single official entry point below. The
+underlying QA, HTML builder, and renderer reject production work without its
+gate receipt.
 
 ```powershell
-python -m video_engine_v2.reels_qa --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --sync-manifest-out "<sync_manifest.json>"
+# 1. PD approval, privacy evidence, review-source contract, and asset checks.
+#    This creates sync_manifest.json without creating HTML or MP4 output.
+python scripts/produce_review_v2.py preflight --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json"
+
+# 2. Build the HTML preview after the preflight gate succeeds.
+python scripts/produce_review_v2.py html --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json"
+
+# 3. Only after recorded HTML and explicit MP4 approval, render the final preset.
+python scripts/produce_review_v2.py render --package "<output review package>" --html "<html_preview>/index.html" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --out "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4"
 ```
 
-Build HTML preview:
+The final v2 command enforces 1080x1920, 30fps, H.264/yuv420p, AAC 44.1kHz
+stereo, and the approved 11 Mbps video preset. It refuses pre-existing MP4 or
+frame directories rather than overwriting them.
 
-```powershell
-python build_html_preview_v2.py --recipe "<edit_recipe.json>"
-```
+The privacy manifest is a binding evidence record: it must include a non-empty
+`checked_at`, a local sanitization report, no unresolved risks, and the exact
+selected asset set with package-relative paths, byte counts, and SHA-256
+hashes. A changed asset or manifest makes the verified sync manifest stale and
+requires a fresh preflight; there is no bypass flag.
+
+`video_engine_v2.reels_qa`, `build_html_preview_v2.py`, and
+`render_html_preview_v2.js` are internal components of this production path.
+`video_engine_v2.reels_qa` is an internal diagnostic module, not an official
+production artifact-generation entry point.
+
+After HTML generation, the orchestrator records
+`*_html_preview_v2/html_artifact_evidence.json` with the exact HTML SHA-256 and
+its HTML gate receipt hash. It also records every renderer dependency: package
+image/voice and the repository-local engine font, each with kind, scope,
+relative path, bytes, and SHA-256. `sync_manifest.json` separately binds the
+voice path/bytes/SHA-256, so a changed voice makes both sync and HTML approval
+stale. Explicit user approval must be recorded separately in `HTML_APPROVAL.json`
+with package identity, relative path, HTML SHA-256, approval timestamp, and an
+approval evidence reference; its artifact-evidence hash binds the full dependency
+list. A legacy boolean-only approval is not render authorization.
 
 Build an official HyperFrames Studio pilot from an approved edit recipe.
 This is a pilot preview path, not the production renderer yet:
@@ -87,14 +127,31 @@ node scripts/render-post-qa.mjs --mp4 "<output review package>/<review-id>_final
 ```
 
 This writes local `render_post_qa_report.json`, `render_post_qa_report.md`, and representative frames under the ignored review package `_work/` folder. Passing automatic checks still leaves `overall_status: manual_review_required` until a human reviews privacy, captions, and sync.
+New QA reports bind the exact upload MP4 and the used `sync_manifest.json` with
+package-relative paths, bytes, and SHA-256. In read-only package state, a
+historical QA `pass` is separate from a current hash-verified `render_complete:
+true`: both the MP4 and current sync manifest must still match. Hashless legacy
+reports remain `unknown`. Existing upload MP4 packages are preserved, not a
+deletion or automatic re-render queue. Published and performance remain `unknown`
+without their own retained evidence.
 
-Render approved HTML to upload MP4:
+## Cleanup proposals are read-only
+
+Use the candidate scanner only to prepare a manual review. It has no apply or
+delete mode, excludes reviews/final uploads/recipes/privacy and post-render
+evidence, and refuses to write its report inside scanned artifact folders.
 
 ```powershell
-node render_html_preview_v2.js --html "<html_preview>/index.html" --out "<output>_upload_10mbps.mp4" --fps 30 --width 1080 --height 1920
+python scripts/cleanup_dry_run.py --root "<local artifact root>" --report "<outside-output-scratch-reviews>/cleanup-dry-run.json"
 ```
 
-The command above is the current production render path. HyperFrames render is allowed only through `scripts/hyperframes-render-gate.mjs` and the staged gates in `docs/hyperframes_official_adoption_plan_v1.md`.
+An explicit, separate approval is required before any future cleanup action is
+considered.
+
+HyperFrames remains a pilot path. Its render is allowed only through
+`scripts/hyperframes-render-gate.mjs` and the staged gates in
+`docs/hyperframes_official_adoption_plan_v1.md`; it is not the v2 production
+renderer.
 
 ## Operating Rules
 

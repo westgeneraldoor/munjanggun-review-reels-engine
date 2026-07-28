@@ -5,6 +5,11 @@ import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(__filename), "..");
+// Test-only boundary: unit tests may supply a TemporaryDirectory that mirrors
+// the ignored output/ and scratch/ layout. Production commands never set this.
+const testLocalRoot = process.env.MUNJANGGUN_TEST_LOCAL_ROOT
+  ? path.resolve(process.env.MUNJANGGUN_TEST_LOCAL_ROOT)
+  : null;
 const HYPERFRAMES_VERSION = "0.6.121";
 
 function die(message) {
@@ -58,12 +63,11 @@ function safeAssetName(role, filename) {
 }
 
 function ensureLocalOutputPath(outDir) {
-  const relative = path.relative(repoRoot, outDir);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    die("Refusing to copy customer media outside this repository. Use --out under scratch/ or output/.");
-  }
-
-  const first = relative.split(path.sep)[0];
+  const first = [repoRoot, testLocalRoot]
+    .filter(Boolean)
+    .map((root) => path.relative(root, outDir))
+    .find((relative) => relative && !relative.startsWith("..") && !path.isAbsolute(relative))
+    ?.split(path.sep)[0];
   if (!["scratch", "output"].includes(first)) {
     die("Refusing to generate customer-media HyperFrames project inside a tracked repo path. Use --out under scratch/ or output/.");
   }
