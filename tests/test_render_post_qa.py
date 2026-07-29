@@ -188,7 +188,8 @@ class RenderPostQaTest(unittest.TestCase):
 
         report = json.loads(report_path.read_text(encoding="utf-8"))
         self.assertEqual(report["schema_version"], "1.2")
-        self.assertEqual(report["package_identity"], {"package_path": str(self.package_dir.resolve()), "package_name": self.package_dir.name})
+        self.assertEqual(report["package_identity"]["package_name"], self.package_dir.name)
+        self.assertTrue(os.path.samefile(report["package_identity"]["package_path"], self.package_dir))
         self.assertEqual(report["mp4_relative_path"], self.mp4.name)
         self.assertEqual(report["mp4_bytes"], self.mp4.stat().st_size)
         self.assertEqual(report["mp4_sha256"], hashlib.sha256(self.mp4.read_bytes()).hexdigest())

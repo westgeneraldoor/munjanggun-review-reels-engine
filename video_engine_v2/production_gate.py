@@ -149,7 +149,13 @@ def _require_package_identity(
     expected = _package_identity(package_dir)
     if not all(isinstance(value.get(key), str) and value[key] for key in expected):
         raise GateViolation(invalid_code)
-    if any(value[key] != expected[key] for key in expected):
+    if value["package_name"] != expected["package_name"]:
+        raise GateViolation(mismatch_code)
+    try:
+        same_package = os.path.samefile(value["package_path"], expected["package_path"])
+    except OSError:
+        same_package = False
+    if not same_package:
         raise GateViolation(mismatch_code)
 
 

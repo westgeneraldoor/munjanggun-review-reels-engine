@@ -21,6 +21,14 @@ from video_engine_v2.production_gate import (  # noqa: E402
 )
 
 
+def configure_utf8_output() -> None:
+    """Keep Korean paths printable when a Windows runner defaults to cp1252."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def _common_arguments(parser: argparse.ArgumentParser, *, include_recipes: bool) -> None:
     parser.add_argument("--package", required=True)
     parser.add_argument("--privacy-manifest", required=True)
@@ -47,6 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_utf8_output()
     args = build_parser().parse_args(argv)
     try:
         if args.command == "preflight":

@@ -11,6 +11,8 @@ class CiValidationTest(unittest.TestCase):
 
         self.assertEqual(workflow.count("run: npm run validate"), 1)
         self.assertNotIn("python -m unittest discover -s tests", workflow)
+        self.assertIn('PYTHONUTF8: "1"', workflow)
+        self.assertIn("PYTHONIOENCODING: utf-8", workflow)
 
 
 if __name__ == "__main__":

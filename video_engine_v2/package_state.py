@@ -10,6 +10,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 from typing import Any
@@ -198,6 +199,20 @@ def _package_identity(package_dir: Path) -> dict[str, str]:
     return {"package_path": str(package), "package_name": package.name}
 
 
+def _package_identity_matches(value: Any, package_dir: Path) -> bool:
+    if not isinstance(value, dict):
+        return False
+    expected = _package_identity(package_dir)
+    package_path = value.get("package_path")
+    package_name = value.get("package_name")
+    if not isinstance(package_path, str) or not package_path or package_name != expected["package_name"]:
+        return False
+    try:
+        return os.path.samefile(package_path, expected["package_path"])
+    except OSError:
+        return False
+
+
 def _validate_hash_bound_post_render_report(
     payload: dict[str, Any],
     *,
@@ -211,7 +226,7 @@ def _validate_hash_bound_post_render_report(
     identity = payload.get("package_identity")
     if not isinstance(identity, dict):
         return None, "post_render_qa_package_identity_missing"
-    if identity != _package_identity(package_dir):
+    if not _package_identity_matches(identity, package_dir):
         return None, "post_render_qa_package_identity_mismatch"
     relative_path = payload.get("mp4_relative_path")
     if not isinstance(relative_path, str) or not relative_path.strip() or Path(relative_path).is_absolute():

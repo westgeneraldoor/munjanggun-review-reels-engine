@@ -23,10 +23,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class ProductionGateTests(unittest.TestCase):
     def setUp(self):
-        self.tempdir = tempfile.TemporaryDirectory()
+        self.tempdir = tempfile.TemporaryDirectory(dir=ROOT, prefix=".test-production-gate-")
+        self.addCleanup(self.assert_temporary_directory_removed, Path(self.tempdir.name))
         self.addCleanup(self.tempdir.cleanup)
         self.root = Path(self.tempdir.name) / "테스트 공백 경로"
         self.font_tempdir = tempfile.TemporaryDirectory(dir=ROOT, prefix=".test-font-")
+        self.addCleanup(self.assert_temporary_directory_removed, Path(self.font_tempdir.name))
         self.addCleanup(self.font_tempdir.cleanup)
         self.engine_root = Path(self.font_tempdir.name)
         self.engine_font = self.engine_root / "fixture-font.ttf"
@@ -49,6 +51,14 @@ class ProductionGateTests(unittest.TestCase):
         self.html = self.package / "001_demo_v2_html_preview_v2" / "index.html"
         self.output = self.package / "001_demo_final_render_20300102_upload_10mbps.mp4"
         self.write_valid_package()
+
+    def assert_temporary_directory_removed(self, path: Path):
+        self.assertFalse(path.exists(), f"Temporary test directory was retained: {path}")
+
+    def test_fixture_package_and_font_temporaries_share_the_repository_root(self):
+        self.assertEqual(Path(self.tempdir.name).parent, ROOT)
+        self.assertEqual(Path(self.font_tempdir.name).parent, ROOT)
+        self.assertNotEqual(self.tempdir.name, self.font_tempdir.name)
 
     def write_valid_package(self):
         assets = self.package / "assets"
@@ -539,6 +549,21 @@ class ProductionGateTests(unittest.TestCase):
 
         self.assertEqual(receipt["html_sha256"], hashlib.sha256(self.html.read_bytes()).hexdigest())
         self.assertEqual(receipt["html_approval_path"], str(approval_path.resolve()))
+
+    def test_render_gate_accepts_the_same_package_identity_with_a_different_path_spelling(self):
+        artifact_path, approval_path = self.write_bound_html_approval()
+        same_package_with_dot_segment = os.path.join(str(self.package.parent), ".", self.package.name)
+        self.assertNotEqual(same_package_with_dot_segment, str(self.package.resolve()))
+        self.assertTrue(os.path.samefile(same_package_with_dot_segment, self.package))
+        for path in (artifact_path, approval_path):
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["package_identity"]["package_path"] = same_package_with_dot_segment
+            path.write_text(json.dumps(payload), encoding="utf-8")
+        self.refresh_approval_artifact_hash(artifact_path, approval_path)
+
+        receipt = self.render_gate()
+
+        self.assertEqual(receipt["html_sha256"], hashlib.sha256(self.html.read_bytes()).hexdigest())
         self.assertEqual(
             {(item["kind"], item["scope"], item["relative_path"]) for item in receipt.get("render_dependencies", [])},
             {
@@ -698,7 +723,7 @@ class ProductionGateTests(unittest.TestCase):
         self.assert_no_render_artifacts()
 
     def test_render_gate_rejects_html_approval_evidence_from_another_package(self):
-        other_package = self.root / "output" / "other" / "002_demo_20300102_030405"
+        other_package = self.root / "output" / "other" / self.package.name
         other_package.mkdir(parents=True)
         self.write_bound_html_approval(approval_package=other_package)
 
@@ -886,6 +911,8 @@ class ProductionGateTests(unittest.TestCase):
         self.assert_no_render_artifacts()
 
     def test_official_preflight_then_html_creates_a_preview_after_the_gate_passes(self):
+        environment = os.environ.copy()
+        environment.update({"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"})
         preflight = subprocess.run(
             [
                 sys.executable,
@@ -903,8 +930,11 @@ class ProductionGateTests(unittest.TestCase):
                 str(self.sync),
             ],
             cwd=Path(__file__).parents[1],
+            env=environment,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="strict",
         )
         self.assertEqual(preflight.returncode, 0, preflight.stderr)
         self.assertTrue(self.sync.exists())
@@ -928,8 +958,11 @@ class ProductionGateTests(unittest.TestCase):
                 self.engine_font.relative_to(ROOT).as_posix(),
             ],
             cwd=Path(__file__).parents[1],
+            env=environment,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="strict",
         )
         self.assertEqual(html.returncode, 0, html.stderr)
         self.assertTrue(self.html.exists())
@@ -940,6 +973,35 @@ class ProductionGateTests(unittest.TestCase):
             json.loads(artifact_path.read_text(encoding="utf-8"))["html_sha256"],
             hashlib.sha256(self.html.read_bytes()).hexdigest(),
         )
+
+    def test_official_preflight_prints_korean_path_when_parent_stdout_is_cp1252(self):
+        environment = os.environ.copy()
+        environment["PYTHONIOENCODING"] = "cp1252"
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/produce_review_v2.py",
+                "preflight",
+                "--package",
+                str(self.package),
+                "--planning",
+                str(self.planning),
+                "--edit",
+                str(self.edit),
+                "--privacy-manifest",
+                str(self.privacy),
+                "--sync-manifest",
+                str(self.sync),
+            ],
+            cwd=ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("테스트 공백 경로", result.stdout)
 
     def test_production_default_font_name_remains_nelnasamchae(self):
         from video_engine_v2 import production_gate

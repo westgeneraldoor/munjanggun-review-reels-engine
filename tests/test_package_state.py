@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -108,6 +109,21 @@ class PackageStateTests(unittest.TestCase):
         self.assertEqual(report["summary"]["post_render_qa_pass_evidence_package_count"], 1)
         self.assertEqual(report["summary"]["render_complete_true_count"], 1)
         self.assertEqual(report["summary"]["render_evidence_limitation_count"], 0)
+
+    def test_scanner_accepts_a_hash_bound_report_for_the_same_package_with_a_different_path_spelling(self):
+        mp4 = self.write("001_demo_final_render_upload_10mbps.mp4", b"mp4-data")
+        report_path = self.write_hash_bound_post_render_report(mp4)
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        same_package_with_dot_segment = os.path.join(str(self.package.parent), ".", self.package.name)
+        self.assertNotEqual(same_package_with_dot_segment, str(self.package.resolve()))
+        self.assertTrue(os.path.samefile(same_package_with_dot_segment, self.package))
+        report["package_identity"]["package_path"] = same_package_with_dot_segment
+        report_path.write_text(json.dumps(report), encoding="utf-8")
+
+        state = scan_legacy_output(self.output_root)["packages"][0]
+
+        self.assertIs(state["render_complete"], True)
+        self.assertEqual(state["render_evidence_limitations"], [])
 
     def test_scanner_rejects_hash_bound_report_without_sync_manifest_binding(self):
         mp4 = self.write("001_demo_final_render_upload_10mbps.mp4", b"mp4-data")
