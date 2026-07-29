@@ -1,3 +1,6 @@
+import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from datetime import datetime
@@ -5,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import generate
+from video_engine_v2.production_gate import GateViolation
 
 
 class FixedDateTime:
@@ -38,6 +42,32 @@ class GenerateOutputSafetyTests(unittest.TestCase):
 
     def save(self, review_record: generate.ReviewRecord, body: str = "first") -> Path:
         return generate.save_script(f"# 같은 제목\n{body}\n", str(review_record.source_path), review_record)
+
+    def write_generation_approval(
+        self,
+        review_record: generate.ReviewRecord,
+        *,
+        photo_checked: bool = True,
+        pd_approved: bool = True,
+        source_key: str | None = None,
+        package_suffix: str = "",
+    ) -> Path:
+        approval_package = self.base_dir / "approval" / f"{review_record.source_stem}{package_suffix}"
+        approval_package.mkdir(parents=True)
+        (approval_package / ".source").write_text(
+            source_key or generate.get_source_key(review_record),
+            encoding="utf-8",
+        )
+        (approval_package / "STATUS.md").write_text(
+            f"- photo_checked: {str(photo_checked).lower()}\n"
+            f"- pd_plan_approved: {str(pd_approved).lower()}\n",
+            encoding="utf-8",
+        )
+        (approval_package / "APPROVAL_LOG.md").write_text(
+            "- approved_scope: PD planning approved\n" if pd_approved else "- not_approved: PD planning pending\n",
+            encoding="utf-8",
+        )
+        return approval_package
 
     def test_regeneration_preserves_first_run_and_protected_artifact(self):
         review_record = self.write_review("review_001.txt")
@@ -85,6 +115,72 @@ class GenerateOutputSafetyTests(unittest.TestCase):
         self.assertNotEqual(saved_script.parent, collision)
         self.assertEqual(existing_script.read_text(encoding="utf-8"), "existing package")
         self.assertEqual(saved_script.parent.name, "001_같제목_20300102_030405_001")
+
+    def test_generation_gate_accepts_only_matching_source_with_photo_and_pd_approval(self):
+        from video_engine_v2 import production_gate
+
+        validator = getattr(production_gate, "validate_generation_gate", None)
+        self.assertIsNotNone(validator, "generate.py needs a pre-API approval gate")
+        review_record = self.write_review("review_001.txt")
+        approval_package = self.write_generation_approval(review_record)
+
+        validator(approval_package, generate.get_source_key(review_record))
+
+        with self.assertRaises(GateViolation) as raised:
+            validator(approval_package, "reviews/pilot/review_999.txt")
+        self.assertIn("GENERATION_SOURCE_MISMATCH", str(raised.exception))
+
+    def test_generation_gate_rejects_missing_photo_or_pd_approval(self):
+        from video_engine_v2 import production_gate
+
+        validator = getattr(production_gate, "validate_generation_gate", None)
+        self.assertIsNotNone(validator, "generate.py needs a pre-API approval gate")
+        review_record = self.write_review("review_001.txt")
+        cases = [
+            (False, True, "PHOTO_REVIEW_MISSING"),
+            (True, False, "PD_APPROVAL_MISSING"),
+        ]
+
+        for index, (photo_checked, pd_approved, expected_code) in enumerate(cases):
+            with self.subTest(expected_code=expected_code):
+                approval_package = self.write_generation_approval(
+                    review_record,
+                    photo_checked=photo_checked,
+                    pd_approved=pd_approved,
+                    package_suffix=f"_{index}",
+                )
+                with self.assertRaises(GateViolation) as raised:
+                    validator(approval_package, generate.get_source_key(review_record))
+                self.assertIn(expected_code, str(raised.exception))
+
+    def test_generate_cli_blocks_before_model_or_output_without_photo_approval(self):
+        review_record = self.write_review("review_001.txt")
+        approval_package = self.write_generation_approval(
+            review_record,
+            photo_checked=False,
+            source_key=str(review_record.source_path),
+        )
+        before = list(self.output_dir.rglob("*")) if self.output_dir.exists() else []
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(Path(generate.__file__).resolve()),
+                "--input",
+                str(review_record.source_path),
+                "--approval-package",
+                str(approval_package),
+            ],
+            cwd=Path(generate.__file__).resolve().parent,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("GATE_BLOCKED: PHOTO_REVIEW_MISSING", result.stderr)
+        self.assertEqual(list(self.output_dir.rglob("*")) if self.output_dir.exists() else [], before)
 
 
 if __name__ == "__main__":

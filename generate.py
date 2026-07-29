@@ -3,8 +3,8 @@
 Phase 2 [F-001] 리뷰 → 사연극 스크립트 생성
 
 사용법:
-    python generate.py --input reviews/pilot/review_002.txt
-    python generate.py --input reviews/pilot/review_002.txt --with-caption
+    python generate.py --input reviews/pilot/review_002.txt --approval-package output/approvals/review_002
+    python generate.py --input reviews/pilot/review_002.txt --approval-package output/approvals/review_002 --with-tts
 """
 
 import argparse
@@ -21,6 +21,8 @@ import wave
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+
+from video_engine_v2.production_gate import GateViolation, validate_generation_gate
 
 
 # ─── 경로 설정 ───────────────────────────────────────────────
@@ -919,7 +921,7 @@ def validate_script(script_text: str) -> list[str]:
     return issues
 
 
-def main():
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="문장군 리뷰 -> 사연극 스크립트 생성기",
     )
@@ -940,10 +942,20 @@ def main():
         default=False,
         help="Gemini TTS로 짧은제목_voice.mp3도 생성",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--approval-package",
+        required=True,
+        help="현재 리뷰의 .source, STATUS.md, APPROVAL_LOG.md가 있는 승인 패키지",
+    )
+    args = parser.parse_args(argv)
 
     # 리뷰 로드
     review_record = load_review_record(args.input)
+    try:
+        validate_generation_gate(args.approval_package, get_source_key(review_record))
+    except GateViolation as error:
+        print(f"GATE_BLOCKED: {error}", file=sys.stderr)
+        return 2
     review_text = review_record.content
     safe_print(f"[OK] 리뷰 로드 완료 ({len(review_text)}자)")
     if review_record.review_number:
@@ -1008,7 +1020,8 @@ def main():
     safe_print("[생성된 스크립트]")
     safe_print("=" * 60)
     safe_print(script_text)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

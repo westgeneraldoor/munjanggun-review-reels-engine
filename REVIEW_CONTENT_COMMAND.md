@@ -123,20 +123,23 @@ reviews/inbox_20260609/
 번호로 골라주세요.
 ```
 
-사용자가 선택하기 전에는 `generate.py`를 실행하지 않는다.
+사용자의 리뷰 선택만으로는 `generate.py`를 실행하지 않는다. 사진검수와 PD 기획안
+승인이 끝나고, 현재 리뷰에 결속된 로컬 approval package가 준비되어야 한다.
 
-## 3단계 — 선택 후 패키지 생성
+## 3단계 — 사진검수·PD 승인 후 패키지 생성
 
-사용자가 후보를 고르면 아래 명령으로 생성한다.
+승인 package에는 현재 리뷰와 일치하는 `.source`, `photo_checked: true`와
+`pd_plan_approved: true`가 기록된 `STATUS.md`, 긍정적 PD 승인 범위가 기록된
+`APPROVAL_LOG.md`가 이미 있어야 한다. 작업자가 승인 기록을 임의로 만들면 안 된다.
 
 ```powershell
-$env:PYTHONPATH='.codex_deps'; & 'C:\Users\hjh\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' generate.py --input reviews\inbox_YYYYMMDD\선택파일.txt --with-tts
+$env:PYTHONPATH='.codex_deps'; & 'C:\Users\hjh\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' generate.py --input reviews\inbox_YYYYMMDD\선택파일.txt --approval-package "<승인된 로컬 package>" --with-tts
 ```
 
 `python`이 정상 동작하면 아래처럼 실행해도 된다.
 
 ```powershell
-python generate.py --input reviews\inbox_YYYYMMDD\선택파일.txt --with-tts
+python generate.py --input reviews\inbox_YYYYMMDD\선택파일.txt --approval-package "<승인된 로컬 package>" --with-tts
 ```
 
 ## 4단계 — 생성 후 보고

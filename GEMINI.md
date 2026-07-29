@@ -357,7 +357,7 @@
 
 ### Phase 1~2 — MVP 완성
 ```
-✅ python generate.py --input review.txt → 3개 파일 생성
+✅ python generate.py --input review.txt --approval-package "<승인 package>" → 승인 게이트 후 산출물 생성
 ✅ EVAL-01~09 전수 통과
 ✅ 전체 실행 시간 60초 이내
 → 달성 시: Phase 3 GO

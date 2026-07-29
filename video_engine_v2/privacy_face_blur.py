@@ -53,13 +53,14 @@ def gcloud_access_token() -> str | None:
             ["gcloud", "auth", "application-default", "print-access-token"],
             check=False,
             capture_output=True,
+            text=True,
             timeout=20,
         )
     except (FileNotFoundError, subprocess.SubprocessError):
         return None
     if completed.returncode != 0:
         return None
-    token = completed.stdout.decode("utf-8", errors="replace").strip()
+    token = completed.stdout.strip()
     return token or None
 
 

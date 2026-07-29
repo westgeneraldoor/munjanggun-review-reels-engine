@@ -35,6 +35,7 @@ class CleanupDryRunTest(unittest.TestCase):
         self.write("APPROVAL_LOG.md", b"approval")
         self.write("privacy_asset_manifest.json", b"privacy")
         self.write("_work/render_post_qa/run/representative_frames/01_hook.jpg", b"evidence frame")
+        self.write("_work/production_gates/consumed/receipt-sha.json", b"consumed receipt evidence")
 
         self.write_scratch("frame_cache/one.jpg", b"same duplicate")
         self.write_scratch("frame_cache/two.jpg", b"same duplicate")
@@ -73,6 +74,7 @@ class CleanupDryRunTest(unittest.TestCase):
         self.assertIn("output/001_demo/001_final_render_20300102_upload_10mbps.mp4", protected_paths)
         self.assertIn("output/001_demo/sync_manifest.json", protected_paths)
         self.assertIn("output/001_demo/_work/render_post_qa/run/representative_frames/01_hook.jpg", protected_paths)
+        self.assertIn("output/001_demo/_work/production_gates/consumed/receipt-sha.json", protected_paths)
         self.assertIn("cover.jpg", protected_paths)
         self.assertGreaterEqual(report["summary"]["duplicate_candidate_groups"], 1)
         self.assertEqual(report["summary"]["candidate_files"], len(report["candidates"]))

@@ -51,6 +51,22 @@ npm install
 
 5. Place the local font file `nelnasamchae.ttf` in the project root when rendering previews.
 
+## Script/SRT/TTS Generation Gate
+
+`generate.py` requires an ignored local approval package before it may call the
+model or create script/SRT/TTS artifacts. The package must contain:
+
+- `.source` matching the exact review source key
+- `STATUS.md` with `photo_checked: true` and `pd_plan_approved: true`
+- `APPROVAL_LOG.md` with a positive PD planning approval and no conflicting denial
+
+Review selection alone is not approval. Do not create or edit these records
+unless the photo review and user-approved PD plan actually exist.
+
+```powershell
+python generate.py --input "<review.txt>" --approval-package "<approved local package>" --with-tts
+```
+
 ## Core Commands
 
 Current v2 production work must use the single official entry point below. The
@@ -94,6 +110,12 @@ stale. Explicit user approval must be recorded separately in `HTML_APPROVAL.json
 with package identity, relative path, HTML SHA-256, approval timestamp, and an
 approval evidence reference; its artifact-evidence hash binds the full dependency
 list. A legacy boolean-only approval is not render authorization.
+
+Official HTML and render gate receipts are single-use. The builder/renderer
+atomically records a hash-bound marker under `_work/production_gates/consumed/`
+before creating artifacts. A copied or previously consumed receipt is rejected;
+rerun the official orchestrator to obtain a fresh receipt. Receipt files and
+their consumed markers are production evidence and must not be cleaned up.
 
 Build an official HyperFrames Studio pilot from an approved edit recipe.
 This is a pilot preview path, not the production renderer yet:

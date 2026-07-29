@@ -283,7 +283,8 @@ class ProductionGateTests(unittest.TestCase):
     def write_renderer_receipt(self, dependencies):
         self.html.parent.mkdir(exist_ok=True)
         self.html.write_text("<!doctype html>", encoding="utf-8")
-        receipt_path = self.package / "render_gate_receipt.json"
+        receipt_path = self.package / "_work" / "production_gates" / "render_gate_fixture.json"
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
         receipt_path.write_text(
             json.dumps(
                 {
@@ -294,6 +295,7 @@ class ProductionGateTests(unittest.TestCase):
                     "output_path": str(self.output),
                     "preset": FINAL_RENDER_PRESET,
                     "render_dependencies": dependencies,
+                    "issued_at": "2030-01-02T03:07:05+00:00",
                 }
             ),
             encoding="utf-8",
@@ -803,15 +805,18 @@ class ProductionGateTests(unittest.TestCase):
     def test_internal_renderer_rejects_a_stale_html_hash_before_output_creation(self):
         self.html.parent.mkdir()
         self.html.write_text("<!doctype html>", encoding="utf-8")
-        receipt_path = self.package / "render_gate_receipt.json"
+        receipt_path = self.package / "_work" / "production_gates" / "stale_html_render_gate.json"
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
         receipt_path.write_text(
             json.dumps(
                 {
                     "action": "render",
+                    "package_path": str(self.package),
                     "html_path": str(self.html),
                     "html_sha256": "0" * 64,
                     "output_path": str(self.output),
                     "preset": FINAL_RENDER_PRESET,
+                    "issued_at": "2030-01-02T03:07:05+00:00",
                 }
             ),
             encoding="utf-8",
@@ -1033,8 +1038,12 @@ class ProductionGateTests(unittest.TestCase):
             privacy_manifest_path=self.privacy,
             sync_manifest_path=self.sync,
         )
-        receipt_path = self.package / "html_gate_receipt.json"
-        receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+        receipt_path = self.package / "_work" / "production_gates" / "html_gate_fixture.json"
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.write_text(
+            json.dumps({**receipt, "issued_at": "2030-01-02T03:07:05+00:00"}),
+            encoding="utf-8",
+        )
         self.html.parent.mkdir()
         self.html.write_text("preserve this preview", encoding="utf-8")
         environment = os.environ.copy()
@@ -1059,6 +1068,156 @@ class ProductionGateTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.html.read_text(encoding="utf-8"), "preserve this preview")
+
+    def test_html_receipt_outside_official_directory_is_rejected(self):
+        from video_engine_v2.production_gate import validate_html_receipt
+
+        self.create_valid_sync()
+        receipt = validate_html_gate(
+            package_dir=self.package,
+            planning_path=self.planning,
+            edit_path=self.edit,
+            privacy_manifest_path=self.privacy,
+            sync_manifest_path=self.sync,
+        )
+        receipt_path = self.package / "copied_html_gate_receipt.json"
+        receipt_path.write_text(
+            json.dumps({**receipt, "issued_at": "2030-01-02T03:07:05+00:00"}),
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(GateViolation) as raised:
+            validate_html_receipt(receipt_path, self.edit)
+
+        self.assertIn("GATE_RECEIPT_OUTSIDE_OFFICIAL_DIR", str(raised.exception))
+
+    def test_python_gate_receipt_consumption_is_hash_bound_and_single_use(self):
+        from video_engine_v2 import production_gate
+
+        consume = getattr(production_gate, "consume_gate_receipt", None)
+        self.assertIsNotNone(consume, "production receipts need an atomic consumption boundary")
+        self.create_valid_sync()
+        receipt = validate_html_gate(
+            package_dir=self.package,
+            planning_path=self.planning,
+            edit_path=self.edit,
+            privacy_manifest_path=self.privacy,
+            sync_manifest_path=self.sync,
+        )
+        receipt_path = production_gate.write_gate_receipt(self.package, receipt)
+
+        marker_path = consume(receipt_path, self.package, expected_action="html")
+        copied_path = receipt_path.with_name("copied_" + receipt_path.name)
+        copied_path.write_bytes(receipt_path.read_bytes())
+
+        self.assertTrue(marker_path.is_file())
+        with self.assertRaises(GateViolation) as raised:
+            consume(copied_path, self.package, expected_action="html")
+        self.assertIn("GATE_RECEIPT_ALREADY_CONSUMED", str(raised.exception))
+
+    def test_internal_builder_rejects_an_already_consumed_receipt_before_preview_creation(self):
+        from video_engine_v2 import production_gate
+
+        consume = getattr(production_gate, "consume_gate_receipt", None)
+        self.assertIsNotNone(consume, "production receipts need an atomic consumption boundary")
+        self.create_valid_sync()
+        receipt = validate_html_gate(
+            package_dir=self.package,
+            planning_path=self.planning,
+            edit_path=self.edit,
+            privacy_manifest_path=self.privacy,
+            sync_manifest_path=self.sync,
+        )
+        receipt_path = production_gate.write_gate_receipt(self.package, receipt)
+        consume(receipt_path, self.package, expected_action="html")
+        environment = os.environ.copy()
+        environment.update({"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"})
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "build_html_preview_v2.py",
+                "--recipe",
+                str(self.edit),
+                "--gate-receipt",
+                str(receipt_path),
+                "--engine-font",
+                self.engine_font.relative_to(ROOT).as_posix(),
+            ],
+            cwd=ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("GATE_RECEIPT_ALREADY_CONSUMED", result.stderr)
+        self.assertFalse(self.html.parent.exists())
+
+    def test_node_renderer_consumes_an_official_receipt_once(self):
+        self.write_bound_html_approval()
+        receipt_path = self.write_renderer_receipt(self.render_dependencies())
+        node_script = (
+            "const fs=require('fs');"
+            "const gate=require('./render_html_preview_v2.js');"
+            "const p=process.argv[1];"
+            "gate.consumeGateReceipt(p,JSON.parse(fs.readFileSync(p,'utf8')));"
+        )
+
+        first = subprocess.run(
+            ["node", "-e", node_script, str(receipt_path)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+        )
+        second = subprocess.run(
+            ["node", "-e", node_script, str(receipt_path)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+        )
+
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertNotEqual(second.returncode, 0)
+        self.assertIn("GATE_RECEIPT_ALREADY_CONSUMED", second.stderr)
+
+    def test_internal_renderer_rejects_a_consumed_receipt_before_frame_creation(self):
+        self.write_bound_html_approval()
+        receipt_path = self.write_renderer_receipt(self.render_dependencies())
+        receipt_hash = hashlib.sha256(receipt_path.read_bytes()).hexdigest()
+        consumed_dir = receipt_path.parent / "consumed"
+        consumed_dir.mkdir()
+        (consumed_dir / f"{receipt_hash}.json").write_text("{}", encoding="utf-8")
+
+        renderer = subprocess.run(
+            [
+                "node",
+                "render_html_preview_v2.js",
+                "--html",
+                str(self.html),
+                "--out",
+                str(self.output),
+                "--gate-receipt",
+                str(receipt_path),
+                "--width",
+                "720",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+        )
+
+        self.assertNotEqual(renderer.returncode, 0)
+        self.assertIn("GATE_RECEIPT_ALREADY_CONSUMED", renderer.stderr)
+        self.assert_no_render_artifacts()
 
 
 if __name__ == "__main__":

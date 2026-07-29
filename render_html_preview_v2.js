@@ -38,6 +38,61 @@ function sha256(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
+function receiptBoundary(receiptPath, receipt) {
+  if (typeof receipt?.package_path !== 'string' || !receipt.package_path.trim()) {
+    throw new Error('GATE_RECEIPT_INVALID');
+  }
+  const requestedPackagePath = path.resolve(receipt.package_path);
+  if (!fs.existsSync(requestedPackagePath)) {
+    throw new Error('GATE_RECEIPT_INVALID');
+  }
+  const packagePath = fs.realpathSync.native(requestedPackagePath);
+  if (typeof receipt?.issued_at !== 'string' || !receipt.issued_at.trim()) {
+    throw new Error('GATE_RECEIPT_INVALID');
+  }
+  const receiptDir = fs.realpathSync.native(path.resolve(packagePath, '_work', 'production_gates'));
+  const realReceiptPath = fs.realpathSync.native(path.resolve(receiptPath));
+  if (path.dirname(realReceiptPath) !== receiptDir) {
+    throw new Error('GATE_RECEIPT_OUTSIDE_OFFICIAL_DIR');
+  }
+  const receiptHash = sha256(realReceiptPath);
+  return {
+    packagePath,
+    receiptHash,
+    markerPath: path.join(receiptDir, 'consumed', `${receiptHash}.json`),
+  };
+}
+
+function assertGateReceiptAvailable(receiptPath, receipt) {
+  const boundary = receiptBoundary(receiptPath, receipt);
+  if (fs.existsSync(boundary.markerPath)) {
+    throw new Error('GATE_RECEIPT_ALREADY_CONSUMED');
+  }
+  return boundary;
+}
+
+function consumeGateReceipt(receiptPath, receipt) {
+  const boundary = assertGateReceiptAvailable(receiptPath, receipt);
+  fs.mkdirSync(path.dirname(boundary.markerPath), { recursive: true });
+  let descriptor;
+  try {
+    descriptor = fs.openSync(boundary.markerPath, 'wx');
+    fs.writeFileSync(descriptor, `${JSON.stringify({
+      schema_version: '1.0',
+      action: receipt.action,
+      receipt_sha256: boundary.receiptHash,
+      receipt_issued_at: receipt.issued_at,
+      consumed_at: new Date().toISOString(),
+    }, null, 2)}\n`, 'utf8');
+  } catch (error) {
+    if (error?.code === 'EEXIST') throw new Error('GATE_RECEIPT_ALREADY_CONSUMED');
+    throw error;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+  return boundary.markerPath;
+}
+
 function ensureContainedPath(root, relativePath, label) {
   if (typeof relativePath !== 'string' || !relativePath || path.isAbsolute(relativePath)) {
     die(`Invalid ${label} dependency path.`);
@@ -94,8 +149,13 @@ function validateRenderDependencies(receipt) {
   }
 }
 
-function validateGateReceipt(receipt, htmlPath, outputPath, preset) {
+function validateGateReceipt(receipt, receiptPath, htmlPath, outputPath, preset) {
   if (receipt?.action !== 'render') die('Gate receipt is not a render receipt.');
+  try {
+    assertGateReceiptAvailable(receiptPath, receipt);
+  } catch (error) {
+    die(error.message);
+  }
   if (path.resolve(receipt.html_path || '') !== htmlPath) die('Gate receipt HTML path does not match --html.');
   if (!fs.existsSync(htmlPath)) die(`Missing HTML preview: ${htmlPath}`);
   const expectedHtmlHash = receipt.html_sha256;
@@ -150,7 +210,7 @@ async function main() {
     pixel_format: 'yuv420p',
   };
   const receipt = readGateReceipt(receiptPath);
-  validateGateReceipt(receipt, htmlPath, outputPath, approvedPreset);
+  validateGateReceipt(receipt, receiptPath, htmlPath, outputPath, approvedPreset);
   validateFinalPreset({ fps, width, height, videoBitrate, maxrate, bufsize, audioBitrate, audioSampleRate, audioChannels });
   if (!fs.existsSync(htmlPath)) die(`Missing HTML preview: ${htmlPath}`);
   if (fs.existsSync(outputPath)) die(`Refusing to overwrite existing MP4: ${outputPath}`);
@@ -158,6 +218,11 @@ async function main() {
   const outputDir = path.dirname(outputPath);
   const frameDir = path.join(outputDir, `${path.basename(outputPath, path.extname(outputPath))}_frames`);
   if (fs.existsSync(frameDir)) die(`Refusing to overwrite existing frame directory: ${frameDir}`);
+  try {
+    consumeGateReceipt(receiptPath, receipt);
+  } catch (error) {
+    die(error.message);
+  }
   ensureDir(outputDir);
   ensureDir(frameDir);
 
@@ -282,7 +347,14 @@ async function main() {
   console.log(outputPath);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  assertGateReceiptAvailable,
+  consumeGateReceipt,
+};

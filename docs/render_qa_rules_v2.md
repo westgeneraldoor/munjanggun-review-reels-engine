@@ -30,6 +30,11 @@ v2 production의 preflight/HTML/render는 `scripts/produce_review_v2.py`만 사�
 내부 `render_html_preview_v2.js`는 gate receipt 없이는 실행할 수 없으며,
 기존 MP4나 frame directory를 삭제하거나 덮어쓰지 않습니다.
 
+HTML/render gate receipt는 한 번만 사용할 수 있습니다. artifact 생성 직전
+`_work/production_gates/consumed/<receipt-sha256>.json`이 원자적으로 생성되며,
+같은 receipt 또는 동일 내용의 복사본은 거부됩니다. receipt와 consumed marker는
+승인·생성 이력이므로 cleanup 대상이 아닙니다.
+
 ```text
 검수용: 720x1280 / 12fps 또는 30fps / 2~3 Mbps
 최종 업로드용: 1080x1920 / 30fps / video 11000k / audio AAC 44.1kHz stereo 192k

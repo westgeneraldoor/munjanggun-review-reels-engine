@@ -14,7 +14,12 @@ import os
 from pathlib import Path
 from urllib.parse import quote
 
-from video_engine_v2.production_gate import resolve_engine_font_path, validate_html_receipt, write_html_artifact_evidence
+from video_engine_v2.production_gate import (
+    consume_gate_receipt,
+    resolve_engine_font_path,
+    validate_html_receipt,
+    write_html_artifact_evidence,
+)
 
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "video_engine_v2" / "templates" / "v2_preview.html"
@@ -61,7 +66,6 @@ def render_preview_html(
 
 def build_preview(recipe_path: Path, gate_receipt: Path, engine_font_path: str | Path | None = None) -> Path:
     recipe_path = recipe_path.resolve()
-    validate_html_receipt(gate_receipt, recipe_path)
     recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
     package_dir = recipe_path.parent
     font_path = resolve_engine_font_path(engine_font_path)
@@ -74,6 +78,8 @@ def build_preview(recipe_path: Path, gate_receipt: Path, engine_font_path: str |
     preview_dir = package_dir / preview_name
     if preview_dir.exists():
         raise FileExistsError(f"Refusing to overwrite existing HTML preview: {preview_dir}")
+    validate_html_receipt(gate_receipt, recipe_path)
+    consume_gate_receipt(gate_receipt, package_dir, expected_action="html")
     preview_dir.mkdir()
 
     image_dir = resolve_source(package_dir, recipe["source"]["image_dir"])

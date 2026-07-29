@@ -78,6 +78,11 @@ production gate를 바꾸지 않습니다. 상세 기준은 `docs/reels_format_s
 14. 최종 MP4 렌더
 15. ffprobe/대표 프레임/개인정보/싱크 QA
 
+`generate.py`를 사용하는 경우 `--approval-package`가 필수입니다. 승인 패키지의
+`.source`는 현재 리뷰와 일치해야 하고, `STATUS.md`의 `photo_checked`와
+`pd_plan_approved`, `APPROVAL_LOG.md`의 긍정적 PD 기획 승인이 모두 확인되어야
+합니다. 리뷰 번호 선택만으로 이 기록을 만들거나 승인으로 간주하면 안 됩니다.
+
 ## 원문 왜곡 방지 게이트
 
 리뷰 기반 릴스는 원본 리뷰를 배신하면 안 됩니다.
@@ -131,6 +136,12 @@ artifact evidence SHA-256을 모두 가져야 합니다. 따라서 approval은 H
 아니라 artifact evidence에 기록된 image/voice/font dependency hash 전체에 결속됩니다.
 legacy의
 `html_approved_by_user: true`만으로는 render를 승인하지 않습니다.
+
+HTML/render gate receipt는 일회용입니다. 내부 builder/renderer는 artifact 생성 직전
+receipt 파일 SHA-256에 결속된 consumed marker를
+`_work/production_gates/consumed/`에 원자적으로 기록합니다. 같은 receipt나 복사본을
+다시 사용하면 실패해야 하며, receipt와 consumed marker는 삭제하면 안 되는 production
+evidence입니다.
 
 `privacy_asset_manifest.json`에는 `checked_at`, package 내부의
 `sanitization_report`, 빈 `unresolved_risks`, 그리고 실제 사용 asset의 정확한

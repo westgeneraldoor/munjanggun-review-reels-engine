@@ -26,8 +26,9 @@ def _audio_duration(path: Path) -> float | None:
             ],
             check=True,
             capture_output=True,
+            text=True,
         )
-        return float(result.stdout.decode("utf-8", errors="replace").strip())
+        return float(result.stdout.strip())
     except Exception:
         return None
 

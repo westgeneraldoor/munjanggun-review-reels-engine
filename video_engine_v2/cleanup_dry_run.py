@@ -33,7 +33,7 @@ ROOT_MEDIA_EXTENSIONS = {
 _FINAL_UPLOAD_MP4 = re.compile(r"upload.*\.mp4$", re.IGNORECASE)
 _RECIPE_OR_EVIDENCE = re.compile(
     r"(?:planning_recipe|edit_recipe|sync_manifest|(?:^|[_-])script|\.srt$|voice\.(?:mp3|wav|m4a)$|"
-    r"status\.md$|approval_log\.md$|privacy|render_post_qa|representative_frames)",
+    r"status\.md$|approval_log\.md$|privacy|production_gates|render_post_qa|representative_frames)",
     re.IGNORECASE,
 )
 _CANDIDATE_RULES = (

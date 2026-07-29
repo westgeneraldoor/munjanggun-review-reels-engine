@@ -176,8 +176,8 @@ output/
 
 **Machine-Verifiable Criteria:**
 ```
-Given 리뷰 텍스트 파일이 존재할 때
-When python generate.py --input review.txt 를 실행하면
+Given 리뷰 텍스트와 source-bound 사진검수·PD 승인 package가 존재할 때
+When python generate.py --input review.txt --approval-package "<승인 package>" 를 실행하면
 Then output/{리뷰묶음}/번호_짧은라벨_타임스탬프/ 폴더가 생성되고
   And 번호_짧은라벨_script.md, 번호_짧은라벨_subtitle.srt, 번호_짧은라벨_voice.mp3 3개 파일이 모두 존재하며
   And 전체 실행 시간이 60초 이내이다
@@ -351,7 +351,7 @@ erDiagram
 
 ## 6. AI Evals & Quality Gates
 
-- [ ] **EVAL-01:** `python generate.py --input [파일]` 실행 시 에러 없이 완료되는가?
+- [ ] **EVAL-01:** `python generate.py --input [파일] --approval-package [승인 package]` 실행 시 승인 검증 후 완료되는가?
 - [ ] **EVAL-02:** output 폴더에 3개 파일(짧은제목_script.md / 짧은제목_subtitle.srt / 짧은제목_voice.mp3)이 생성되는가?
 - [ ] **EVAL-03:** script.md에 [HOOK]~[CLOSE] 6섹션 + 캡션 + 해시태그 섹션이 모두 있는가?
 - [ ] **EVAL-04:** "여러분~", "안녕하세요~", "고객님께서는~" 금지 표현이 없는가?

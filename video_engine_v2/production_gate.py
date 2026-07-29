@@ -116,6 +116,25 @@ def _require_pd_approval(package_dir: Path) -> None:
         raise GateViolation("PD_APPROVAL_MISSING")
 
 
+def validate_generation_gate(package_dir: str | Path, expected_source_key: str) -> None:
+    """Require source-bound photo review and PD approval before script/SRT/TTS generation."""
+    package = Path(package_dir).resolve()
+    if not package.is_dir():
+        raise GateViolation("GENERATION_APPROVAL_PACKAGE_MISSING")
+    if not isinstance(expected_source_key, str) or not expected_source_key.strip():
+        raise GateViolation("GENERATION_SOURCE_INVALID")
+    source_path = package / ".source"
+    if not source_path.is_file():
+        raise GateViolation("GENERATION_SOURCE_MISSING")
+    recorded_source = os.path.normcase(os.path.normpath(source_path.read_text(encoding="utf-8").strip()))
+    expected_source = os.path.normcase(os.path.normpath(expected_source_key.strip()))
+    if recorded_source != expected_source:
+        raise GateViolation("GENERATION_SOURCE_MISMATCH")
+    if _status_fields(package).get("photo_checked") is not True:
+        raise GateViolation("PHOTO_REVIEW_MISSING")
+    _require_pd_approval(package)
+
+
 def _require_html_approval(package_dir: Path) -> None:
     status = _status_fields(package_dir)
     if status.get("html_approved_by_user") is not True or not _approved_scope(
@@ -800,9 +819,87 @@ def write_gate_receipt(package_dir: str | Path, receipt: dict[str, Any]) -> Path
     raise GateViolation("GATE_RECEIPT_COLLISION")
 
 
+def _official_gate_receipt(
+    receipt_path: str | Path,
+    package_dir: str | Path,
+    *,
+    expected_action: str,
+) -> tuple[Path, Path, dict[str, Any]]:
+    package = Path(package_dir).resolve()
+    receipt_dir = (package / "_work" / "production_gates").resolve()
+    receipt_file = Path(receipt_path).resolve()
+    if receipt_file.parent != receipt_dir:
+        raise GateViolation("GATE_RECEIPT_OUTSIDE_OFFICIAL_DIR")
+    receipt = _read_json(
+        receipt_file,
+        missing_code="GATE_RECEIPT_MISSING",
+        invalid_code="GATE_RECEIPT_INVALID",
+    )
+    if (
+        receipt.get("action") != expected_action
+        or receipt.get("package_path") != str(package)
+        or not isinstance(receipt.get("issued_at"), str)
+        or not receipt["issued_at"].strip()
+    ):
+        raise GateViolation("GATE_RECEIPT_INVALID")
+    return package, receipt_file, receipt
+
+
+def _gate_receipt_consumption_marker(package: Path, receipt_file: Path) -> Path:
+    return package / "_work" / "production_gates" / "consumed" / f"{_sha256(receipt_file)}.json"
+
+
+def assert_gate_receipt_available(
+    receipt_path: str | Path,
+    package_dir: str | Path,
+    *,
+    expected_action: str,
+) -> None:
+    """Reject a receipt that has already crossed its one-time artifact boundary."""
+    package, receipt_file, _ = _official_gate_receipt(
+        receipt_path,
+        package_dir,
+        expected_action=expected_action,
+    )
+    if _gate_receipt_consumption_marker(package, receipt_file).exists():
+        raise GateViolation("GATE_RECEIPT_ALREADY_CONSUMED")
+
+
+def consume_gate_receipt(
+    receipt_path: str | Path,
+    package_dir: str | Path,
+    *,
+    expected_action: str,
+) -> Path:
+    """Atomically consume a gate receipt without mutating its hash-bound JSON."""
+    package, receipt_file, receipt = _official_gate_receipt(
+        receipt_path,
+        package_dir,
+        expected_action=expected_action,
+    )
+    marker_path = _gate_receipt_consumption_marker(package, receipt_file)
+    marker_path.parent.mkdir(parents=True, exist_ok=True)
+    marker = {
+        "schema_version": "1.0",
+        "action": expected_action,
+        "receipt_sha256": _sha256(receipt_file),
+        "receipt_issued_at": receipt["issued_at"],
+        "consumed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        with marker_path.open("x", encoding="utf-8") as output:
+            json.dump(marker, output, ensure_ascii=False, indent=2)
+            output.write("\n")
+    except FileExistsError as error:
+        raise GateViolation("GATE_RECEIPT_ALREADY_CONSUMED") from error
+    return marker_path
+
+
 def validate_html_receipt(receipt_path: str | Path, recipe_path: str | Path) -> None:
     """Used by the internal HTML builder before it creates a preview folder."""
-    receipt = _read_json(Path(receipt_path), missing_code="GATE_RECEIPT_MISSING", invalid_code="GATE_RECEIPT_INVALID")
     recipe = Path(recipe_path).resolve()
+    package = recipe.parent
+    _, _, receipt = _official_gate_receipt(receipt_path, package, expected_action="html")
+    assert_gate_receipt_available(receipt_path, package, expected_action="html")
     if receipt.get("action") != "html" or receipt.get("recipe_path") != str(recipe) or receipt.get("recipe_sha256") != _sha256(recipe):
         raise GateViolation("GATE_RECEIPT_INVALID")
