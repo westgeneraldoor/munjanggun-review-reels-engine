@@ -1,3 +1,4 @@
+import ast
 import json
 import subprocess
 import unittest
@@ -8,6 +9,48 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RepoContractTest(unittest.TestCase):
+    def test_tracked_test_subprocess_text_mode_declares_utf8_encoding(self):
+        tracked = subprocess.run(
+            ["git", "ls-files", "-z", "--", "tests"],
+            cwd=ROOT,
+            capture_output=True,
+            check=True,
+        ).stdout.decode("utf-8", errors="strict").split("\0")
+        offenders = []
+
+        for relative_path in tracked:
+            if not relative_path.endswith(".py"):
+                continue
+            tree = ast.parse((ROOT / relative_path).read_text(encoding="utf-8"), filename=relative_path)
+            subprocess_names = {"subprocess"}
+            call_names = set()
+            for node in tree.body:
+                if isinstance(node, ast.Import):
+                    subprocess_names.update(alias.asname or alias.name for alias in node.names if alias.name == "subprocess")
+                elif isinstance(node, ast.ImportFrom) and node.module == "subprocess":
+                    call_names.update(alias.asname or alias.name for alias in node.names if alias.name in {"run", "Popen", "check_output"})
+
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                is_subprocess_call = (
+                    isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id in subprocess_names
+                    and node.func.attr in {"run", "Popen", "check_output"}
+                ) or (isinstance(node.func, ast.Name) and node.func.id in call_names)
+                if not is_subprocess_call:
+                    continue
+                keywords = {keyword.arg: keyword.value for keyword in node.keywords if keyword.arg is not None}
+                text_mode = any(
+                    isinstance(keywords.get(name), ast.Constant) and keywords[name].value is True
+                    for name in ("text", "universal_newlines")
+                )
+                if text_mode and "encoding" not in keywords:
+                    offenders.append(f"{relative_path}:{node.lineno}")
+
+        self.assertEqual(offenders, [], f"text-mode subprocess calls need encoding: {offenders}")
+
     def test_agents_md_exists_with_reels_hard_gates(self):
         agents_path = ROOT / "AGENTS.md"
 
@@ -37,8 +80,8 @@ class RepoContractTest(unittest.TestCase):
         self.assertTrue(workflow_path.exists(), "GitHub Actions validate.yml이 필요합니다.")
 
         text = workflow_path.read_text(encoding="utf-8")
-        self.assertIn("python -m unittest discover -s tests", text)
-        self.assertIn("npm run validate", text)
+        self.assertEqual(text.count("run: npm run validate"), 1)
+        self.assertNotIn("python -m unittest discover -s tests", text)
 
     def test_package_json_exposes_test_and_validate_scripts(self):
         package_path = ROOT / "package.json"

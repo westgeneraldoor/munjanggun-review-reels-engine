@@ -46,7 +46,7 @@
 5. 대체 컷이 있으면 대체 컷 사용
 6. 대체 컷이 없으면 원본 보존 후 승인된 sanitized asset 생성
 7. edit_recipe.source.image_dir는 승인된 sanitized asset 폴더를 가리키게 변경
-8. edit_recipe.source.privacy_review 또는 privacy_sanitization_report를 기록
+8. privacy manifest와 별도 privacy sanitization report를 기록
 9. HTML 프리뷰 생성
 10. 대표 프레임에서 실제로 가려졌는지 재확인
 11. 통과 후에만 MP4 렌더
@@ -133,15 +133,40 @@ _work/<review_id>_face_blur_report.json
 }
 ```
 
+## Production privacy evidence 계약
+
+v2 production은 `privacy_asset_manifest.json`과 별도의 실제 sanitization
+report를 함께 사용한다. manifest가 자기 자신을 `sanitization_report`로
+가리키면 실패한다.
+
+```json
+{
+  "schema_version": "1.0",
+  "checked": true,
+  "checked_at": "2026-07-28T00:00:00Z",
+  "unresolved_risks": [],
+  "inspection_categories": ["face", "vehicle_plate", "address", "family_photo"],
+  "checked_assets": [
+    {"relative_path": "assets/after.jpg", "bytes": 1234, "sha256": "..."}
+  ]
+}
+```
+
+report의 asset path/bytes/SHA-256은 manifest의 `selected_assets` 및
+edit_recipe가 실제 사용하는 asset 집합과 정확히 같아야 한다. 빈 JSON, 누락된
+report, unresolved risk, hash 불일치는 HTML/MP4 gate를 통과하지 못한다.
+
 ## QA 도구 기준
 
-HTML 전 QA는 아래 명령을 사용한다.
+HTML 전 production preflight는 아래 공식 오케스트레이터를 사용한다.
 
 ```powershell
-python -m video_engine_v2.reels_qa `
+python scripts/produce_review_v2.py preflight `
+  --package "<output review package>" `
   --planning "<planning_recipe.json>" `
   --edit "<edit_recipe.json>" `
-  --sync-manifest-out "<sync_manifest.json>"
+  --privacy-manifest "<privacy_asset_manifest.json>" `
+  --sync-manifest "<output review package>/sync_manifest.json"
 ```
 
 `PRIVACY_REVIEW_MISSING` 또는 `PRIVACY_RISK_UNRESOLVED`가 나오면 HTML/MP4 제작 금지다.

@@ -72,11 +72,16 @@ mp4_allowed: false
 
 즉, 리뷰 번호 지정은 여전히 대상 승인일 뿐이며 HTML/MP4 승인으로 해석하지 않습니다.
 
-상태 파일 생성/점검에는 아래 모듈을 사용합니다.
+상태 파일은 package의 명시 기록으로 점검합니다. production preflight/HTML/render는
+반드시 `scripts/produce_review_v2.py`를 사용하며, `video_engine_v2.reels_qa`는
+내부 diagnostic 모듈일 뿐 직접 production 진입점이 아닙니다.
 
-```powershell
-python -m video_engine_v2.reels_qa --edit "<edit_recipe.json>"
-```
+v2 HTML 승인은 `index.html` 단독 승인이 아닙니다. HTML artifact evidence에 기록된
+image/voice/repository font의 상대경로·bytes·SHA-256과 함께 승인되며, voice가 바뀌면
+sync manifest와 HTML 승인 evidence가 stale입니다. legacy QA `auto_status: pass`는
+과거 evidence이고, 현재 MP4 bytes/SHA-256까지 report와 일치한 경우만 package state의
+`render_complete: true`입니다. hash 없는 legacy report, published, performance는 별도
+증거가 없으면 `unknown`이며 기존 upload package의 삭제·migration·자동 재렌더 근거가 아닙니다.
 
 ## 자동 진행 한계
 
@@ -335,10 +340,10 @@ literal_qa_result: 화면에 문턱/턱/레일/단차 없음. 통과.
 파일명: *_final_render_YYYYMMDD_upload_10mbps.mp4
 ```
 
-렌더 명령은 기본적으로 아래 렌더러를 사용합니다.
+렌더는 내부 renderer를 직접 호출하지 않고 공식 오케스트레이터를 사용합니다.
 
 ```powershell
-render_html_preview_v2.js --fps 30 --width 1080 --height 1920 --video-bitrate 11000k --maxrate 12000k --bufsize 24000k --audio-bitrate 192k --audio-sample-rate 44100 --audio-channels 2
+python scripts/produce_review_v2.py render --package "<output review package>" --html "<html_preview>/index.html" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --out "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4"
 ```
 
 ## TTS 속도 검수 하드 게이트
@@ -376,17 +381,20 @@ HTML 프리뷰를 만들기 전에 이 검수를 통과해야 합니다.
 
 ## HTML 생성 전 preflight QA
 
-HTML 프리뷰 생성 전에는 `video_engine_v2.reels_qa`를 실행합니다.
+HTML 프리뷰 생성 전에는 공식 orchestrator preflight를 실행합니다.
 
 ```powershell
-python -m video_engine_v2.reels_qa `
+python scripts/produce_review_v2.py preflight `
+  --package "<output review package>" `
   --planning "<planning_recipe.json>" `
   --edit "<edit_recipe.json>" `
-  --sync-manifest-out "<sync_manifest.json>"
+  --privacy-manifest "<privacy_asset_manifest.json>" `
+  --sync-manifest "<output review package>/sync_manifest.json"
 ```
 
-하나라도 `[FAIL]`이면 HTML을 만들지 않습니다.
-`--sync-manifest-out`으로 생성된 manifest의 `ok`가 `false`이면 CLI도 실패 exit code를 반환해야 합니다.
+internal `video_engine_v2.reels_qa` diagnostic 결과를 포함한 gate가 하나라도
+실패하면 HTML을 만들지 않습니다. 생성된 manifest의 `ok`가 `false`이면 공식 CLI도
+실패 exit code를 반환해야 합니다.
 
 이 preflight는 최소 아래를 막습니다.
 

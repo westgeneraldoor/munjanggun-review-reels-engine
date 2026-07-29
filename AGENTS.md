@@ -27,6 +27,17 @@ GitHub는 엔진 코드, 문서, 테스트만 관리합니다. 실제 고객 자
 - MP4 렌더는 사용자의 명시적 승인 후에만 진행합니다.
 - 최종 MP4는 GitHub에 커밋하지 않습니다.
 
+## 포맷 상태
+
+- v2: current production
+- v3: experimental
+- v3.1: experimental
+
+Instagram과 Naver Clip은 공통 안전·제작 엔진을 쓰는 지원 채널입니다. v3/v3.1은
+각각의 가설을 검증하는 실험일 뿐 v2 production을 대체하지 않으며, D-026을 포함한
+production gate를 바꾸지 않습니다. 상세 기준은 `docs/reels_format_status_v1.md`를
+따릅니다.
+
 ## 총괄 PD 팀 운영 방식
 
 신규 세션은 혼자 빠르게 산출물을 만드는 생성기가 아니라, 아래 내부 팀 관점으로 검토한 뒤 진행해야 합니다.
@@ -67,6 +78,11 @@ GitHub는 엔진 코드, 문서, 테스트만 관리합니다. 실제 고객 자
 14. 최종 MP4 렌더
 15. ffprobe/대표 프레임/개인정보/싱크 QA
 
+`generate.py`를 사용하는 경우 `--approval-package`가 필수입니다. 승인 패키지의
+`.source`는 현재 리뷰와 일치해야 하고, `STATUS.md`의 `photo_checked`와
+`pd_plan_approved`, `APPROVAL_LOG.md`의 긍정적 PD 기획 승인이 모두 확인되어야
+합니다. 리뷰 번호 선택만으로 이 기록을 만들거나 승인으로 간주하면 안 됩니다.
+
 ## 원문 왜곡 방지 게이트
 
 리뷰 기반 릴스는 원본 리뷰를 배신하면 안 됩니다.
@@ -89,11 +105,49 @@ HTML 생성 전 planning_recipe에는 아래 메타데이터가 있어야 합니
 
 ## QA 명령
 
-HTML 생성 전:
+v2 production의 유일한 공식 진입점은 아래 오케스트레이터입니다. 내부
+`reels_qa`, HTML builder, renderer를 직접 호출해 gate를 우회하지 않습니다.
 
 ```powershell
-python -m video_engine_v2.reels_qa --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --sync-manifest-out "<sync_manifest.json>"
+# 1. HTML/MP4 산출물 없이 sync manifest를 생성하는 preflight
+python scripts/produce_review_v2.py preflight --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json"
+
+# 2. preflight 통과 후 HTML preview 생성
+python scripts/produce_review_v2.py html --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json"
+
+# 3. 기록된 HTML 승인과 명시적 MP4 렌더 승인 후 final render
+python scripts/produce_review_v2.py render --package "<output review package>" --html "<html_preview>/index.html" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --out "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4"
 ```
+
+preflight는 planning/edit/review_source/privacy/PD 승인/asset을 검증해
+`sync_manifest.json`을 생성합니다. HTML과 MP4는 1080x1920, 30fps,
+H.264/yuv420p, AAC 44.1kHz stereo, approved bitrate 외 설정으로 생성할 수
+없고, 기존 MP4/frames를 덮어쓰지 않습니다.
+
+HTML 생성이 끝나면 `*_html_preview_v2/html_artifact_evidence.json`이 자동으로
+생기며, 정확한 `index.html` 경로와 SHA-256, HTML gate receipt hash, 그리고 실제
+렌더 입력인 image/voice/engine font의 `kind`/`scope`/상대경로/bytes/SHA-256을
+보관합니다. `sync_manifest.json`의 `gate_inputs.voice`도 voice 상대경로/bytes/SHA-256을
+묶으므로 voice 내용이 바뀌면 기존 sync와 HTML 승인은 stale입니다.
+사용자 HTML 승인은 package 루트의 새 `HTML_APPROVAL.json`에만 기록합니다. 이
+파일은 `schema_version`, package identity, HTML relative path/SHA-256,
+`approved_by_user: true`, `approved_at`, `approval_evidence_reference`, HTML
+artifact evidence SHA-256을 모두 가져야 합니다. 따라서 approval은 HTML 파일만이
+아니라 artifact evidence에 기록된 image/voice/font dependency hash 전체에 결속됩니다.
+legacy의
+`html_approved_by_user: true`만으로는 render를 승인하지 않습니다.
+
+HTML/render gate receipt는 일회용입니다. 내부 builder/renderer는 artifact 생성 직전
+receipt 파일 SHA-256에 결속된 consumed marker를
+`_work/production_gates/consumed/`에 원자적으로 기록합니다. 같은 receipt나 복사본을
+다시 사용하면 실패해야 하며, receipt와 consumed marker는 삭제하면 안 되는 production
+evidence입니다.
+
+`privacy_asset_manifest.json`에는 `checked_at`, package 내부의
+`sanitization_report`, 빈 `unresolved_risks`, 그리고 실제 사용 asset의 정확한
+`relative_path`/`bytes`/`sha256`가 모두 있어야 합니다. asset 또는 manifest가
+바뀌면 sync manifest는 stale이며 preflight부터 다시 실행합니다. 우회 flag는
+없습니다.
 
 공식 HyperFrames 파일럿 생성:
 
@@ -136,6 +190,21 @@ node scripts/render-post-qa.mjs --mp4 "<output review package>/<review-id>_final
 
 이 명령은 최종 승인자가 아니라 증거 기록자입니다.
 자동 검사 통과 후에도 `overall_status: manual_review_required`, `manual_review.status: pending` 상태로 남아야 하며, 총괄 PD가 대표 프레임의 개인정보/자막/싱크를 직접 확인해야 최종 완료입니다.
+새 `render_post_qa_report.json`은 package identity와 대상 upload MP4 및 사용한 sync
+manifest의 상대경로, bytes, SHA-256을 기록합니다. package state scan에서 과거
+`auto_status: pass`는 `post_render_qa_pass_evidence_present`일 뿐이며, 현재 MP4와
+현재 sync manifest가 모두 이 결속값과 일치할 때만 `render_complete: true`입니다.
+hash가 없는 legacy pass 보고서는 `unknown`으로
+남으며, 기존 upload MP4 package를 삭제하거나 재렌더 대상으로 해석하지 않습니다.
+게시·성과는 별도 명시 증거가 없으면 계속 `unknown`입니다.
+
+로컬 정리 제안은 아래 read-only 명령으로만 확인합니다. 이 명령에는 apply/delete
+모드가 없고, `reviews/`, final upload MP4, recipe, privacy/post-render QA 증거를
+보호합니다. 실제 삭제는 별도 명시 승인이 없으면 금지입니다.
+
+```powershell
+python scripts/cleanup_dry_run.py --root "<local artifact root>" --report "<outside-output-scratch-reviews>/cleanup-dry-run.json"
+```
 
 저장소 테스트:
 
