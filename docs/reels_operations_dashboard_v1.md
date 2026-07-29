@@ -19,7 +19,7 @@
 | 정식 리뷰 원본 | `reviews/inbox_20260609/` |
 | live package state 원본 | `python -m video_engine_v2.package_state --output-root "<output root>" --report "<outside-output>/package-state.json"` |
 | published / performance | 증거 장부가 없으면 `unknown`; 수동 숫자로 추정하지 않음 |
-| 사진 투입 안내 | `docs/reels_photo_intake_20260612.md` |
+| 과거 사진 투입 기록 | `docs/archive/README.md` (현재 제작 상태로 사용 금지) |
 | 최종 MP4 스펙 | 1080x1920 / 30fps / 약 9~10Mbps / AAC 44.1kHz stereo 192k |
 
 ## Live package state
@@ -143,6 +143,6 @@ package state scan으로 package를 확인한 뒤 사진/승인/QA 증거에 따
 3. 후보가 3개 미만이면 `PROJECT_DASHBOARD.md`와 점수표에서 미제작 A/B권 후보를 보충합니다.
 4. 새 후보군이 확정되면 사용자가 바로 사진을 넣을 수 있도록 output 패키지 폴더와 `*_이미지` 폴더를 준비합니다.
 5. 새 사진 폴더 안내 문서를 만들거나 기존 `docs/reels_photo_intake_YYYYMMDD.md`를 갱신합니다.
-6. `_context.md`에는 후보·사진대기 판단만 기록하고, 완료·발행·성과의 진실 원본으로 사용하지 않습니다.
+6. 완료·발행·성과 상태는 `_context.md` 같은 수기 세션 기록에 쓰지 않고 live package state를 다시 스캔합니다.
 
 이 규칙 때문에 `리뷰 릴스 만들자` 워크플로는 한 건 제작 후에도 다음 제작 대기열이 끊기지 않아야 합니다.

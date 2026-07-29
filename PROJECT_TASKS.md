@@ -90,7 +90,7 @@
   - 결과: A권/B권/C권 22/40/35, 평균 6.6/12
   - 점수표: `reviews/inbox_20260609/_scores_20260609_020_116.md`
   - 바로 제작 추천 후보: `020_로봇청소구축리모델링`, `033_소음차단냄새먼지`, `114_반려동물소음차단`
-  - `PROJECT_DASHBOARD.md`, `_context.md` 갱신 완료
+  - `PROJECT_DASHBOARD.md`, `docs/archive/handoffs/_context.md`(당시 세션 기록) 갱신 완료
 - [ ] **[F-004]** 통합 실행 원클릭 패키지
 
 ---

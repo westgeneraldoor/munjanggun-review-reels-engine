@@ -11,6 +11,10 @@
 - QA 테스트 코드
 - 프로젝트 운영 대시보드 문서
 
+현재 운영 문서는 루트 `AGENTS.md`의 `핵심 문서` 목록을 따릅니다. 날짜가 지난 감사,
+인수인계, 사진 투입 기록, 완료된 계획은 `docs/archive/README.md`에 분리되어 있으며
+현재 운영 권한을 갖지 않습니다.
+
 ## What This Repo Does Not Track
 
 아래 항목은 개인정보, 저작권, 용량 문제 때문에 GitHub에 올리지 않습니다.
@@ -157,18 +161,24 @@ reports remain `unknown`. Existing upload MP4 packages are preserved, not a
 deletion or automatic re-render queue. Published and performance remain `unknown`
 without their own retained evidence.
 
-## Cleanup proposals are read-only
+## Cleanup is report-bound and approval-gated
 
-Use the candidate scanner only to prepare a manual review. It has no apply or
-delete mode, excludes reviews/final uploads/recipes/privacy and post-render
-evidence, and refuses to write its report inside scanned artifact folders.
+The candidate scanner is read-only. It excludes reviews/final uploads/recipes/
+privacy and post-render evidence, and refuses to write its report inside scanned
+artifact folders.
 
 ```powershell
 python scripts/cleanup_dry_run.py --root "<local artifact root>" --report "<outside-output-scratch-reviews>/cleanup-dry-run.json"
 ```
 
-An explicit, separate approval is required before any future cleanup action is
-considered.
+After explicit user approval, the separate apply command accepts only the
+hash-verified `frame_intermediate`, `contact_sheet`, and
+`rejected_intermediate` entries from that exact report. It never accepts
+`scale_lock` MP4 candidates.
+
+```powershell
+python scripts/cleanup_apply.py --root "<local artifact root>" --report "<cleanup-dry-run.json>" --category frame_intermediate --category contact_sheet --category rejected_intermediate --confirm DELETE_GENERATED_INTERMEDIATES
+```
 
 HyperFrames remains a pilot path. Its render is allowed only through
 `scripts/hyperframes-render-gate.mjs` and the staged gates in

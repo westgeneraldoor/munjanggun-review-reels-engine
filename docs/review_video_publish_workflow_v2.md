@@ -635,7 +635,10 @@ narration: 3연동 문은 부드럽고 댐퍼 덕분에 조용했다고 해요
   _work/
 ```
 
-`_work/`에는 예전 테스트본, 중간 recipe, duplicate render, 프레임 폴더를 보관합니다. 삭제하지 않고 치워두는 용도입니다.
+`_work/`에는 예전 테스트본, 중간 recipe, duplicate render, 프레임 폴더를 둡니다.
+승인·privacy·render QA·대표 프레임 같은 증거는 보존합니다. 재생성 가능한 프레임,
+contact sheet, rejected intermediate는 `scripts/cleanup_dry_run.py`가 후보로 확인하고
+사용자가 범위를 승인한 경우에만 정리할 수 있습니다.
 
 ## 신규 세션 체크리스트
 
@@ -649,11 +652,12 @@ docs/reels_writer_persona_v1.md
 docs/reels_operations_dashboard_v1.md
 docs/render_qa_rules_v2.md
 docs/instagram_caption_hashtag_rules_v2.md
-docs/video_session_handoff_20260611.md
 docs/video_pd_standard_v2.md
 docs/video_engine_v2_design.md
-_context.md
 ```
+
+과거 세션 인수인계는 `docs/archive/README.md`에서 찾을 수 있지만 신규 세션의
+운영 권한 문서로 사용하지 않습니다.
 
 신규 세션 첫 응답에서 해야 할 일:
 
@@ -681,7 +685,7 @@ _context.md
 4. 후보군이 3개 미만이면 미제작 A/B권 후보 보충
 5. 새 후보의 output 패키지 폴더와 이미지 폴더 생성
 6. 사진 투입 안내 문서 갱신
-7. _context.md 갱신
+7. live package state 재스캔
 ```
 
 즉, 완료 보고에는 항상 아래 문장이 포함되어야 합니다.

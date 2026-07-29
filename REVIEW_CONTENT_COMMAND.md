@@ -40,7 +40,7 @@
 ## 반드시 먼저 읽을 파일
 
 1. `GEMINI.md`
-2. `_context.md`
+2. `docs/reels_operations_dashboard_v1.md`
 3. `PROJECT_DASHBOARD.md`
 4. `REVIEW_INTAKE_CHECKLIST.md`
 5. `CONTENT_QUALITY_STANDARD.md`
@@ -64,7 +64,7 @@
 상위 후보 선별
 배치 기록
 PROJECT_DASHBOARD.md 갱신
-_context.md 갱신
+live package state 재스캔
 PROJECT_TASKS.md 갱신
 무결성 검증
 ```

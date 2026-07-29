@@ -50,7 +50,7 @@ Then expand to 010 and 004.
 
 ## New Files
 
-- Optional: `docs/current_video_pipeline_audit.md`
+- Optional historical context: `../audits/current_video_pipeline_audit.md`
 
 ## Risks
 

@@ -80,5 +80,5 @@ voice.mp3 톤과 발음이 기존 승인 음성과 다르지 않은지 확인
 caption/hashtag가 script.md 내부에 있음
 caption.txt / hashtag.txt 별도 파일 없음
 PROJECT_DASHBOARD.md 갱신
-_context.md 갱신
+live package state 재스캔
 ```

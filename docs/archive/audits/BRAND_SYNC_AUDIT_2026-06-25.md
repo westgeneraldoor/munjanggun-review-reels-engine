@@ -102,7 +102,7 @@
 |---|---|
 | `docs/brand/BRAND_SOURCE.md` | 중앙 브랜드 원본 경로, 필수 문서, fallback, 민감정보 금지 기준 |
 | `docs/brand/PROJECT_BRAND_ADAPTER.md` | 리뷰 릴스 엔진이 중앙 브랜드를 적용하는 방식과 프로젝트 전용 규칙 |
-| `docs/brand/BRAND_SYNC_AUDIT_2026-06-25.md` | 중앙/프로젝트 문서 차이 감사 기록 |
+| `docs/archive/audits/BRAND_SYNC_AUDIT_2026-06-25.md` | 중앙/프로젝트 문서 차이 감사 기록 |
 
 ## 9. 이번 작업으로 수정한 문서
 
