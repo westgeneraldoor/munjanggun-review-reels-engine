@@ -198,12 +198,20 @@ hash가 없는 legacy pass 보고서는 `unknown`으로
 남으며, 기존 upload MP4 package를 삭제하거나 재렌더 대상으로 해석하지 않습니다.
 게시·성과는 별도 명시 증거가 없으면 계속 `unknown`입니다.
 
-로컬 정리 제안은 아래 read-only 명령으로만 확인합니다. 이 명령에는 apply/delete
-모드가 없고, `reviews/`, final upload MP4, recipe, privacy/post-render QA 증거를
-보호합니다. 실제 삭제는 별도 명시 승인이 없으면 금지입니다.
+로컬 정리 제안은 아래 read-only 명령으로 확인합니다. 이 명령은
+`reviews/`, final upload MP4, recipe, privacy/post-render QA 증거를 보호합니다.
 
 ```powershell
 python scripts/cleanup_dry_run.py --root "<local artifact root>" --report "<outside-output-scratch-reviews>/cleanup-dry-run.json"
+```
+
+실제 삭제는 사용자가 범위를 명시 승인한 뒤에만 별도 apply 명령으로 실행합니다.
+apply 명령은 동일 보고서의 SHA-256/bytes/root를 재검증하며
+`frame_intermediate`, `contact_sheet`, `rejected_intermediate`만 허용합니다.
+`scale_lock` MP4는 허용하지 않습니다.
+
+```powershell
+python scripts/cleanup_apply.py --root "<local artifact root>" --report "<cleanup-dry-run.json>" --category frame_intermediate --category contact_sheet --category rejected_intermediate --confirm DELETE_GENERATED_INTERMEDIATES
 ```
 
 저장소 테스트:
@@ -230,7 +238,9 @@ npm run validate
 - `docs/reels_privacy_asset_qa_rules_v1.md`
 - `docs/render_qa_rules_v2.md`
 - `docs/github_pr_workflow.md`
-- `docs/construction_reels_system_transfer_20260616.md`
+
+과거 감사, 인수인계, 사진 투입 기록, 완료된 로드맵은
+`docs/archive/README.md`에서 찾습니다. archive 문서는 현재 운영 권한을 갖지 않습니다.
 
 ## 최종 책임
 

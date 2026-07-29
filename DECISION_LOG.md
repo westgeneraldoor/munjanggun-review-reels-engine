@@ -273,7 +273,7 @@
 - **날짜:** 2026-06-12
 - **결정:** 사용자가 신규 세션에서 `리뷰 릴스 만들자`라고 말하면, 영상 신규 발행 워크플로로 해석한다.
 - **실행 문서:** `docs/review_video_publish_workflow_v2.md`
-- **필수 읽기:** `GEMINI.md`, `REVIEW_CONTENT_COMMAND.md`, `docs/review_video_publish_workflow_v2.md`, `docs/render_qa_rules_v2.md`, `docs/instagram_caption_hashtag_rules_v2.md`, `_context.md`
+- **필수 읽기(당시):** `GEMINI.md`, `REVIEW_CONTENT_COMMAND.md`, `docs/review_video_publish_workflow_v2.md`, `docs/render_qa_rules_v2.md`, `docs/instagram_caption_hashtag_rules_v2.md`, `docs/archive/handoffs/_context.md`
 - **기본 순서:** 리뷰 선택 또는 지정 리뷰 확인 -> 패키지/이미지 폴더 생성 -> 사용자가 사진 투입 -> 사진 역할 매핑 -> planning recipe -> 내레이션/SRT/음성 -> HTML 프리뷰 -> 사용자 승인 -> 최종 MP4 렌더 -> 캡션/해시태그 점검.
 - **사유:** 채팅 기억에 의존하지 않고 새 세션에서도 같은 제작 흐름과 렌더 스펙을 재현하기 위함.
 - **상태:** 🔒 LOCKED
@@ -291,9 +291,9 @@
   4. 후보군이 3개 미만이면 미제작 A/B권 후보 보충
   5. 새 후보의 output 패키지 폴더와 `*_이미지` 폴더 생성
   6. 사진 투입 안내 문서 갱신
-  7. `_context.md` 갱신
+  7. `docs/archive/handoffs/_context.md` 갱신(당시 운영)
 - **사유:** 신규 세션이나 다음 작업자가 매번 후보를 다시 찾지 않게 하고, 사용자가 사진을 넣는 준비 동선을 끊기지 않게 하기 위함.
-- **영향:** `docs/reels_operations_dashboard_v1.md`, `docs/review_video_publish_workflow_v2.md`, `PROJECT_DASHBOARD.md`, `_context.md`에 완료 후 후보 보충 규칙을 반영했다.
+- **영향:** `docs/reels_operations_dashboard_v1.md`, `docs/review_video_publish_workflow_v2.md`, `PROJECT_DASHBOARD.md`, `docs/archive/handoffs/_context.md`에 완료 후 후보 보충 규칙을 반영했다.
 - **상태:** 🔒 LOCKED
 - **재검토 조건:** 후보 폴더가 너무 많이 쌓여 운영 혼란이 생길 때
 
@@ -352,7 +352,7 @@
 - **승인으로 인정하는 표현:** `승인`, `이 방향으로 가`, `HTML 만들어`, `프리뷰 제작해`, `진행해`.
 - **승인으로 보지 않는 표현:** 리뷰 번호 지정, 후보 선택, 사진 업로드 완료, `만들자` 단독 표현.
 - **사유:** 033 신규 세션에서 `033 리뷰 릴스 만들자` 명령만으로 HTML 프리뷰까지 자동 생성되었고, D-024 속도는 통과했지만 D-026 scene 의미 일치가 깨진 산출물이 나왔다. 번호 지정과 제작 승인 사이를 분리하지 않으면 빠르게 틀린 결과물이 반복된다.
-- **영향:** `GEMINI.md`, `docs/review_video_publish_workflow_v2.md`, `docs/reels_operations_dashboard_v1.md`, `_context.md`에 기획 승인 게이트를 반영한다. 신규 세션은 번호만 받았을 때 반드시 사용자에게 기획 승인 질문을 해야 한다.
+- **영향:** `GEMINI.md`, `docs/review_video_publish_workflow_v2.md`, `docs/reels_operations_dashboard_v1.md`, `docs/archive/handoffs/_context.md`에 기획 승인 게이트를 반영한다. 신규 세션은 번호만 받았을 때 반드시 사용자에게 기획 승인 질문을 해야 한다.
 - **상태:** 🔒 LOCKED
 - **재검토 조건:** 자동 사진검수/기획/scene QA가 충분히 안정화되어 사용자 승인 없이도 5건 이상 연속 통과하는 데이터가 쌓였을 때
 
@@ -368,7 +368,7 @@
   - `1.25 이상`은 발음 뭉개짐 위험이 높으므로 렌더 금지
 - **추가 기준:** 기존 승인 톤과 다른 목소리, 지나치게 차분한 낭독, 낮고 처지는 톤, 받침/조사가 뭉개지는 발음은 수치가 통과해도 실패다.
 - **사유:** 025 living_review_v2에서 원본 TTS 약 `39.49초`를 최종 `28.94초`로 압축해 약 `1.36배`가 되었고, 사용자가 기존 문장군 음성과 다른 차분한 톤과 뭉개진 발음을 지적했다. D-024 초당 글자수만으로는 이 문제를 잡지 못했다.
-- **영향:** `docs/review_video_publish_workflow_v2.md`, `docs/render_qa_rules_v2.md`, `CONTENT_QUALITY_STANDARD.md`, `_context.md`에 음성 원본 길이/압축률/톤 품질 검수 기준을 추가한다.
+- **영향:** `docs/review_video_publish_workflow_v2.md`, `docs/render_qa_rules_v2.md`, `CONTENT_QUALITY_STANDARD.md`, `docs/archive/handoffs/_context.md`에 음성 원본 길이/압축률/톤 품질 검수 기준을 추가한다.
 - **상태:** 🔒 LOCKED
 - **재검토 조건:** TTS 엔진을 교체하거나, 원본 TTS가 목표 길이를 안정적으로 맞추는 전용 음성 생성 함수가 구현될 때
 
@@ -388,7 +388,7 @@
   3. 리뷰에 없는 효과를 생성 이미지로 과장.
   4. 생성 이미지가 문맥과 문자 그대로 맞지 않는데 사용.
 - **검수 기준:** 생성 컷은 나레이션 문장을 문자 그대로 만족해야 한다. 예를 들어 `문턱 없이 통과`라면 화면에 문턱, 턱, 레일, 단차, raised strip이 없어야 한다.
-- **영향:** `docs/review_video_publish_workflow_v2.md`, `CONTENT_QUALITY_STANDARD.md`, `_context.md`에 사진 부적합 시 생성 인서트 판단 절차를 추가한다.
+- **영향:** `docs/review_video_publish_workflow_v2.md`, `CONTENT_QUALITY_STANDARD.md`, `docs/archive/handoffs/_context.md`에 사진 부적합 시 생성 인서트 판단 절차를 추가한다.
 - **상태:** 🔒 LOCKED
 - **재검토 조건:** 실제 업로드 성과에서 생성 인서트가 신뢰도를 낮춘다는 피드백이 반복될 때
 

@@ -10,7 +10,7 @@
 
 1. `GEMINI.md` — 프로젝트 헌법
 2. `PROJECT_DASHBOARD.md` — 현재 상태/리뷰 자산/생성 패키지 현황
-3. `_context.md` — 최근 작업 맥락
+3. `docs/reels_operations_dashboard_v1.md` — 현재 릴스 운영 상태와 live package state
 4. `REVIEW_CONTENT_COMMAND.md` — `리뷰컨텐츠 신규 만들어줘` 요청일 때
 5. `docs/review_video_publish_workflow_v2.md` — `리뷰 릴스 만들자` / 영상 신규 발행 요청일 때
 6. `docs/reels_operations_dashboard_v1.md` — 릴스 현재 진행 상태/다음 후보/칸반
@@ -301,7 +301,7 @@
 ├── GEMINI.md                    ← 지금 이 파일 (프로젝트 헌법, 가장 먼저 읽을 것)
 ├── DECISION_LOG.md              ← 장기 결정 기록 (왜 그렇게 결정했는가)
 ├── STORY_EXTRACTION_RULES.md    ← 리뷰→사연극 재료 추출 규칙 (핵심 문서)
-├── _context.md                  ← 현재 상태 (총괄매니저 세션 컨텍스트)
+├── docs/archive/handoffs/_context.md ← 2026-06 legacy 세션 기록 (읽기 전용)
 ├── PROJECT_TASKS.md             ← Phase별 태스크 추적
 ├── PRD_v1.0.md                  ← 실행 PRD (무엇을 만들 것인가)
 ├── PROJECT_BRIEF.md             ← 전략 브리프
@@ -318,7 +318,7 @@
 1. GEMINI.md                   ← 헌법. 무엇이 금지인지 먼저 파악
 2. DECISION_LOG.md             ← 왜 그렇게 결정했는지 이해
 3. STORY_EXTRACTION_RULES.md   ← 리뷰에서 사건을 어떻게 뽑는지
-4. _context.md                 ← 지금 어디까지 진행됐는지
+4. docs/reels_operations_dashboard_v1.md ← 현재 릴스 운영 상태
 5. _order.md                   ← (있으면) 현재 작업 지시서
 6. PRD_v1.0.md                 ← 상세 스펙이 필요할 때만
 ```
@@ -330,9 +330,9 @@
 ### DO (해야 할 것)
 - ✅ 이 파일을 먼저 읽고 작업 시작
 - ✅ DECISION_LOG.md에서 이미 폐기된 아이디어 확인
-- ✅ _context.md에서 현재 진행 상황 파악
+- ✅ reels 운영 대시보드와 live package state에서 현재 진행 상황 파악
 - ✅ 금지 표현 목록을 프롬프트에 반드시 포함
-- ✅ 완료 후 _context.md 업데이트 또는 총괄매니저에게 보고
+- ✅ 완료 후 package state 재스캔 또는 총괄매니저에게 증거 기반 보고
 
 ### DON'T (하지 말 것)
 - ❌ 4번 섹션(폐기된 아이디어)을 다시 제안하지 않는다

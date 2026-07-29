@@ -350,7 +350,7 @@ docs/
   video_engine_v2_design.md
   video_templates_v2.md
   video_recipe_schema_v2.md
-  refactor_roadmap_v2.md
+  archive/plans/refactor_roadmap_v2.md
 
 v2/
   recipes/
