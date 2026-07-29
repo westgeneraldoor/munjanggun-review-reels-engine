@@ -81,6 +81,8 @@ class RepoContractTest(unittest.TestCase):
                 self.assertIs(keywords["capture_output"].value, True)
                 self.assertNotIn("text", keywords)
                 self.assertNotIn("universal_newlines", keywords)
+                self.assertNotIn("encoding", keywords)
+                self.assertNotIn("errors", keywords)
                 assignments = [
                     node
                     for node in ast.walk(function)
