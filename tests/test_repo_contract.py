@@ -81,12 +81,31 @@ class RepoContractTest(unittest.TestCase):
                 self.assertIs(keywords["capture_output"].value, True)
                 self.assertNotIn("text", keywords)
                 self.assertNotIn("universal_newlines", keywords)
+                assignments = [
+                    node
+                    for node in ast.walk(function)
+                    if isinstance(node, ast.Assign)
+                    and node.value is runs[0]
+                    and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name)
+                ]
+                self.assertEqual(len(assignments), 1, "subprocess result must be assigned to one name")
+                result_name = assignments[0].targets[0].id
+                stdout_attributes = [
+                    node
+                    for node in ast.walk(function)
+                    if isinstance(node, ast.Attribute)
+                    and node.attr == "stdout"
+                    and isinstance(node.value, ast.Name)
+                    and node.value.id == result_name
+                ]
+                self.assertEqual(len(stdout_attributes), 1, "raw stdout may only be used as the decode receiver")
+                stdout = stdout_attributes[0]
                 decodes_stdout = any(
                     isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Attribute)
                     and node.func.attr == "decode"
-                    and isinstance(node.func.value, ast.Attribute)
-                    and node.func.value.attr == "stdout"
+                    and node.func.value is stdout
                     and len(node.args) == 1
                     and isinstance(node.args[0], ast.Constant)
                     and node.args[0].value == "utf-8"
