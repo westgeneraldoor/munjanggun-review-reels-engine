@@ -770,9 +770,12 @@ class ProductionGateTests(unittest.TestCase):
         self.assertFalse((self.package / f"{self.output.stem}_frames").exists())
 
     def test_internal_builder_and_renderer_require_a_gate_receipt_before_creating_artifacts(self):
+        environment = os.environ.copy()
+        environment.update({"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"})
         builder = subprocess.run(
             [sys.executable, "build_html_preview_v2.py", "--recipe", str(self.edit)],
             cwd=Path(__file__).parents[1],
+            env=environment,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -1034,6 +1037,8 @@ class ProductionGateTests(unittest.TestCase):
         receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
         self.html.parent.mkdir()
         self.html.write_text("preserve this preview", encoding="utf-8")
+        environment = os.environ.copy()
+        environment.update({"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"})
 
         result = subprocess.run(
             [
@@ -1045,6 +1050,7 @@ class ProductionGateTests(unittest.TestCase):
                 str(receipt_path),
             ],
             cwd=Path(__file__).parents[1],
+            env=environment,
             capture_output=True,
             text=True,
             encoding="utf-8",
