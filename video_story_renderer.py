@@ -117,9 +117,8 @@ def probe_duration(path: Path) -> float:
         ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", str(path)],
         check=True,
         capture_output=True,
-        text=True,
     )
-    return float(result.stdout.strip())
+    return float(result.stdout.decode("utf-8", errors="replace").strip())
 
 
 def find_package_files(package_dir: Path) -> tuple[Path, Path, Path, Path]:

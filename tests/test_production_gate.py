@@ -761,7 +761,9 @@ class ProductionGateTests(unittest.TestCase):
             "--out",
             str(self.output),
         ]
-        result = subprocess.run(command, cwd=Path(__file__).parents[1], capture_output=True, text=True)
+        result = subprocess.run(
+            command, cwd=Path(__file__).parents[1], capture_output=True, text=True, encoding="utf-8", errors="strict"
+        )
 
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.output.exists())
@@ -773,6 +775,8 @@ class ProductionGateTests(unittest.TestCase):
             cwd=Path(__file__).parents[1],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="strict",
         )
         self.assertNotEqual(builder.returncode, 0)
         self.assertIn("--gate-receipt", builder.stderr)
@@ -785,6 +789,8 @@ class ProductionGateTests(unittest.TestCase):
             cwd=Path(__file__).parents[1],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="strict",
         )
         self.assertNotEqual(renderer.returncode, 0)
         self.assertIn("Missing --gate-receipt", renderer.stderr)
@@ -824,6 +830,8 @@ class ProductionGateTests(unittest.TestCase):
             cwd=Path(__file__).parents[1],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="strict",
         )
 
         self.assertNotEqual(renderer.returncode, 0)
@@ -851,6 +859,8 @@ class ProductionGateTests(unittest.TestCase):
             cwd=ROOT,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="strict",
         )
 
         self.assertNotEqual(renderer.returncode, 0)
@@ -904,6 +914,8 @@ class ProductionGateTests(unittest.TestCase):
                 cwd=ROOT,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="strict",
             )
 
         self.assertNotEqual(renderer.returncode, 0)
@@ -1035,6 +1047,8 @@ class ProductionGateTests(unittest.TestCase):
             cwd=Path(__file__).parents[1],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="strict",
         )
 
         self.assertNotEqual(result.returncode, 0)

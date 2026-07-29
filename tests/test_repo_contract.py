@@ -1,3 +1,4 @@
+import ast
 import json
 import subprocess
 import unittest
@@ -8,6 +9,97 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RepoContractTest(unittest.TestCase):
+    def test_tracked_test_subprocess_text_mode_declares_utf8_encoding(self):
+        tracked = subprocess.run(
+            ["git", "ls-files", "-z", "--", "tests"],
+            cwd=ROOT,
+            capture_output=True,
+            check=True,
+        ).stdout.decode("utf-8", errors="strict").split("\0")
+        offenders = []
+
+        for relative_path in tracked:
+            if not relative_path.endswith(".py"):
+                continue
+            tree = ast.parse((ROOT / relative_path).read_text(encoding="utf-8"), filename=relative_path)
+            subprocess_names = {"subprocess"}
+            call_names = set()
+            for node in tree.body:
+                if isinstance(node, ast.Import):
+                    subprocess_names.update(alias.asname or alias.name for alias in node.names if alias.name == "subprocess")
+                elif isinstance(node, ast.ImportFrom) and node.module == "subprocess":
+                    call_names.update(alias.asname or alias.name for alias in node.names if alias.name in {"run", "Popen", "check_output"})
+
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                is_subprocess_call = (
+                    isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id in subprocess_names
+                    and node.func.attr in {"run", "Popen", "check_output"}
+                ) or (isinstance(node.func, ast.Name) and node.func.id in call_names)
+                if not is_subprocess_call:
+                    continue
+                keywords = {keyword.arg: keyword.value for keyword in node.keywords if keyword.arg is not None}
+                text_mode = any(
+                    isinstance(keywords.get(name), ast.Constant) and keywords[name].value is True
+                    for name in ("text", "universal_newlines")
+                )
+                if text_mode and "encoding" not in keywords:
+                    offenders.append(f"{relative_path}:{node.lineno}")
+
+        self.assertEqual(offenders, [], f"text-mode subprocess calls need encoding: {offenders}")
+
+    def test_external_cli_boundaries_decode_stdout_as_utf8_bytes(self):
+        targets = {
+            "video_engine_v2/final_html_variants.py": "_audio_duration",
+            "video_engine_v2/pilot_005.py": "_audio_duration",
+            "video_engine_v2/privacy_face_blur.py": "gcloud_access_token",
+            "video_prototype.py": "probe_duration",
+            "video_story_renderer.py": "probe_duration",
+        }
+
+        for relative_path, function_name in targets.items():
+            with self.subTest(path=relative_path, function=function_name):
+                tree = ast.parse((ROOT / relative_path).read_text(encoding="utf-8"), filename=relative_path)
+                function = next(
+                    node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == function_name
+                )
+                runs = [
+                    node
+                    for node in ast.walk(function)
+                    if isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "subprocess"
+                    and node.func.attr == "run"
+                ]
+                self.assertEqual(len(runs), 1)
+                keywords = {keyword.arg: keyword.value for keyword in runs[0].keywords if keyword.arg is not None}
+                self.assertIsInstance(keywords.get("capture_output"), ast.Constant)
+                self.assertIs(keywords["capture_output"].value, True)
+                self.assertNotIn("text", keywords)
+                self.assertNotIn("universal_newlines", keywords)
+                decodes_stdout = any(
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "decode"
+                    and isinstance(node.func.value, ast.Attribute)
+                    and node.func.value.attr == "stdout"
+                    and len(node.args) == 1
+                    and isinstance(node.args[0], ast.Constant)
+                    and node.args[0].value == "utf-8"
+                    and any(
+                        keyword.arg == "errors"
+                        and isinstance(keyword.value, ast.Constant)
+                        and keyword.value.value == "replace"
+                        for keyword in node.keywords
+                    )
+                    for node in ast.walk(function)
+                )
+                self.assertTrue(decodes_stdout, "stdout must be decoded with utf-8 and errors=replace")
+
     def test_agents_md_exists_with_reels_hard_gates(self):
         agents_path = ROOT / "AGENTS.md"
 
