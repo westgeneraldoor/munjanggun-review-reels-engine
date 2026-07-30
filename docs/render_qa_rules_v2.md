@@ -1,5 +1,7 @@
 # HTML-to-MP4 Render QA Rules v2
 
+> 현재 direct renderer는 `render_html_preview_v2.js` approval gate다. `STATUS.md`, `APPROVAL_LOG.md`, 성공 sync manifest, `scripts/html-preview-qa.mjs` 결과, 별도 `--render-approved`가 없으면 dry-run 외 MP4를 만들지 않는다. 프레임 폴더를 재귀 삭제하거나 기존 MP4를 덮어쓰지 않는다.
+
 문장군 리뷰 영상은 HTML 프리뷰가 좋아 보여도 MP4 렌더가 다르면 실패입니다.
 
 ## 핵심 사고 원인

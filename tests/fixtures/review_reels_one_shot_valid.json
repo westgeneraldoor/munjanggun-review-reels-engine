@@ -1,0 +1,71 @@
+{
+  "planning": {
+    "workflow_contract": {
+      "name": "review-reels-one-shot-v1",
+      "html_scope_authorized": true,
+      "mp4_scope_authorized": false
+    },
+    "analysis": {
+      "customer_problem": "현관 동선이 불편함",
+      "before_pain": "생활 동선이 계속 걸림",
+      "after_change": "설치 뒤 동선이 한결 편해짐",
+      "customer_emotion": ["안심"]
+    },
+    "review_source": {
+      "text": "기존 현관 동선이 불편했는데 설치 뒤 동선이 한결 편해졌습니다.",
+      "review_quote_for_proof": "설치 뒤 동선이 한결 편해졌습니다",
+      "inferred_fields": [],
+      "unsupported_story_elements": []
+    },
+    "hooks": [{"text": "현관 동선이 계속 걸렸다면, 이 장면부터 보세요?"}],
+    "selected_hook": {"text": "현관 동선이 계속 걸렸다면, 이 장면부터 보세요?"},
+    "writer_brief": {
+      "one_line_story": "불편한 현관 동선이 설치 뒤 달라진 비식별 리뷰 사례",
+      "hook_candidates": [{"text": "현관 동선이 계속 걸렸다면, 이 장면부터 보세요?", "triggers": ["target_callout"], "source_evidence": "리뷰의 동선 불편 언급"}],
+      "recommended_hook": "현관 동선이 계속 걸렸다면, 이 장면부터 보세요?",
+      "review_quote_for_proof": "설치 뒤 동선이 한결 편해졌습니다"
+    },
+    "photo_qa": {
+      "checked": true,
+      "asset_count": 7,
+      "first_frame_asset_id": "photo_before_01",
+      "privacy_status": "passed"
+    },
+    "review_proof": {
+      "source_capture_role": "review_capture",
+      "source_capture_kind": "actual_review_capture"
+    },
+    "cta": {"primary_text": "우리 집 동선도 확인해보세요"},
+    "audio_sync": {"mode": "voice_aligned", "sync_checks": {"screen_ahead_of_voice": false}},
+    "scenes": [
+      {"scene_id": "s01", "narrative_role": "event", "visual_source": {"role": "before_entry", "asset_id": "photo_before_01", "source_kind": "customer_photo"}, "caption": {"text": "현관 동선이\n계속 걸렸다면?"}, "narration": "현관 동선이 계속 걸렸던 집의 이야기입니다.", "meaning_match": true, "meaning_match_evidence": "리뷰와 시공 전 사진"},
+      {"scene_id": "s02", "narrative_role": "problem", "visual_source": {"role": "before_problem", "asset_id": "photo_before_02", "source_kind": "customer_photo"}, "caption": {"text": "매일 지나갈 때마다\n신경 쓰이던 자리"}, "narration": "매일 지날 때마다 불편이 쌓였다고 합니다.", "meaning_match": true, "meaning_match_evidence": "리뷰의 불편 언급"},
+      {"scene_id": "s03", "narrative_role": "context", "visual_source": {"role": "site_context", "asset_id": "photo_context_01", "source_kind": "customer_photo"}, "caption": {"text": "집 구조부터\n다시 살펴보고"}, "narration": "집 구조와 동선을 먼저 확인했습니다.", "meaning_match": true, "meaning_match_evidence": "현장 확인 사진"},
+      {"scene_id": "s04", "narrative_role": "choice_turn", "visual_source": {"role": "measure", "asset_id": "photo_measure_01", "source_kind": "customer_photo"}, "caption": {"text": "불편한 동선을\n바꾸는 선택"}, "narration": "불편을 줄일 방법을 함께 골랐습니다.", "meaning_match": true, "meaning_match_evidence": "실측 사진"},
+      {"scene_id": "s05", "narrative_role": "resolution", "visual_source": {"role": "installation", "asset_id": "photo_install_01", "source_kind": "customer_photo"}, "caption": {"text": "현장에 맞춰\n설치가 이어지고"}, "narration": "현장에 맞춰 설치가 이어졌습니다.", "meaning_match": true, "meaning_match_evidence": "시공 사진"},
+      {"scene_id": "s06", "narrative_role": "felt_result", "visual_source": {"role": "after_main", "asset_id": "photo_after_01", "source_kind": "customer_photo"}, "caption": {"text": "지나갈 때마다\n한결 편해진 동선"}, "narration": "설치 뒤에는 동선이 한결 편해졌다고 합니다.", "meaning_match": true, "meaning_match_evidence": "리뷰의 결과 언급"},
+      {"scene_id": "s07", "narrative_role": "review_proof", "visual_source": {"role": "review_capture", "asset_id": "review_capture_01", "source_kind": "actual_review_capture"}, "caption": {"text": "고객이 남긴\n체감의 한마디"}, "narration": "고객도 설치 뒤 동선이 편해졌다고 남겼습니다.", "meaning_match": true, "meaning_match_evidence": "원문 리뷰 인용"},
+      {"scene_id": "s08", "narrative_role": "cta", "visual_source": {"role": "after_wide", "asset_id": "photo_after_02", "source_kind": "customer_photo"}, "caption": {"text": "우리 집 동선도\n먼저 확인해보세요"}, "narration": "우리 집 동선도 먼저 확인해보세요.", "meaning_match": true, "meaning_match_evidence": "상담 CTA"}
+    ]
+  },
+  "edit": {
+    "source": {"privacy_review": {"checked": true, "unresolved_risks": []}},
+    "audio_plan": {
+      "sync_policy": {"raw_tts_duration_sec": 31.0, "final_voice_duration_sec": 30.0},
+      "final_voice_is_master": true,
+      "tts_text_matches_narration": true,
+      "tts_text_sha256": "fixture-tts-text-sha256",
+      "final_voice_sha256": "fixture-final-voice-sha256"
+    },
+    "beats": [
+      {"id": "b01", "narrative_role": "event", "planning_scene_id": "s01", "time": [0, 3], "caption_start_sec": 0, "narration_start_sec": 0, "asset": "before_entry", "asset_id": "photo_before_01", "asset_source_kind": "customer_photo", "visual_relevance": "direct", "caption": "현관 동선이\n계속 걸렸다면?", "caption_layout": {"line_count": 2, "min_font_px": 36, "safe_area": "pass", "does_not_cover_subject": true}, "caption_focus_keywords": ["현관 동선"], "narration_ref": "현관 동선이 계속 걸렸던 집의 이야기입니다.", "meaning_match": true, "meaning_match_source": "planning_scene:s01"},
+      {"id": "b02", "narrative_role": "problem", "planning_scene_id": "s02", "time": [3, 6], "caption_start_sec": 3, "narration_start_sec": 3, "asset": "before_problem", "asset_id": "photo_before_02", "asset_source_kind": "customer_photo", "visual_relevance": "direct", "caption": "매일 지나갈 때마다\n신경 쓰이던 자리", "caption_layout": {"line_count": 2, "min_font_px": 36, "safe_area": "pass", "does_not_cover_subject": true}, "caption_focus_keywords": ["신경 쓰이던"], "narration_ref": "매일 지날 때마다 불편이 쌓였다고 합니다.", "meaning_match": true, "meaning_match_source": "planning_scene:s02"},
+      {"id": "b03", "narrative_role": "context", "planning_scene_id": "s03", "time": [6, 9], "caption_start_sec": 6, "narration_start_sec": 6, "asset": "site_context", "asset_id": "photo_context_01", "asset_source_kind": "customer_photo", "visual_relevance": "direct", "caption": "집 구조부터\n다시 살펴보고", "caption_layout": {"line_count": 2, "min_font_px": 36, "safe_area": "pass", "does_not_cover_subject": true}, "caption_focus_keywords": ["집 구조"], "narration_ref": "집 구조와 동선을 먼저 확인했습니다.", "meaning_match": true, "meaning_match_source": "planning_scene:s03"},
+      {"id": "b04", "narrative_role": "choice_turn", "planning_scene_id": "s04", "time": [9, 12], "caption_start_sec": 9, "narration_start_sec": 9, "asset": "measure", "asset_id": "photo_measure_01", "asset_source_kind": "customer_photo", "visual_relevance": "direct", "caption": "불편한 동선을\n바꾸는 선택", "caption_layout": {"line_count": 2, "min_font_px": 36, "safe_area": "pass", "does_not_cover_subject": true}, "caption_focus_keywords": ["동선", "선택"], "narration_ref": "불편을 줄일 방법을 함께 골랐습니다.", "meaning_match": true, "meaning_match_source": "planning_scene:s04"},
+      {"id": "b05", "narrative_role": "resolution", "planning_scene_id": "s05", "time": [12, 16], "caption_start_sec": 12, "narration_start_sec": 12, "asset": "installation", "asset_id": "photo_install_01", "asset_source_kind": "customer_photo", "visual_relevance": "direct", "caption": "현장에 맞춰\n설치가 이어지고", "caption_layout": {"line_count": 2, "min_font_px": 36, "safe_area": "pass", "does_not_cover_subject": true}, "caption_focus_keywords": ["현장", "설치"], "narration_ref": "현장에 맞춰 설치가 이어졌습니다.", "meaning_match": true, "meaning_match_source": "planning_scene:s05"},
+      {"id": "b06", "narrative_role": "felt_result", "planning_scene_id": "s06", "time": [16, 20], "caption_start_sec": 16, "narration_start_sec": 16, "asset": "after_main", "asset_id": "photo_after_01", "asset_source_kind": "customer_photo", "visual_relevance": "direct", "caption": "지나갈 때마다\n한결 편해진 동선", "caption_layout": {"line_count": 2, "min_font_px": 36, "safe_area": "pass", "does_not_cover_subject": true}, "caption_focus_keywords": ["편해진 동선"], "narration_ref": "설치 뒤에는 동선이 한결 편해졌다고 합니다.", "meaning_match": true, "meaning_match_source": "planning_scene:s06"},
+      {"id": "b07", "narrative_role": "review_proof", "planning_scene_id": "s07", "time": [20, 23], "caption_start_sec": 20, "narration_start_sec": 20, "asset": "review_capture", "asset_id": "review_capture_01", "asset_source_kind": "actual_review_capture", "proof_asset_type": "actual_review_capture", "visual_relevance": "direct", "caption": "고객이 남긴\n체감의 한마디", "caption_layout": {"line_count": 2, "min_font_px": 36, "safe_area": "pass", "does_not_cover_subject": true}, "caption_focus_keywords": ["체감"], "narration_ref": "고객도 설치 뒤 동선이 편해졌다고 남겼습니다.", "meaning_match": true, "meaning_match_source": "planning_scene:s07"},
+      {"id": "b08", "narrative_role": "cta", "planning_scene_id": "s08", "time": [23, 27], "caption_start_sec": 23, "narration_start_sec": 23, "asset": "after_wide", "asset_id": "photo_after_02", "asset_source_kind": "customer_photo", "visual_relevance": "direct", "caption": "우리 집 동선도\n먼저 확인해보세요", "caption_layout": {"line_count": 2, "min_font_px": 36, "safe_area": "pass", "does_not_cover_subject": true}, "caption_focus_keywords": ["우리 집 동선"], "narration_ref": "우리 집 동선도 먼저 확인해보세요.", "meaning_match": true, "meaning_match_source": "planning_scene:s08"}
+    ]
+  }
+}

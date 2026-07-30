@@ -67,14 +67,14 @@ python -m unittest discover -s tests
 릴스 엔진 변경이면 해당 릴스의 QA도 실행합니다.
 
 ```powershell
-python -m video_engine_v2.reels_qa --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --sync-manifest-out "<sync_manifest.json>"
+python -m video_engine_v2.reels_qa --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --sync-manifest-out "<sync_manifest.json>" --require-one-shot-contract
 ```
 
 렌더 관련 변경이면 ffprobe, 대표 프레임, 개인정보 노출 검수까지 확인합니다.
 
 ## PR Rule
 
-PR은 기본적으로 Draft로 만듭니다.
+PR은 기본적으로 Draft로 만들되, 전체 검증과 고객자료 scan이 끝난 구현 작업은 Ready for review로 열 수 있습니다.
 
 ```powershell
 gh pr create --draft --base main --head codex/<work-name> --title "<title>" --body "<summary>"

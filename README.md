@@ -46,13 +46,13 @@ npm install
 Run QA before HTML or MP4 work:
 
 ```powershell
-python -m video_engine_v2.reels_qa --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --sync-manifest-out "<sync_manifest.json>"
+python -m video_engine_v2.reels_qa --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --sync-manifest-out "<sync_manifest.json>" --require-one-shot-contract
 ```
 
 Build HTML preview:
 
 ```powershell
-python build_html_preview_v2.py --recipe "<edit_recipe.json>"
+python build_html_preview_v2.py --planning "<planning_recipe.json>" --recipe "<edit_recipe.json>"
 ```
 
 Build an official HyperFrames Studio pilot from an approved edit recipe.
@@ -88,19 +88,26 @@ node scripts/render-post-qa.mjs --mp4 "<output review package>/<review-id>_final
 
 This writes local `render_post_qa_report.json`, `render_post_qa_report.md`, and representative frames under the ignored review package `_work/` folder. Passing automatic checks still leaves `overall_status: manual_review_required` until a human reviews privacy, captions, and sync.
 
-Render approved HTML to upload MP4:
+Run representative-time HTML visual QA before any MP4 render:
 
 ```powershell
-node render_html_preview_v2.js --html "<html_preview>/index.html" --out "<output>_upload_10mbps.mp4" --fps 30 --width 1080 --height 1920
+node scripts/html-preview-qa.mjs --html "<html_preview>/index.html" --out "<output review package>/_work/html_preview_qa.json"
 ```
 
-The command above is the current production render path. HyperFrames render is allowed only through `scripts/hyperframes-render-gate.mjs` and the staged gates in `docs/hyperframes_official_adoption_plan_v1.md`.
+Render approved HTML to upload MP4. This is the current direct production path; it is a dry-run unless `--render-approved` is supplied after a separate explicit user render approval:
+
+```powershell
+node render_html_preview_v2.js --html "<html_preview>/index.html" --package "<output review package>" --sync-manifest "<output review package>/sync_manifest.json" --html-qa "<output review package>/_work/html_preview_qa.json" --out "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4" --fps 30 --width 1080 --height 1920 --render-approved
+```
+
+HyperFrames is an official Studio pilot/review path. It is allowed only through `scripts/hyperframes-render-gate.mjs` and the staged gates in `docs/hyperframes_official_adoption_plan_v1.md`; the Stage 1/2 adapter is not the default production renderer.
 
 ## Operating Rules
 
 - Do not render MP4 before explicit user approval.
 - Do not commit customer source assets or generated output.
 - Every reel must pass `video_engine_v2.reels_qa`.
+- New one-shot reels must follow `docs/review_reels_one_shot_contract_v1.md` and pass `--require-one-shot-contract` before HTML creation.
 - Every final render must pass ffprobe/spec/representative-frame/privacy QA.
 - Follow `docs/review_video_publish_workflow_v2.md` and `docs/reels_operations_dashboard_v1.md` before starting a new reel.
 - Follow `docs/hyperframes_official_adoption_plan_v1.md` before calling a preview "official HyperFrames".

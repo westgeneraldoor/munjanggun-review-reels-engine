@@ -1,5 +1,17 @@
 # 문장군 리뷰 릴스 엔진 운영 지침
 
+## 신규 세션 단일 권위 경로 (현재)
+
+리뷰 릴스 요청은 먼저 `docs/review_reels_one_shot_contract_v1.md`와 `docs/brand/BRAND_SOURCE.md`를 읽는다. 이 두 문서는 아래의 구형 다단계 승인 문구와 충돌할 때 리뷰 릴스 신규 세션에 우선한다.
+
+- 리뷰 번호는 대상 선택이다.
+- `018 사진 다 넣었어. HTML까지 가자` 또는 같은 의미의 명시는 사진검수→기획→대본→최종 TTS→SRT/recipe→QA→HTML 프리뷰의 일괄 승인이다. 사소한 PD 선택을 다시 묻지 않는다.
+- 실제 원문/사진 부재 또는 해결되지 않은 개인정보 위험만 중단 사유다.
+- MP4는 이 명령에 포함되지 않는다. `렌더 승인` 같은 별도 명시 승인과 `STATUS.md`/`APPROVAL_LOG.md`의 긍정 기록 없이는 어떤 렌더 경로도 MP4를 만들 수 없다.
+- 신규 HTML은 `python -m video_engine_v2.reels_qa ... --require-one-shot-contract`와 `python build_html_preview_v2.py --planning ... --recipe ...`를 통해서만 만든다.
+
+현재 기본 MP4 경로는 게이트가 붙은 `render_html_preview_v2.js`다. HyperFrames는 `docs/hyperframes_official_adoption_plan_v1.md`의 Studio pilot/검토 표면이며 Stage 1/2 adapter를 production renderer라고 부르지 않는다.
+
 이 저장소는 문장군 고객 리뷰를 기반으로 인스타그램 릴스용 기획, 대본, SRT, TTS, HTML 프리뷰, MP4 렌더를 만드는 엔진입니다.
 
 신규 Codex 세션은 작업 전에 이 파일을 먼저 읽고, 아래 하드 게이트를 지켜야 합니다.
@@ -92,7 +104,7 @@ HTML 생성 전 planning_recipe에는 아래 메타데이터가 있어야 합니
 HTML 생성 전:
 
 ```powershell
-python -m video_engine_v2.reels_qa --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --sync-manifest-out "<sync_manifest.json>"
+python -m video_engine_v2.reels_qa --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --sync-manifest-out "<sync_manifest.json>" --require-one-shot-contract
 ```
 
 공식 HyperFrames 파일럿 생성:

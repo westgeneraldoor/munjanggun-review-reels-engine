@@ -106,6 +106,18 @@ EMOTION_CLAIM_KEYWORDS = {
     "satisfaction": ("만족", "대만족", "흡족"),
     "surprise": ("놀랐", "생각보다", "기대이상", "기대 이상"),
 }
+ONE_SHOT_CONTRACT_NAME = "review-reels-one-shot-v1"
+REQUIRED_NARRATIVE_ROLES = (
+    "event",
+    "problem",
+    "context",
+    "choice_turn",
+    "resolution",
+    "felt_result",
+    "review_proof",
+    "cta",
+)
+MIN_CAPTION_FONT_PX = 32
 
 
 def _issue(code: str, message: str, *, scene_id: str | None = None, severity: str = "fail") -> dict[str, Any]:
@@ -701,7 +713,177 @@ def _validate_privacy_metadata(edit_recipe: dict[str, Any]) -> list[dict[str, An
     return issues
 
 
-def validate_html_preflight(planning_recipe: dict[str, Any], edit_recipe: dict[str, Any]) -> dict[str, Any]:
+def _role(value: dict[str, Any]) -> str:
+    return _as_text(value.get("narrative_role") or value.get("role") or value.get("phase")).strip()
+
+
+def _duration_for_filler(beat: dict[str, Any]) -> float:
+    return _beat_duration(beat)
+
+
+def _caption_has_literal_newline(text: str) -> bool:
+    return r"\n" in text or "/n" in text
+
+
+def _is_actual_review_capture(source: dict[str, Any]) -> bool:
+    return _as_text(source.get("source_kind") or source.get("proof_asset_type")).strip() == "actual_review_capture"
+
+
+def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edit_recipe: dict[str, Any]) -> dict[str, Any]:
+    """Validate the strict recipe shape used by the new-session review-reels flow.
+
+    Legacy recipes remain readable for historical QA.  New HTML creation must call
+    ``validate_html_preflight(..., require_one_shot_contract=True)`` so an agent
+    cannot quietly downgrade a new review to the older, thinner schema.
+    """
+
+    issues: list[dict[str, Any]] = []
+    contract = planning_recipe.get("workflow_contract") or {}
+    if _as_text(contract.get("name")).strip() != ONE_SHOT_CONTRACT_NAME:
+        issues.append(_issue("ONE_SHOT_CONTRACT_MISSING", f"workflow_contract.name must be {ONE_SHOT_CONTRACT_NAME}."))
+    if contract.get("html_scope_authorized") is not True:
+        issues.append(_issue("HTML_SCOPE_NOT_AUTHORIZED", "사진 완료 후 HTML까지 진행하는 one-shot 승인 범위가 없습니다."))
+    if contract.get("mp4_scope_authorized") is not False:
+        issues.append(_issue("MP4_SCOPE_MUST_REMAIN_UNAUTHORIZED", "one-shot 계약은 MP4 렌더 권한을 포함하면 안 됩니다."))
+
+    writer_brief = planning_recipe.get("writer_brief") or {}
+    required_writer_fields = ("one_line_story", "hook_candidates", "recommended_hook", "review_quote_for_proof")
+    missing_writer = [field for field in required_writer_fields if not writer_brief.get(field)]
+    if missing_writer:
+        issues.append(_issue("WRITER_BRIEF_INCOMPLETE", "writer_brief 필수 항목이 없습니다: " + ", ".join(missing_writer)))
+
+    photo_qa = planning_recipe.get("photo_qa") or {}
+    if photo_qa.get("checked") is not True:
+        issues.append(_issue("PHOTO_QA_MISSING", "사진 역할/개인정보 QA가 대본보다 먼저 완료되어야 합니다."))
+    if not isinstance(photo_qa.get("asset_count"), int) or photo_qa.get("asset_count", 0) <= 0:
+        issues.append(_issue("PHOTO_INVENTORY_MISSING", "photo_qa.asset_count에 검수한 사진 수를 기록해야 합니다."))
+    first_frame_asset_id = _as_text(photo_qa.get("first_frame_asset_id")).strip()
+    if not first_frame_asset_id:
+        issues.append(_issue("FIRST_FRAME_EVIDENCE_MISSING", "첫 프레임의 사진 근거 asset_id가 없습니다."))
+
+    scenes = planning_recipe.get("scenes") or []
+    scene_roles = [_role(scene) for scene in scenes if isinstance(scene, dict)]
+    missing_roles = [role for role in REQUIRED_NARRATIVE_ROLES if role not in scene_roles]
+    if missing_roles:
+        issues.append(_issue("NARRATIVE_ROLE_MISSING", "서사 역할이 부족합니다: " + ", ".join(missing_roles)))
+    if scene_roles and scene_roles[0] != "event":
+        issues.append(_issue("STORY_MUST_START_WITH_EVENT", "첫 장면은 제품 설명이 아니라 고객 사건(event)이어야 합니다."))
+
+    role_index = {role: scene_roles.index(role) for role in REQUIRED_NARRATIVE_ROLES if role in scene_roles}
+    ordered_roles = [role_index[role] for role in REQUIRED_NARRATIVE_ROLES if role in role_index]
+    if len(ordered_roles) > 1 and ordered_roles != sorted(ordered_roles):
+        issues.append(_issue("NARRATIVE_ROLE_ORDER_INVALID", "사건→문제→맥락→선택→해결→체감→리뷰 증명→CTA 순서를 지켜야 합니다."))
+
+    if scenes:
+        first_scene = scenes[0] if isinstance(scenes[0], dict) else {}
+        first_visual = first_scene.get("visual_source") or {}
+        if not isinstance(first_visual, dict) or _as_text(first_visual.get("source_kind")).strip() != "customer_photo":
+            issues.append(_issue("FIRST_FRAME_NOT_PHOTO_EVIDENCE", "첫 프레임은 훅과 같은 실제 고객 사진 근거여야 합니다."))
+        elif first_frame_asset_id and _as_text(first_visual.get("asset_id")).strip() != first_frame_asset_id:
+            issues.append(_issue("FIRST_FRAME_EVIDENCE_MISMATCH", "photo_qa의 first_frame_asset_id와 첫 scene 사진이 다릅니다."))
+
+    planning_review_scene = next((scene for scene in scenes if isinstance(scene, dict) and _role(scene) == "review_proof"), None)
+    planning_review_visual = (planning_review_scene or {}).get("visual_source") or {}
+    review_proof = planning_recipe.get("review_proof") or {}
+    if not _is_actual_review_capture(planning_review_visual if isinstance(planning_review_visual, dict) else {}):
+        issues.append(_issue("REVIEW_PROOF_NOT_ACTUAL_CAPTURE", "리뷰 증명 장면은 가짜 카드가 아닌 실제 리뷰 캡처여야 합니다."))
+    if _as_text(review_proof.get("source_capture_kind")).strip() != "actual_review_capture":
+        issues.append(_issue("REVIEW_PROOF_SOURCE_UNVERIFIED", "review_proof.source_capture_kind는 actual_review_capture여야 합니다."))
+
+    audio_sync = planning_recipe.get("audio_sync") or {}
+    sync_checks = audio_sync.get("sync_checks") or {}
+    if _as_text(audio_sync.get("mode")).strip() != "voice_aligned" or sync_checks.get("screen_ahead_of_voice") is not False:
+        issues.append(_issue("VOICE_MASTER_SYNC_UNVERIFIED", "최종 TTS가 유일한 시간축이며 화면이 음성보다 앞서지 않음을 기록해야 합니다."))
+
+    audio_plan = edit_recipe.get("audio_plan") or {}
+    for field in ("final_voice_is_master", "tts_text_matches_narration"):
+        if audio_plan.get(field) is not True:
+            issues.append(_issue("TTS_MASTER_EVIDENCE_MISSING", f"audio_plan.{field}는 true여야 합니다."))
+    for field in ("tts_text_sha256", "final_voice_sha256"):
+        if not _as_text(audio_plan.get(field)).strip():
+            issues.append(_issue("TTS_EVIDENCE_HASH_MISSING", f"audio_plan.{field}가 없습니다."))
+
+    beats = edit_recipe.get("beats") or []
+    beat_roles = [_role(beat) for beat in beats if isinstance(beat, dict)]
+    missing_beat_roles = [role for role in REQUIRED_NARRATIVE_ROLES if role not in beat_roles]
+    if missing_beat_roles:
+        issues.append(_issue("EDIT_NARRATIVE_ROLE_MISSING", "edit recipe 서사 역할이 부족합니다: " + ", ".join(missing_beat_roles)))
+    if "review_proof" not in beat_roles or "cta" not in beat_roles or (
+        "review_proof" in beat_roles and "cta" in beat_roles and beat_roles.index("cta") <= beat_roles.index("review_proof")
+    ):
+        issues.append(_issue("CTA_AFTER_REVIEW_PROOF_MISSING", "리뷰 증명 뒤에는 좋은 완성컷/CTA가 있어야 합니다."))
+
+    scene_ids = {
+        _as_text(scene.get("scene_id") or scene.get("id")).strip(): _role(scene)
+        for scene in scenes
+        if isinstance(scene, dict)
+    }
+    assets: dict[str, list[dict[str, Any]]] = {}
+    for index, beat in enumerate(beats, start=1):
+        if not isinstance(beat, dict):
+            issues.append(_issue("INVALID_EDIT_BEAT", "edit_recipe.beats 항목은 객체여야 합니다."))
+            continue
+        scene_id = _as_text(beat.get("id") or f"scene_{index:02d}")
+        planning_scene_id = _as_text(beat.get("planning_scene_id")).strip()
+        if not planning_scene_id or planning_scene_id not in scene_ids or scene_ids.get(planning_scene_id) != _role(beat):
+            issues.append(_issue("PLANNING_EDIT_ROLE_MISMATCH", "edit beat는 동일 서사 역할의 planning_scene_id를 가리켜야 합니다.", scene_id=scene_id))
+        if _as_text(beat.get("visual_relevance")).strip() != "direct":
+            issues.append(_issue("VISUAL_RELEVANCE_UNVERIFIED", "핵심 사건과 무관한 filler 대신 visual_relevance: direct 근거가 필요합니다.", scene_id=scene_id))
+
+        caption = _as_text(beat.get("caption"))
+        if _caption_has_literal_newline(caption):
+            issues.append(_issue("CAPTION_LITERAL_NEWLINE", "caption에 literal \\n 또는 /n을 넣을 수 없습니다.", scene_id=scene_id))
+        caption_lines = caption.split("\n")
+        layout = beat.get("caption_layout")
+        if not isinstance(layout, dict):
+            issues.append(_issue("CAPTION_LAYOUT_EVIDENCE_MISSING", "caption_layout 검수 근거가 없습니다.", scene_id=scene_id))
+        else:
+            if layout.get("line_count") != len(caption_lines) or not 1 <= len(caption_lines) <= 2:
+                issues.append(_issue("CAPTION_LINE_COUNT_INVALID", "자막은 의미 단위 1~2줄이어야 합니다.", scene_id=scene_id))
+            try:
+                font_size = float(layout.get("min_font_px"))
+            except (TypeError, ValueError):
+                font_size = 0.0
+            if font_size < MIN_CAPTION_FONT_PX or layout.get("safe_area") != "pass" or layout.get("does_not_cover_subject") is not True:
+                issues.append(_issue("CAPTION_READABILITY_UNVERIFIED", "자막 최소 크기/안전영역/피사체 가림 검수가 필요합니다.", scene_id=scene_id))
+        keywords = beat.get("caption_focus_keywords") or []
+        if not isinstance(keywords, list) or not 1 <= len(keywords) <= 2:
+            issues.append(_issue("CAPTION_KEYWORD_DENSITY_INVALID", "장면당 강조 핵심어는 1~2개여야 합니다.", scene_id=scene_id))
+
+        try:
+            caption_start = float(beat.get("caption_start_sec"))
+            narration_start = float(beat.get("narration_start_sec"))
+        except (TypeError, ValueError):
+            caption_start = narration_start = None
+        if caption_start is None or narration_start is None:
+            issues.append(_issue("CAPTION_VOICE_ALIGNMENT_MISSING", "caption/narration 시작 시각 근거가 없습니다.", scene_id=scene_id))
+        elif caption_start < narration_start:
+            issues.append(_issue("CAPTION_AHEAD_OF_VOICE", "자막이나 화면이 해당 음성 의미보다 먼저 나오면 안 됩니다.", scene_id=scene_id))
+
+        asset_id = _as_text(beat.get("asset_id") or beat.get("asset")).strip()
+        if asset_id:
+            assets.setdefault(asset_id, []).append(beat)
+        if _role(beat) == "review_proof":
+            if beat.get("generated_asset") or not _is_actual_review_capture(beat) or _as_text(beat.get("asset")).strip() != "review_capture":
+                issues.append(_issue("REVIEW_PROOF_NOT_ACTUAL_CAPTURE", "review_capture는 실제 리뷰 캡처만 증명으로 쓸 수 있습니다.", scene_id=scene_id))
+
+    for asset_id, asset_beats in assets.items():
+        total_duration = sum(_duration_for_filler(beat) for beat in asset_beats)
+        if len(asset_beats) >= 3 and total_duration >= 8.0:
+            issues.append(_issue("REPEATED_PHOTO_FILLER", f"동일 사진 {asset_id}이(가) {len(asset_beats)}회, {total_duration:.1f}초 반복됩니다."))
+
+    return {
+        "ok": not any(issue["severity"] == "fail" for issue in issues),
+        "issues": issues,
+    }
+
+
+def validate_html_preflight(
+    planning_recipe: dict[str, Any],
+    edit_recipe: dict[str, Any],
+    *,
+    require_one_shot_contract: bool = False,
+) -> dict[str, Any]:
     issues: list[dict[str, Any]] = []
     analysis = _planning_analysis(planning_recipe)
     missing_analysis = _analysis_missing(analysis)
@@ -741,6 +923,8 @@ def validate_html_preflight(planning_recipe: dict[str, Any], edit_recipe: dict[s
     issues.extend(_validate_audio_metadata(edit_recipe, require_raw_tts=True))
     issues.extend(_validate_privacy_metadata(edit_recipe))
     issues.extend(validate_review_source_integrity(planning_recipe)["issues"])
+    if require_one_shot_contract or planning_recipe.get("workflow_contract"):
+        issues.extend(validate_review_reels_one_shot_contract(planning_recipe, edit_recipe)["issues"])
 
     sync_result = validate_sync(edit_recipe)
     issues.extend(sync_result["issues"])
@@ -764,6 +948,7 @@ def build_status_markdown(
     current_voice: str = "",
     current_recipe: str = "",
     photo_checked: bool = False,
+    one_shot_html_scope_authorized: bool = False,
     pd_plan_approved: bool = False,
     script_created: bool = False,
     tts_created: bool = False,
@@ -779,6 +964,7 @@ def build_status_markdown(
             f"- review_id: {review_id}",
             f"- current_variant: {variant_id}",
             f"- photo_checked: {_bool_text(photo_checked)}",
+            f"- one_shot_html_scope_authorized: {_bool_text(one_shot_html_scope_authorized)}",
             f"- pd_plan_approved: {_bool_text(pd_plan_approved)}",
             f"- script_created: {_bool_text(script_created)}",
             f"- tts_created: {_bool_text(tts_created)}",
@@ -817,6 +1003,7 @@ def write_package_control_files(
     current_voice: str = "",
     current_recipe: str = "",
     photo_checked: bool = False,
+    one_shot_html_scope_authorized: bool = False,
     pd_plan_approved: bool = False,
     script_created: bool = False,
     tts_created: bool = False,
@@ -840,6 +1027,7 @@ def write_package_control_files(
                 current_voice=current_voice,
                 current_recipe=current_recipe,
                 photo_checked=photo_checked,
+                one_shot_html_scope_authorized=one_shot_html_scope_authorized,
                 pd_plan_approved=pd_plan_approved,
                 script_created=script_created,
                 tts_created=tts_created,
@@ -899,10 +1087,20 @@ def run_reels_qa(
     planning_path: str | Path | None = None,
     sync_manifest_out: str | Path | None = None,
     json_output: bool = False,
+    require_one_shot_contract: bool = False,
 ) -> int:
     edit_recipe = _load_json(edit_path)
     if planning_path:
-        result = validate_html_preflight(_load_json(planning_path), edit_recipe)
+        result = validate_html_preflight(
+            _load_json(planning_path),
+            edit_recipe,
+            require_one_shot_contract=require_one_shot_contract,
+        )
+    elif require_one_shot_contract:
+        result = {
+            "ok": False,
+            "issues": [_issue("ONE_SHOT_PLANNING_REQUIRED", "one-shot HTML QA에는 --planning recipe가 필요합니다.")],
+        }
     else:
         result = validate_sync(edit_recipe)
     manifest: dict[str, Any] | None = None
@@ -938,6 +1136,7 @@ def main() -> int:
     parser.add_argument("--edit", required=True, help="edit_recipe.json 경로")
     parser.add_argument("--sync-manifest-out", help="sync_manifest.json 저장 경로")
     parser.add_argument("--json", action="store_true", help="결과를 JSON으로 출력")
+    parser.add_argument("--require-one-shot-contract", action="store_true", help="신규 리뷰 릴스 one-shot 계약을 하드 검증")
     args = parser.parse_args()
 
     return run_reels_qa(
@@ -945,6 +1144,7 @@ def main() -> int:
         planning_path=args.planning,
         sync_manifest_out=args.sync_manifest_out,
         json_output=args.json,
+        require_one_shot_contract=args.require_one_shot_contract,
     )
 
 

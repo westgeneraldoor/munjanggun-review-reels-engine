@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const args = ["-m", "unittest", "discover", "-s", "tests"];
+const hiddenRuntimeError = /UnicodeDecodeError|UnicodeEncodeError|Exception in thread/i;
 
 const candidates = [];
 
@@ -37,6 +38,11 @@ for (const candidate of candidates) {
     cwd: process.cwd(),
     encoding: "utf8",
     stdio: "pipe",
+    env: {
+      ...process.env,
+      PYTHONUTF8: "1",
+      PYTHONIOENCODING: "utf-8",
+    },
   });
 
   if (result.error && result.error.code === "ENOENT") {
@@ -47,13 +53,16 @@ for (const candidate of candidates) {
   const stdout = result.stdout || "";
   const stderr = result.stderr || "";
 
-  if (result.status === 0) {
+  if (result.status === 0 && !hiddenRuntimeError.test(stdout + stderr)) {
     process.stdout.write(stdout);
     process.stderr.write(stderr);
     process.exit(0);
   }
 
-  failures.push(`${candidate.command}: exit ${result.status}\n${stdout}${stderr}`);
+  const reason = result.status === 0
+    ? "exit 0 with a hidden Unicode/thread runtime error"
+    : `exit ${result.status}`;
+  failures.push(`${candidate.command}: ${reason}\n${stdout}${stderr}`);
 
   if (/FAILED \(|ERROR:|FAIL:/.test(stdout + stderr)) {
     process.stdout.write(stdout);

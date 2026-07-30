@@ -11,6 +11,38 @@ planning recipe v2
 -> MP4
 ```
 
+## v3 신규 리뷰 릴스 one-shot 확장 (현재)
+
+`docs/review_reels_one_shot_contract_v1.md`를 따르는 신규 recipe는 아래 필드를 추가한다. 과거 v2 recipe는 읽을 수 있지만, 신규 HTML 생성은 이 계약을 생략할 수 없다.
+
+```json
+{
+  "workflow_contract": {
+    "name": "review-reels-one-shot-v1",
+    "html_scope_authorized": true,
+    "mp4_scope_authorized": false
+  },
+  "photo_qa": {
+    "checked": true,
+    "asset_count": 8,
+    "first_frame_asset_id": "photo_before_01",
+    "privacy_status": "passed"
+  },
+  "writer_brief": {
+    "one_line_story": "비식별 사건 요약",
+    "hook_candidates": [{"text": "...", "triggers": ["target_callout"], "source_evidence": "review"}],
+    "recommended_hook": "...",
+    "review_quote_for_proof": "..."
+  },
+  "audio_sync": {
+    "mode": "voice_aligned",
+    "sync_checks": {"screen_ahead_of_voice": false}
+  }
+}
+```
+
+`scenes`와 edit `beats`는 `event`, `problem`, `context`, `choice_turn`, `resolution`, `felt_result`, `review_proof`, `cta` 역할을 같은 순서로 가진다. edit beat에는 `planning_scene_id`, `visual_relevance: "direct"`, `caption_start_sec`, `narration_start_sec`, `caption_layout`, `caption_focus_keywords`가 필요하다. `review_proof`는 `actual_review_capture`만 사용할 수 있다.
+
 ## Top-Level Shape
 
 ```json

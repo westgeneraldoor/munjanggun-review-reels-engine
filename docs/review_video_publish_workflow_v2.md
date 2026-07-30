@@ -1,5 +1,7 @@
 # 문장군 리뷰 영상 신규 발행 워크플로 v2
 
+> **Legacy notice:** 이 문서의 "번호만 받은 경우" 및 별도 PD/HTML 승인 단계는 일반 번호 선택에 대한 보존 규칙이다. 번호 선택 뒤 `사진 다 넣었어. HTML까지 가자`가 명시된 신규 리뷰 릴스는 `review_reels_one_shot_contract_v1.md`가 우선하며 HTML까지 멈추지 않는다. MP4 별도 승인 규칙은 유지한다.
+
 신규 세션에서 바로 이어가기 위한 운영 기준입니다.
 
 ## 시작 명령
@@ -335,10 +337,11 @@ literal_qa_result: 화면에 문턱/턱/레일/단차 없음. 통과.
 파일명: *_final_render_YYYYMMDD_upload_10mbps.mp4
 ```
 
-렌더 명령은 기본적으로 아래 렌더러를 사용합니다.
+렌더 명령은 one-shot 계약의 HTML QA와 별도 MP4 승인 후에만 아래 gated renderer를 사용합니다.
 
 ```powershell
-render_html_preview_v2.js --fps 30 --width 1080 --height 1920 --video-bitrate 11000k --maxrate 12000k --bufsize 24000k --audio-bitrate 192k --audio-sample-rate 44100 --audio-channels 2
+node scripts/html-preview-qa.mjs --html "<html_preview>/index.html" --out "<package>/_work/html_preview_qa.json"
+node render_html_preview_v2.js --html "<html_preview>/index.html" --package "<package>" --sync-manifest "<package>/sync_manifest.json" --html-qa "<package>/_work/html_preview_qa.json" --out "<package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4" --fps 30 --width 1080 --height 1920 --video-bitrate 11000k --maxrate 12000k --bufsize 24000k --audio-bitrate 192k --audio-sample-rate 44100 --audio-channels 2 --render-approved
 ```
 
 ## TTS 속도 검수 하드 게이트

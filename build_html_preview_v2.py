@@ -13,6 +13,8 @@ import os
 from pathlib import Path
 from urllib.parse import quote
 
+from video_engine_v2.reels_qa import validate_html_preflight
+
 
 def rel_url(from_dir: Path, target: Path) -> str:
     rel = Path(os.path.relpath(target.resolve(), from_dir.resolve()))
@@ -24,9 +26,20 @@ def resolve_source(package_dir: Path, value: str) -> Path:
     return path if path.is_absolute() else package_dir / path
 
 
-def build_preview(recipe_path: Path) -> Path:
+def build_preview(recipe_path: Path, planning_path: Path) -> Path:
     recipe_path = recipe_path.resolve()
+    planning_path = planning_path.resolve()
     recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
+    planning_recipe = json.loads(planning_path.read_text(encoding="utf-8"))
+    preflight = validate_html_preflight(
+        planning_recipe,
+        recipe,
+        require_one_shot_contract=True,
+    )
+    if not preflight["ok"]:
+        codes = ", ".join(issue["code"] for issue in preflight["issues"])
+        raise ValueError(f"HTML preflight failed: {codes}")
+
     package_dir = recipe_path.parent
     project_dir = Path(__file__).resolve().parent
     preview_stem = recipe_path.stem
@@ -1261,8 +1274,12 @@ HTML_TEMPLATE = r"""<!doctype html>
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--recipe", required=True, help="edit_recipe_v2.json path")
+    parser.add_argument("--planning", required=True, help="planning_recipe.json path")
     args = parser.parse_args()
-    output_path = build_preview(Path(args.recipe))
+    try:
+        output_path = build_preview(Path(args.recipe), Path(args.planning))
+    except ValueError as error:
+        parser.error(str(error))
     print(output_path)
 
 
