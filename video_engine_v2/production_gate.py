@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import base64
 import hashlib
 import json
 import os
@@ -11,7 +12,7 @@ import re
 from typing import Any
 from urllib.parse import quote
 
-from video_engine_v2.reels_qa import build_sync_manifest, validate_html_preflight
+from video_engine_v2.reels_qa import canonical_tts_input_sha256, build_sync_manifest, validate_html_preflight
 
 
 FINAL_RENDER_PRESET = {
@@ -514,6 +515,18 @@ def _validate_edit_privacy_report_binding(package_dir: Path, edit_recipe: dict[s
         raise GateViolation("PRIVACY_REPORT_EDIT_MISMATCH")
 
 
+def _validate_one_shot_audio_hashes(package_dir: Path, edit_recipe: dict[str, Any]) -> None:
+    audio_plan = edit_recipe.get("audio_plan") or {}
+    if not isinstance(audio_plan, dict):
+        raise GateViolation("TTS_EVIDENCE_HASH_INVALID")
+    declared_tts_hash = _require_sha256(audio_plan.get("tts_text_sha256"), invalid_code="TTS_EVIDENCE_HASH_INVALID")
+    if declared_tts_hash != canonical_tts_input_sha256(edit_recipe):
+        raise GateViolation("TTS_TEXT_HASH_MISMATCH")
+    declared_voice_hash = _require_sha256(audio_plan.get("final_voice_sha256"), invalid_code="TTS_EVIDENCE_HASH_INVALID")
+    if declared_voice_hash != _voice_gate_input(package_dir, edit_recipe)["sha256"]:
+        raise GateViolation("FINAL_VOICE_HASH_MISMATCH")
+
+
 def _load_recipes(package_dir: Path, planning_path: Path, edit_path: Path) -> tuple[Path, Path, dict[str, Any], dict[str, Any]]:
     planning = _ensure_inside(package_dir, planning_path, outside_code="PLANNING_OUTSIDE_PACKAGE")
     edit = _ensure_inside(package_dir, edit_path, outside_code="EDIT_OUTSIDE_PACKAGE")
@@ -522,19 +535,44 @@ def _load_recipes(package_dir: Path, planning_path: Path, edit_path: Path) -> tu
     return planning, edit, planning_recipe, edit_recipe
 
 
-def _validate_preflight(package_dir: Path, planning_path: Path, edit_path: Path, privacy_manifest_path: Path) -> tuple[Path, Path, dict[str, Any], dict[str, Any]]:
+def _validate_preflight(
+    package_dir: Path,
+    planning_path: Path,
+    edit_path: Path,
+    privacy_manifest_path: Path,
+    *,
+    allow_one_shot_html_contract: bool = False,
+) -> tuple[Path, Path, dict[str, Any], dict[str, Any]]:
     planning, edit, planning_recipe, edit_recipe = _load_recipes(package_dir, planning_path, edit_path)
-    _require_pd_approval(package_dir)
+    if allow_one_shot_html_contract:
+        if _status_fields(package_dir).get("photo_checked") is not True:
+            raise GateViolation("PHOTO_REVIEW_MISSING")
+    else:
+        _require_pd_approval(package_dir)
     privacy_manifest = _validate_privacy_manifest(package_dir, privacy_manifest_path)
     _validate_privacy_asset_binding(_validate_edit_assets(package_dir, edit_recipe), privacy_manifest)
     _validate_edit_privacy_report_binding(package_dir, edit_recipe, privacy_manifest)
-    result = validate_html_preflight(planning_recipe, edit_recipe)
+    result = validate_html_preflight(
+        planning_recipe,
+        edit_recipe,
+        require_one_shot_contract=allow_one_shot_html_contract,
+    )
     if not result["ok"]:
         raise GateViolation("REELS_QA_FAILED")
+    if allow_one_shot_html_contract:
+        _validate_one_shot_audio_hashes(package_dir, edit_recipe)
     return planning, edit, planning_recipe, edit_recipe
 
 
-def _validate_sync_manifest(package_dir: Path, sync_manifest_path: Path, planning_path: Path, edit_path: Path, privacy_manifest_path: Path) -> dict[str, Any]:
+def _validate_sync_manifest(
+    package_dir: Path,
+    sync_manifest_path: Path,
+    planning_path: Path,
+    edit_path: Path,
+    privacy_manifest_path: Path,
+    *,
+    expected_one_shot_html_contract: bool | None = None,
+) -> dict[str, Any]:
     path = _ensure_inside(package_dir, sync_manifest_path, outside_code="SYNC_MANIFEST_OUTSIDE_PACKAGE")
     payload = _read_json(path, missing_code="SYNC_MANIFEST_MISSING", invalid_code="SYNC_MANIFEST_INVALID")
     if payload.get("ok") is not True or payload.get("issues"):
@@ -546,6 +584,11 @@ def _validate_sync_manifest(package_dir: Path, sync_manifest_path: Path, plannin
         "privacy_manifest_sha256": _sha256(privacy_manifest_path),
     }
     if any(gate_inputs.get(key) != value for key, value in expected.items()):
+        raise GateViolation("SYNC_MANIFEST_STALE_OR_UNVERIFIED")
+    if (
+        expected_one_shot_html_contract is not None
+        and bool(gate_inputs.get("one_shot_html_contract")) is not expected_one_shot_html_contract
+    ):
         raise GateViolation("SYNC_MANIFEST_STALE_OR_UNVERIFIED")
     edit_recipe = _read_json(edit_path, missing_code="EDIT_MISSING", invalid_code="EDIT_INVALID")
     if gate_inputs.get("voice") != _voice_gate_input(package_dir, edit_recipe):
@@ -573,11 +616,16 @@ def create_sync_manifest(
     edit_path: str | Path,
     privacy_manifest_path: str | Path,
     sync_manifest_path: str | Path,
+    allow_one_shot_html_contract: bool = False,
 ) -> dict[str, Any]:
     """Run preflight and atomically create a verified manifest without overwriting one."""
     package = Path(package_dir).resolve()
     planning, edit, _, edit_recipe = _validate_preflight(
-        package, Path(planning_path), Path(edit_path), Path(privacy_manifest_path)
+        package,
+        Path(planning_path),
+        Path(edit_path),
+        Path(privacy_manifest_path),
+        allow_one_shot_html_contract=allow_one_shot_html_contract,
     )
     sync_path = _ensure_inside(package, Path(sync_manifest_path), outside_code="SYNC_MANIFEST_OUTSIDE_PACKAGE")
     if sync_path.exists():
@@ -596,6 +644,7 @@ def create_sync_manifest(
         "edit_sha256": _sha256(edit),
         "privacy_manifest_sha256": _sha256(Path(privacy_manifest_path)),
         "voice": _voice_gate_input(package, edit_recipe),
+        "one_shot_html_contract": allow_one_shot_html_contract,
     }
     try:
         with sync_path.open("x", encoding="utf-8") as output:
@@ -613,11 +662,25 @@ def validate_html_gate(
     edit_path: str | Path,
     privacy_manifest_path: str | Path,
     sync_manifest_path: str | Path,
+    allow_one_shot_html_contract: bool = False,
 ) -> dict[str, Any]:
     """Validate all HTML gates without creating an HTML preview."""
     package = Path(package_dir).resolve()
-    planning, edit, _, _ = _validate_preflight(package, Path(planning_path), Path(edit_path), Path(privacy_manifest_path))
-    _validate_sync_manifest(package, Path(sync_manifest_path), planning, edit, Path(privacy_manifest_path))
+    planning, edit, _, _ = _validate_preflight(
+        package,
+        Path(planning_path),
+        Path(edit_path),
+        Path(privacy_manifest_path),
+        allow_one_shot_html_contract=allow_one_shot_html_contract,
+    )
+    _validate_sync_manifest(
+        package,
+        Path(sync_manifest_path),
+        planning,
+        edit,
+        Path(privacy_manifest_path),
+        expected_one_shot_html_contract=allow_one_shot_html_contract,
+    )
     return {
         "schema_version": "1.0",
         "action": "html",
@@ -626,6 +689,7 @@ def validate_html_gate(
         "recipe_sha256": _sha256(edit),
         "sync_manifest_path": str(Path(sync_manifest_path).resolve()),
         "sync_manifest_sha256": _sha256(Path(sync_manifest_path)),
+        "one_shot_html_contract": allow_one_shot_html_contract,
     }
 
 
@@ -845,8 +909,18 @@ def _official_gate_receipt(
     return package, receipt_file, receipt
 
 
-def _gate_receipt_consumption_marker(package: Path, receipt_file: Path) -> Path:
-    return package / "_work" / "production_gates" / "consumed" / f"{_sha256(receipt_file)}.json"
+def _compact_receipt_hash(receipt_file: Path) -> str:
+    """Keep one-time receipt markers below Windows' legacy path limit."""
+    return base64.urlsafe_b64encode(bytes.fromhex(_sha256(receipt_file))).decode("ascii").rstrip("=")
+
+
+def _gate_receipt_consumption_markers(package: Path, receipt_file: Path) -> tuple[Path, Path]:
+    consumed_dir = package / "_work" / "production_gates" / "consumed"
+    receipt_hash = _sha256(receipt_file)
+    return (
+        consumed_dir / f"{_compact_receipt_hash(receipt_file)}.json",
+        consumed_dir / f"{receipt_hash}.json",
+    )
 
 
 def assert_gate_receipt_available(
@@ -861,7 +935,7 @@ def assert_gate_receipt_available(
         package_dir,
         expected_action=expected_action,
     )
-    if _gate_receipt_consumption_marker(package, receipt_file).exists():
+    if any(marker_path.exists() for marker_path in _gate_receipt_consumption_markers(package, receipt_file)):
         raise GateViolation("GATE_RECEIPT_ALREADY_CONSUMED")
 
 
@@ -877,8 +951,10 @@ def consume_gate_receipt(
         package_dir,
         expected_action=expected_action,
     )
-    marker_path = _gate_receipt_consumption_marker(package, receipt_file)
+    marker_path, legacy_marker_path = _gate_receipt_consumption_markers(package, receipt_file)
     marker_path.parent.mkdir(parents=True, exist_ok=True)
+    if legacy_marker_path.exists():
+        raise GateViolation("GATE_RECEIPT_ALREADY_CONSUMED")
     marker = {
         "schema_version": "1.0",
         "action": expected_action,

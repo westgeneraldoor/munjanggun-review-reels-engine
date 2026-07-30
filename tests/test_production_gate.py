@@ -189,6 +189,30 @@ class ProductionGateTests(unittest.TestCase):
             sync_manifest_path=self.sync,
         )
 
+    def write_one_shot_html_package(self):
+        fixture_path = ROOT / "tests" / "fixtures" / "review_reels_one_shot_valid.json"
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+        planning = fixture["planning"]
+        edit = fixture["edit"]
+        edit["source"].update(
+            {
+                "image_dir": "assets",
+                "voice": "voice.mp3",
+                "privacy_sanitization_report": "_work/privacy_sanitization_report.json",
+            }
+        )
+        edit["asset_roles"] = {beat["asset"]: "main.jpg" for beat in edit["beats"]}
+        self.planning.write_text(json.dumps(planning), encoding="utf-8")
+        self.edit.write_text(json.dumps(edit), encoding="utf-8")
+        (self.package / "STATUS.md").write_text(
+            "- photo_checked: true\n- pd_plan_approved: false\n- html_approved_by_user: false\n- mp4_allowed: false\n",
+            encoding="utf-8",
+        )
+        (self.package / "APPROVAL_LOG.md").write_text(
+            "- approved_scope: review-reels one-shot HTML\n- not_approved: MP4 render\n",
+            encoding="utf-8",
+        )
+
     def write_bound_html_approval(
         self,
         *,
@@ -367,6 +391,111 @@ class ProductionGateTests(unittest.TestCase):
         self.assertIn("PRIVACY_EVIDENCE_MISSING", str(missing_privacy.exception))
         self.assertFalse(self.sync.exists())
         self.assertNotEqual(self.snapshot(), before)
+
+    def test_one_shot_html_contract_can_replace_pd_preflight_but_not_the_default_gate(self):
+        self.write_one_shot_html_package()
+
+        with self.assertRaises(GateViolation) as default_gate:
+            self.create_valid_sync()
+        self.assertIn("PD_APPROVAL_MISSING", str(default_gate.exception))
+
+        manifest = create_sync_manifest(
+            package_dir=self.package,
+            planning_path=self.planning,
+            edit_path=self.edit,
+            privacy_manifest_path=self.privacy,
+            sync_manifest_path=self.sync,
+            allow_one_shot_html_contract=True,
+        )
+
+        self.assertTrue(manifest["ok"])
+        self.assertTrue(self.sync.is_file())
+
+    def test_one_shot_preflight_rejects_stale_tts_text_hash_without_writing_sync_manifest(self):
+        self.write_one_shot_html_package()
+        edit = json.loads(self.edit.read_text(encoding="utf-8"))
+        edit["audio_plan"]["tts_text_sha256"] = "0" * 64
+        self.edit.write_text(json.dumps(edit), encoding="utf-8")
+
+        with self.assertRaises(GateViolation) as raised:
+            create_sync_manifest(
+                package_dir=self.package,
+                planning_path=self.planning,
+                edit_path=self.edit,
+                privacy_manifest_path=self.privacy,
+                sync_manifest_path=self.sync,
+                allow_one_shot_html_contract=True,
+            )
+
+        self.assertIn("TTS_TEXT_HASH_MISMATCH", str(raised.exception))
+        self.assertFalse(self.sync.exists())
+
+    def test_one_shot_preflight_rejects_stale_final_voice_hash_without_writing_sync_manifest(self):
+        self.write_one_shot_html_package()
+        edit = json.loads(self.edit.read_text(encoding="utf-8"))
+        edit["audio_plan"]["final_voice_sha256"] = "0" * 64
+        self.edit.write_text(json.dumps(edit), encoding="utf-8")
+
+        with self.assertRaises(GateViolation) as raised:
+            create_sync_manifest(
+                package_dir=self.package,
+                planning_path=self.planning,
+                edit_path=self.edit,
+                privacy_manifest_path=self.privacy,
+                sync_manifest_path=self.sync,
+                allow_one_shot_html_contract=True,
+            )
+
+        self.assertIn("FINAL_VOICE_HASH_MISMATCH", str(raised.exception))
+        self.assertFalse(self.sync.exists())
+
+    def test_official_cli_builds_html_for_a_valid_one_shot_contract(self):
+        self.write_one_shot_html_package()
+        environment = os.environ.copy()
+        environment.update({"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"})
+        common_args = [
+            "--package",
+            str(self.package),
+            "--planning",
+            str(self.planning),
+            "--edit",
+            str(self.edit),
+            "--privacy-manifest",
+            str(self.privacy),
+            "--sync-manifest",
+            str(self.sync),
+            "--one-shot-html",
+        ]
+
+        preflight = subprocess.run(
+            [sys.executable, "scripts/produce_review_v2.py", "preflight", *common_args],
+            cwd=ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+        )
+        html = subprocess.run(
+            [
+                sys.executable,
+                "scripts/produce_review_v2.py",
+                "html",
+                *common_args,
+                "--engine-font",
+                self.engine_font.relative_to(ROOT).as_posix(),
+            ],
+            cwd=ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+        )
+
+        self.assertEqual(preflight.returncode, 0, preflight.stderr)
+        self.assertEqual(html.returncode, 0, html.stderr)
+        self.assertTrue(self.html.is_file())
 
     def test_preflight_rejects_assets_that_were_not_in_the_privacy_manifest(self):
         extra_asset = self.package / "assets" / "extra.jpg"
@@ -1111,6 +1240,12 @@ class ProductionGateTests(unittest.TestCase):
         copied_path.write_bytes(receipt_path.read_bytes())
 
         self.assertTrue(marker_path.is_file())
+        self.assertLessEqual(
+            len(str(marker_path)),
+            260,
+            "receipt consumption must work for a deep Windows package path",
+        )
+        self.assertRegex(marker_path.stem, r"^[A-Za-z0-9_-]{43}$")
         with self.assertRaises(GateViolation) as raised:
             consume(copied_path, self.package, expected_action="html")
         self.assertIn("GATE_RECEIPT_ALREADY_CONSUMED", str(raised.exception))
@@ -1188,12 +1323,11 @@ class ProductionGateTests(unittest.TestCase):
         self.assertIn("GATE_RECEIPT_ALREADY_CONSUMED", second.stderr)
 
     def test_internal_renderer_rejects_a_consumed_receipt_before_frame_creation(self):
+        from video_engine_v2.production_gate import consume_gate_receipt
+
         self.write_bound_html_approval()
         receipt_path = self.write_renderer_receipt(self.render_dependencies())
-        receipt_hash = hashlib.sha256(receipt_path.read_bytes()).hexdigest()
-        consumed_dir = receipt_path.parent / "consumed"
-        consumed_dir.mkdir()
-        (consumed_dir / f"{receipt_hash}.json").write_text("{}", encoding="utf-8")
+        consume_gate_receipt(receipt_path, self.package, expected_action="render")
 
         renderer = subprocess.run(
             [

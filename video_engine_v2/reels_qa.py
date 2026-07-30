@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import re
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -11,6 +13,19 @@ from typing import Any
 
 HARD_CPS_LIMIT = 9.0
 SOFT_CPS_LIMIT = 8.5
+ONE_SHOT_CONTRACT_NAME = "review-reels-one-shot-v2"
+REQUIRED_NARRATIVE_ROLES = (
+    "event",
+    "problem",
+    "context",
+    "choice_turn",
+    "resolution",
+    "felt_result",
+    "review_proof",
+    "cta",
+)
+MIN_CAPTION_FONT_PX = 32
+SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 CORRUPT_MARKERS = ("??", "\ufffd")
 WEAK_HOOK_PHRASES = (
     "좋아졌습니다",
@@ -701,7 +716,196 @@ def _validate_privacy_metadata(edit_recipe: dict[str, Any]) -> list[dict[str, An
     return issues
 
 
-def validate_html_preflight(planning_recipe: dict[str, Any], edit_recipe: dict[str, Any]) -> dict[str, Any]:
+def _role(value: dict[str, Any]) -> str:
+    return _as_text(value.get("narrative_role") or value.get("role") or value.get("phase")).strip()
+
+
+def _caption_has_literal_newline(text: str) -> bool:
+    return r"\n" in text or "/n" in text
+
+
+def _is_actual_review_capture(source: dict[str, Any]) -> bool:
+    return _as_text(source.get("source_kind") or source.get("proof_asset_type")).strip() == "actual_review_capture"
+
+
+def canonical_tts_input_narration(edit_recipe: dict[str, Any]) -> str:
+    """Return the single normalized UTF-8 narration input represented by edit beats."""
+    beats = edit_recipe.get("beats") or []
+    if not isinstance(beats, list):
+        return ""
+    normalized_beats = []
+    for beat in beats:
+        narration = beat.get("narration_ref") if isinstance(beat, dict) else ""
+        normalized = unicodedata.normalize("NFC", _as_text(narration))
+        normalized_beats.append(re.sub(r"\s+", " ", normalized).strip())
+    return "\n".join(normalized_beats)
+
+
+def canonical_tts_input_sha256(edit_recipe: dict[str, Any]) -> str:
+    """Hash the canonical TTS narration exactly as the one-shot evidence contract defines."""
+    return hashlib.sha256(canonical_tts_input_narration(edit_recipe).encode("utf-8")).hexdigest()
+
+
+def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edit_recipe: dict[str, Any]) -> dict[str, Any]:
+    """Validate the HTML-only one-shot contract without granting MP4 authority."""
+    issues: list[dict[str, Any]] = []
+    contract = planning_recipe.get("workflow_contract") or {}
+    if _as_text(contract.get("name")).strip() != ONE_SHOT_CONTRACT_NAME:
+        issues.append(_issue("ONE_SHOT_CONTRACT_MISSING", f"workflow_contract.name must be {ONE_SHOT_CONTRACT_NAME}."))
+    if contract.get("html_scope_authorized") is not True:
+        issues.append(_issue("HTML_SCOPE_NOT_AUTHORIZED", "The one-shot contract must explicitly authorize HTML scope."))
+    if contract.get("mp4_scope_authorized") is not False:
+        issues.append(_issue("MP4_SCOPE_MUST_REMAIN_UNAUTHORIZED", "The one-shot contract must not authorize MP4 rendering."))
+
+    writer_brief = planning_recipe.get("writer_brief") or {}
+    required_writer_fields = ("one_line_story", "hook_candidates", "recommended_hook", "review_quote_for_proof")
+    missing_writer = [field for field in required_writer_fields if not writer_brief.get(field)]
+    if missing_writer:
+        issues.append(_issue("WRITER_BRIEF_INCOMPLETE", "writer_brief is missing: " + ", ".join(missing_writer)))
+
+    photo_qa = planning_recipe.get("photo_qa") or {}
+    if photo_qa.get("checked") is not True:
+        issues.append(_issue("PHOTO_QA_MISSING", "Photo role and privacy QA must be complete before the script."))
+    if not isinstance(photo_qa.get("asset_count"), int) or photo_qa.get("asset_count", 0) <= 0:
+        issues.append(_issue("PHOTO_INVENTORY_MISSING", "photo_qa.asset_count must record reviewed photos."))
+    first_frame_asset_id = _as_text(photo_qa.get("first_frame_asset_id")).strip()
+    if not first_frame_asset_id:
+        issues.append(_issue("FIRST_FRAME_EVIDENCE_MISSING", "photo_qa.first_frame_asset_id is required."))
+
+    scenes = planning_recipe.get("scenes") or []
+    scene_roles = [_role(scene) for scene in scenes if isinstance(scene, dict)]
+    missing_roles = [role for role in REQUIRED_NARRATIVE_ROLES if role not in scene_roles]
+    if missing_roles:
+        issues.append(_issue("NARRATIVE_ROLE_MISSING", "Narrative roles are missing: " + ", ".join(missing_roles)))
+    if scene_roles and scene_roles[0] != "event":
+        issues.append(_issue("STORY_MUST_START_WITH_EVENT", "The first scene must be a customer event."))
+
+    role_index = {role: scene_roles.index(role) for role in REQUIRED_NARRATIVE_ROLES if role in scene_roles}
+    ordered_roles = [role_index[role] for role in REQUIRED_NARRATIVE_ROLES if role in role_index]
+    if len(ordered_roles) > 1 and ordered_roles != sorted(ordered_roles):
+        issues.append(_issue("NARRATIVE_ROLE_ORDER_INVALID", "Narrative roles must stay in the one-shot order."))
+
+    if scenes:
+        first_scene = scenes[0] if isinstance(scenes[0], dict) else {}
+        first_visual = first_scene.get("visual_source") or {}
+        if not isinstance(first_visual, dict) or _as_text(first_visual.get("source_kind")).strip() != "customer_photo":
+            issues.append(_issue("FIRST_FRAME_NOT_PHOTO_EVIDENCE", "The first frame must use a customer-photo evidence asset."))
+        elif first_frame_asset_id and _as_text(first_visual.get("asset_id")).strip() != first_frame_asset_id:
+            issues.append(_issue("FIRST_FRAME_EVIDENCE_MISMATCH", "The first scene and photo QA must identify the same asset."))
+
+    review_scene = next((scene for scene in scenes if isinstance(scene, dict) and _role(scene) == "review_proof"), None)
+    review_visual = (review_scene or {}).get("visual_source") or {}
+    review_proof = planning_recipe.get("review_proof") or {}
+    if not _is_actual_review_capture(review_visual if isinstance(review_visual, dict) else {}):
+        issues.append(_issue("REVIEW_PROOF_NOT_ACTUAL_CAPTURE", "Review proof must use an actual review capture."))
+    if _as_text(review_proof.get("source_capture_kind")).strip() != "actual_review_capture":
+        issues.append(_issue("REVIEW_PROOF_SOURCE_UNVERIFIED", "review_proof.source_capture_kind must be actual_review_capture."))
+
+    audio_sync = planning_recipe.get("audio_sync") or {}
+    sync_checks = audio_sync.get("sync_checks") or {}
+    if _as_text(audio_sync.get("mode")).strip() != "voice_aligned" or sync_checks.get("screen_ahead_of_voice") is not False:
+        issues.append(_issue("VOICE_MASTER_SYNC_UNVERIFIED", "Final TTS must remain the master timeline."))
+
+    audio_plan = edit_recipe.get("audio_plan") or {}
+    for field in ("final_voice_is_master", "tts_text_matches_narration"):
+        if audio_plan.get(field) is not True:
+            issues.append(_issue("TTS_MASTER_EVIDENCE_MISSING", f"audio_plan.{field} must be true."))
+    for field in ("tts_text_sha256", "final_voice_sha256"):
+        value = _as_text(audio_plan.get(field)).strip()
+        if not value:
+            issues.append(_issue("TTS_EVIDENCE_HASH_MISSING", f"audio_plan.{field} is required."))
+        elif not SHA256_HEX.fullmatch(value):
+            issues.append(_issue("TTS_EVIDENCE_HASH_INVALID", f"audio_plan.{field} must be 64 lowercase hexadecimal characters."))
+
+    beats = edit_recipe.get("beats") or []
+    beat_roles = [_role(beat) for beat in beats if isinstance(beat, dict)]
+    missing_beat_roles = [role for role in REQUIRED_NARRATIVE_ROLES if role not in beat_roles]
+    if missing_beat_roles:
+        issues.append(_issue("EDIT_NARRATIVE_ROLE_MISSING", "Edit roles are missing: " + ", ".join(missing_beat_roles)))
+    if "review_proof" not in beat_roles or "cta" not in beat_roles or (
+        "review_proof" in beat_roles and "cta" in beat_roles and beat_roles.index("cta") <= beat_roles.index("review_proof")
+    ):
+        issues.append(_issue("CTA_AFTER_REVIEW_PROOF_MISSING", "A CTA must follow review proof."))
+
+    scene_ids = {
+        _as_text(scene.get("scene_id") or scene.get("id")).strip(): _role(scene)
+        for scene in scenes
+        if isinstance(scene, dict)
+    }
+    assets: dict[str, list[dict[str, Any]]] = {}
+    for index, beat in enumerate(beats, start=1):
+        if not isinstance(beat, dict):
+            issues.append(_issue("INVALID_EDIT_BEAT", "edit_recipe.beats items must be objects."))
+            continue
+        scene_id = _as_text(beat.get("id") or f"scene_{index:02d}")
+        planning_scene_id = _as_text(beat.get("planning_scene_id")).strip()
+        if not planning_scene_id or planning_scene_id not in scene_ids or scene_ids.get(planning_scene_id) != _role(beat):
+            issues.append(_issue("PLANNING_EDIT_ROLE_MISMATCH", "Each beat must point to the planning scene with the same role.", scene_id=scene_id))
+        if _as_text(beat.get("visual_relevance")).strip() != "direct":
+            issues.append(_issue("VISUAL_RELEVANCE_UNVERIFIED", "Each beat needs direct visual relevance.", scene_id=scene_id))
+
+        caption = _as_text(beat.get("caption"))
+        if _caption_has_literal_newline(caption):
+            issues.append(_issue("CAPTION_LITERAL_NEWLINE", "Captions must not contain literal \\n or /n.", scene_id=scene_id))
+        caption_lines = caption.split("\n")
+        layout = beat.get("caption_layout")
+        if not isinstance(layout, dict):
+            issues.append(_issue("CAPTION_LAYOUT_EVIDENCE_MISSING", "Caption layout evidence is required.", scene_id=scene_id))
+        else:
+            if layout.get("line_count") != len(caption_lines) or not 1 <= len(caption_lines) <= 2:
+                issues.append(_issue("CAPTION_LINE_COUNT_INVALID", "Captions must have one or two lines.", scene_id=scene_id))
+            try:
+                font_size = float(layout.get("min_font_px"))
+            except (TypeError, ValueError):
+                font_size = 0.0
+            if font_size < MIN_CAPTION_FONT_PX or layout.get("safe_area") != "pass" or layout.get("does_not_cover_subject") is not True:
+                issues.append(_issue("CAPTION_READABILITY_UNVERIFIED", "Caption size, safe area, and subject clearance must be verified.", scene_id=scene_id))
+        keywords = beat.get("caption_focus_keywords") or []
+        if not isinstance(keywords, list) or not 1 <= len(keywords) <= 2:
+            issues.append(_issue("CAPTION_KEYWORD_DENSITY_INVALID", "Each caption needs one or two focus keywords.", scene_id=scene_id))
+
+        try:
+            caption_start = float(beat.get("caption_start_sec"))
+            narration_start = float(beat.get("narration_start_sec"))
+        except (TypeError, ValueError):
+            caption_start = narration_start = None
+        if caption_start is None or narration_start is None:
+            issues.append(_issue("CAPTION_VOICE_ALIGNMENT_MISSING", "Caption and narration timestamps are required.", scene_id=scene_id))
+        elif caption_start < narration_start:
+            issues.append(_issue("CAPTION_AHEAD_OF_VOICE", "Captions must not precede their narration.", scene_id=scene_id))
+
+        time_range = beat.get("time")
+        try:
+            visual_start = float(time_range[0]) if isinstance(time_range, list) else None
+        except (IndexError, TypeError, ValueError):
+            visual_start = None
+        if visual_start is not None and narration_start is not None and visual_start < narration_start - 0.05:
+            issues.append(_issue("VISUAL_AHEAD_OF_VOICE", "Visuals must not start more than 0.05 seconds before their narration.", scene_id=scene_id))
+
+        asset_id = _as_text(beat.get("asset_id") or beat.get("asset")).strip()
+        if asset_id:
+            assets.setdefault(asset_id, []).append(beat)
+        if _role(beat) == "review_proof":
+            if beat.get("generated_asset") or not _is_actual_review_capture(beat) or _as_text(beat.get("asset")).strip() != "review_capture":
+                issues.append(_issue("REVIEW_PROOF_NOT_ACTUAL_CAPTURE", "Review proof must not use a generated card.", scene_id=scene_id))
+
+    for asset_id, asset_beats in assets.items():
+        total_duration = sum(_beat_duration(beat) for beat in asset_beats)
+        if len(asset_beats) >= 3 and total_duration >= 8.0:
+            issues.append(_issue("REPEATED_PHOTO_FILLER", f"Asset {asset_id} is repeated {len(asset_beats)} times for {total_duration:.1f}s."))
+
+    return {
+        "ok": not any(issue["severity"] == "fail" for issue in issues),
+        "issues": issues,
+    }
+
+
+def validate_html_preflight(
+    planning_recipe: dict[str, Any],
+    edit_recipe: dict[str, Any],
+    *,
+    require_one_shot_contract: bool = False,
+) -> dict[str, Any]:
     issues: list[dict[str, Any]] = []
     analysis = _planning_analysis(planning_recipe)
     missing_analysis = _analysis_missing(analysis)
@@ -741,6 +945,8 @@ def validate_html_preflight(planning_recipe: dict[str, Any], edit_recipe: dict[s
     issues.extend(_validate_audio_metadata(edit_recipe, require_raw_tts=True))
     issues.extend(_validate_privacy_metadata(edit_recipe))
     issues.extend(validate_review_source_integrity(planning_recipe)["issues"])
+    if require_one_shot_contract or planning_recipe.get("workflow_contract"):
+        issues.extend(validate_review_reels_one_shot_contract(planning_recipe, edit_recipe)["issues"])
 
     sync_result = validate_sync(edit_recipe)
     issues.extend(sync_result["issues"])

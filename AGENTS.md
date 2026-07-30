@@ -27,6 +27,23 @@ GitHub는 엔진 코드, 문서, 테스트만 관리합니다. 실제 고객 자
 - MP4 렌더는 사용자의 명시적 승인 후에만 진행합니다.
 - 최종 MP4는 GitHub에 커밋하지 않습니다.
 
+## 리뷰 릴스 one-shot HTML 범위
+
+사용자가 사진 검수 완료 후 `사진 다 넣었어. HTML까지 가자`와 같은 명시적 문구를
+사용하면, **리뷰 릴스에 한해** 별도 PD 기획 승인 없이 HTML preflight와 HTML 프리뷰까지
+진행할 수 있습니다. 이 예외는 아래 조건을 모두 충족할 때만 적용합니다.
+
+- 공식 `scripts/produce_review_v2.py`의 `preflight`와 `html` 양쪽에
+  `--one-shot-html`을 붙인다. 내부 builder나 renderer를 직접 실행하지 않는다.
+- planning recipe의 `workflow_contract.name`은 `review-reels-one-shot-v2`,
+  `html_scope_authorized: true`, `mp4_scope_authorized: false`여야 한다.
+- 사진 검수, privacy manifest, 리뷰 원문 근거, 실제 리뷰 캡처, TTS/sync 및
+  one-shot 구조 QA를 모두 통과해야 한다. 하나라도 실패하면 HTML을 만들지 않는다.
+- 이 범위는 `generate.py`의 script/SRT/TTS 승인 게이트를 완화하지 않으며, MP4 권한도
+  절대 포함하지 않는다. MP4는 기존 HTML 승인 및 별도 명시적 MP4 승인 기록이 계속 필요하다.
+
+상세 계약과 실행 예시는 `docs/review_reels_one_shot_contract_v2.md`를 따른다.
+
 ## 포맷 상태
 
 - v2: current production

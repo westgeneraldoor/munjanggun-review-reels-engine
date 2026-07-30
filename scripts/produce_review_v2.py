@@ -43,9 +43,11 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     preflight = commands.add_parser("preflight", help="Create a verified sync manifest without HTML/MP4 output")
     _common_arguments(preflight, include_recipes=True)
+    preflight.add_argument("--one-shot-html", action="store_true", help="Require the HTML-only one-shot recipe contract")
     html = commands.add_parser("html", help="Build an approved HTML preview through the hard gate")
     _common_arguments(html, include_recipes=True)
     html.add_argument("--engine-font", help="repository-contained font dependency injection")
+    html.add_argument("--one-shot-html", action="store_true", help="Require the HTML-only one-shot recipe contract")
     render = commands.add_parser("render", help="Render an already approved HTML preview at the final preset")
     _common_arguments(render, include_recipes=False)
     render.add_argument("--html", required=True)
@@ -65,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
                 edit_path=args.edit,
                 privacy_manifest_path=args.privacy_manifest,
                 sync_manifest_path=args.sync_manifest,
+                allow_one_shot_html_contract=args.one_shot_html,
             )
             print(Path(args.sync_manifest).resolve())
             return 0
@@ -75,6 +78,7 @@ def main(argv: list[str] | None = None) -> int:
                 edit_path=args.edit,
                 privacy_manifest_path=args.privacy_manifest,
                 sync_manifest_path=args.sync_manifest,
+                allow_one_shot_html_contract=args.one_shot_html,
             )
             receipt_path = write_gate_receipt(args.package, receipt)
             command = [sys.executable, str(ROOT / "build_html_preview_v2.py"), "--recipe", args.edit, "--gate-receipt", str(receipt_path)]

@@ -1,0 +1,67 @@
+{
+  "planning": {
+    "workflow_contract": {
+      "name": "review-reels-one-shot-v2",
+      "html_scope_authorized": true,
+      "mp4_scope_authorized": false
+    },
+    "analysis": {
+      "customer_problem": "entry path obstruction",
+      "before_pain": "the entry path felt inconvenient",
+      "after_change": "the entry path became easier to use",
+      "customer_emotion": ["relief"]
+    },
+    "review_source": {
+      "text": "The entry path felt inconvenient before installation, and it became easier to use afterward.",
+      "review_quote_for_proof": "it became easier to use afterward",
+      "inferred_fields": [],
+      "unsupported_story_elements": []
+    },
+    "hooks": [{"text": "Would a blocked entry path change?"}],
+    "selected_hook": {"text": "Would a blocked entry path change?"},
+    "writer_brief": {
+      "one_line_story": "A de-identified entry-path review changed through installation.",
+      "hook_candidates": [{"text": "Would a blocked entry path change?"}],
+      "recommended_hook": "Would a blocked entry path change?",
+      "review_quote_for_proof": "it became easier to use afterward"
+    },
+    "photo_qa": {
+      "checked": true,
+      "asset_count": 7,
+      "first_frame_asset_id": "photo_before_01",
+      "privacy_status": "passed"
+    },
+    "review_proof": {"source_capture_kind": "actual_review_capture"},
+    "audio_sync": {"mode": "voice_aligned", "sync_checks": {"screen_ahead_of_voice": false}},
+    "scenes": [
+      {"scene_id": "s01", "narrative_role": "event", "visual_source": {"asset_id": "photo_before_01", "source_kind": "customer_photo"}, "caption": {"text": "Entry path"}, "narration": "The entry path felt inconvenient.", "meaning_match": true, "meaning_match_evidence": "review source"},
+      {"scene_id": "s02", "narrative_role": "problem", "visual_source": {"asset_id": "photo_before_02", "source_kind": "customer_photo"}, "caption": {"text": "Daily obstruction"}, "narration": "A daily route needed attention.", "meaning_match": true, "meaning_match_evidence": "review source"},
+      {"scene_id": "s03", "narrative_role": "context", "visual_source": {"asset_id": "photo_context_01", "source_kind": "customer_photo"}, "caption": {"text": "Check the route"}, "narration": "The route was checked first.", "meaning_match": true, "meaning_match_evidence": "photo review"},
+      {"scene_id": "s04", "narrative_role": "choice_turn", "visual_source": {"asset_id": "photo_measure_01", "source_kind": "customer_photo"}, "caption": {"text": "Choose the change"}, "narration": "A suitable option was chosen.", "meaning_match": true, "meaning_match_evidence": "photo review"},
+      {"scene_id": "s05", "narrative_role": "resolution", "visual_source": {"asset_id": "photo_install_01", "source_kind": "customer_photo"}, "caption": {"text": "Installation"}, "narration": "Installation followed the plan.", "meaning_match": true, "meaning_match_evidence": "photo review"},
+      {"scene_id": "s06", "narrative_role": "felt_result", "visual_source": {"asset_id": "photo_after_01", "source_kind": "customer_photo"}, "caption": {"text": "Easier route"}, "narration": "The route became easier to use.", "meaning_match": true, "meaning_match_evidence": "review source"},
+      {"scene_id": "s07", "narrative_role": "review_proof", "visual_source": {"asset_id": "review_capture_01", "source_kind": "actual_review_capture"}, "caption": {"text": "Customer review"}, "narration": "The review records the easier route.", "meaning_match": true, "meaning_match_evidence": "review quote"},
+      {"scene_id": "s08", "narrative_role": "cta", "visual_source": {"asset_id": "photo_after_02", "source_kind": "customer_photo"}, "caption": {"text": "Check your route"}, "narration": "Check your own entry path first.", "meaning_match": true, "meaning_match_evidence": "consultation CTA"}
+    ]
+  },
+  "edit": {
+    "source": {"privacy_review": {"checked": true, "unresolved_risks": []}},
+    "audio_plan": {
+      "sync_policy": {"raw_tts_duration_sec": 32.0, "final_voice_duration_sec": 32.0},
+      "final_voice_is_master": true,
+      "tts_text_matches_narration": true,
+      "tts_text_sha256": "2f3962c248a0bfea83a0196274e1b543686fed354f967aae6e43134d72ab0e05",
+      "final_voice_sha256": "c57d7e92019708b614c90fa3685cd644f543a60153fb99ec9b67c381a245fb2a"
+    },
+    "beats": [
+      {"id": "b01", "narrative_role": "event", "planning_scene_id": "s01", "time": [0, 4], "caption_start_sec": 0, "narration_start_sec": 0, "asset": "before_entry", "asset_id": "photo_before_01", "visual_relevance": "direct", "caption": "Entry path", "caption_layout": {"line_count": 1, "min_font_px": 36, "safe_area": "pass", "does_not_cover_subject": true}, "caption_focus_keywords": ["Entry"], "narration_ref": "The entry path felt inconvenient.", "meaning_match": true, "meaning_match_source": "planning_scene:s01"},
+      {"id": "b02", "narrative_role": "problem", "planning_scene_id": "s02", "time": [4, 8], "caption_start_sec": 4, "narration_start_sec": 4, "asset": "before_problem", "asset_id": "photo_before_02", "visual_relevance": "direct", "caption": "Daily obstruction", "caption_layout": {"line_count": 1, "min_font_px": 36, "safe_area": "pass", "does_not_cover_subject": true}, "caption_focus_keywords": ["Daily"], "narration_ref": "A daily route needed attention.", "meaning_match": true, "meaning_match_source": "planning_scene:s02"},
+      {"id": "b03", "narrative_role": "context", "planning_scene_id": "s03", "time": [8, 12], "caption_start_sec": 8, "narration_start_sec": 8, "asset": "site_context", "asset_id": "photo_context_01", "visual_relevance": "direct", "caption": "Check the route", "caption_layout": {"line_count": 1, "min_font_px": 36, "safe_area": "pass", "does_not_cover_subject": true}, "caption_focus_keywords": ["Route"], "narration_ref": "The route was checked first.", "meaning_match": true, "meaning_match_source": "planning_scene:s03"},
+      {"id": "b04", "narrative_role": "choice_turn", "planning_scene_id": "s04", "time": [12, 16], "caption_start_sec": 12, "narration_start_sec": 12, "asset": "measure", "asset_id": "photo_measure_01", "visual_relevance": "direct", "caption": "Choose the change", "caption_layout": {"line_count": 1, "min_font_px": 36, "safe_area": "pass", "does_not_cover_subject": true}, "caption_focus_keywords": ["Choose"], "narration_ref": "A suitable option was chosen.", "meaning_match": true, "meaning_match_source": "planning_scene:s04"},
+      {"id": "b05", "narrative_role": "resolution", "planning_scene_id": "s05", "time": [16, 20], "caption_start_sec": 16, "narration_start_sec": 16, "asset": "installation", "asset_id": "photo_install_01", "visual_relevance": "direct", "caption": "Installation", "caption_layout": {"line_count": 1, "min_font_px": 36, "safe_area": "pass", "does_not_cover_subject": true}, "caption_focus_keywords": ["Install"], "narration_ref": "Installation followed the plan.", "meaning_match": true, "meaning_match_source": "planning_scene:s05"},
+      {"id": "b06", "narrative_role": "felt_result", "planning_scene_id": "s06", "time": [20, 24], "caption_start_sec": 20, "narration_start_sec": 20, "asset": "after_main", "asset_id": "photo_after_01", "visual_relevance": "direct", "caption": "Easier route", "caption_layout": {"line_count": 1, "min_font_px": 36, "safe_area": "pass", "does_not_cover_subject": true}, "caption_focus_keywords": ["Easier"], "narration_ref": "The route became easier to use.", "meaning_match": true, "meaning_match_source": "planning_scene:s06"},
+      {"id": "b07", "narrative_role": "review_proof", "planning_scene_id": "s07", "time": [24, 28], "caption_start_sec": 24, "narration_start_sec": 24, "asset": "review_capture", "asset_id": "review_capture_01", "proof_asset_type": "actual_review_capture", "visual_relevance": "direct", "caption": "Customer review", "caption_layout": {"line_count": 1, "min_font_px": 36, "safe_area": "pass", "does_not_cover_subject": true}, "caption_focus_keywords": ["Review"], "narration_ref": "The review records the easier route.", "meaning_match": true, "meaning_match_source": "planning_scene:s07"},
+      {"id": "b08", "narrative_role": "cta", "planning_scene_id": "s08", "time": [28, 32], "caption_start_sec": 28, "narration_start_sec": 28, "asset": "after_wide", "asset_id": "photo_after_02", "visual_relevance": "direct", "caption": "Check your route", "caption_layout": {"line_count": 1, "min_font_px": 36, "safe_area": "pass", "does_not_cover_subject": true}, "caption_focus_keywords": ["Check"], "narration_ref": "Check your own entry path first.", "meaning_match": true, "meaning_match_source": "planning_scene:s08"}
+    ]
+  }
+}

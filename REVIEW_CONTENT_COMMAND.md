@@ -126,6 +126,27 @@ reviews/inbox_20260609/
 사용자의 리뷰 선택만으로는 `generate.py`를 실행하지 않는다. 사진검수와 PD 기획안
 승인이 끝나고, 현재 리뷰에 결속된 로컬 approval package가 준비되어야 한다.
 
+## 사진 완료 후 one-shot HTML 요청
+
+사용자가 사진 검수 완료 뒤 `사진 다 넣었어. HTML까지 가자` 또는 같은 뜻의 명시적
+문구를 말하면, 리뷰 릴스의 **HTML preflight와 HTML 프리뷰**에는 별도 PD 기획 승인 대신
+one-shot 계약을 사용할 수 있다. 이 문구는 MP4 승인이나 `generate.py`의 script/SRT/TTS
+승인을 뜻하지 않는다.
+
+진행 전 `docs/review_reels_one_shot_contract_v2.md`를 읽고, planning recipe에
+`review-reels-one-shot-v2`, `html_scope_authorized: true`,
+`mp4_scope_authorized: false`를 기록한다. 사진/개인정보/원문 근거/실제 리뷰 캡처/음성
+동기화/자막 QA가 모두 통과한 경우에만 아래 공식 진입점을 사용한다.
+
+```powershell
+python scripts/produce_review_v2.py preflight --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --one-shot-html
+python scripts/produce_review_v2.py html --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --one-shot-html
+```
+
+실패 시에는 HTML을 만들지 않고, 실제 고객 자료 부재나 미해결 개인정보 위험처럼 진행을
+막는 사실만 보고한다. 훅·카피·컷 순서는 one-shot QA가 강제한다. MP4는 기존의 HTML
+승인과 별도 명시적 MP4 승인 뒤에도 공식 `render` 명령으로만 진행한다.
+
 ## 3단계 — 사진검수·PD 승인 후 패키지 생성
 
 승인 package에는 현재 리뷰와 일치하는 `.source`, `photo_checked: true`와
