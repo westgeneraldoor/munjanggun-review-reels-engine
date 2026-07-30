@@ -7,6 +7,7 @@ the existing production orchestrator after its independent gates pass.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -26,9 +27,14 @@ METADATA_FILENAME = "CANONICAL_PACKAGE_METADATA.json"
 POINTER_DIRECTORY = ".review_reel_production"
 ACTIVE_POINTER_FILENAME = "active_package.json"
 REGISTRY_FILENAME = "registry.json"
+SOURCE_REGISTRY_FILENAME = "source_registry_private.json"
+MATERIAL_BANK_INVENTORY_FILENAME = "material_bank_inventory_private.json"
 INVENTORY_SCHEMA_VERSION = "review-reel-inventory-v1"
 PACKAGE_SCHEMA_VERSION = "review-reel-canonical-package-v1"
+SOURCE_REGISTRY_SCHEMA_VERSION = "review-reel-source-registry-v1"
 _CONTENT_ID = re.compile(r"^\d{3}$")
+_CONTENT_PREFIX = re.compile(r"^(\d{3})_")
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _WINDOWS_UNSAFE_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _CANDIDATE_PREFIX = "CAND-"
 
@@ -63,19 +69,32 @@ def route_user_command(command: str) -> dict[str, str]:
     """
 
     normalised = _normalise_command(command)
-    if "사진 다 넣었어" in normalised and "html까지 가자" in normalised:
+    compact = re.sub(r"\s+", "", normalised)
+    if (
+        "사진" in compact
+        and any(stem in compact for stem in ("넣었", "준비됐", "준비완료"))
+        and "html" in compact
+        and any(stem in compact for stem in ("가자", "만들", "진행", "까지"))
+    ):
         return {
             "workflow": "review_reel_production",
             "state": "one_shot_html_requested",
             "next_action": "resolve_active_canonical_package",
         }
-    if "리뷰 하나 골라 폴더 만들어줘" in normalised:
+    if (
+        "리뷰" in compact
+        and "폴더" in compact
+        and any(stem in compact for stem in ("골라", "고르"))
+        and any(stem in compact for stem in ("만들", "준비"))
+    ):
         return {
             "workflow": "review_reel_production",
             "state": "canonical_package_create_requested",
             "next_action": "select_inventory_record",
         }
-    if "리뷰 릴스 만들자" in normalised:
+    if "리뷰릴스" in compact and any(
+        stem in compact for stem in ("만들", "제작", "시작", "진행", "발행")
+    ):
         return {
             "workflow": "review_reel_production",
             "state": "selection_required",
@@ -154,7 +173,11 @@ def _resolve_inventory_record(inventory_path: Path, record_key: str) -> tuple[di
     source_value = _required_text(record, "review_source_path", "REVIEW_SOURCE_PATH_MISSING")
     source_path = Path(source_value)
     if not source_path.is_absolute():
-        source_path = inventory_path.parent / source_path
+        source_path = _inside(
+            REPOSITORY_ROOT,
+            REPOSITORY_ROOT / source_path,
+            code="REVIEW_SOURCE_OUTSIDE_REPOSITORY",
+        )
     source_path = source_path.resolve()
     if not source_path.is_file():
         raise IntakeViolation("REVIEW_SOURCE_MISSING")
@@ -247,6 +270,285 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
             temporary_path.unlink()
 
 
+def _atomic_write_text(path: Path, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as temporary:
+            temporary.write(value)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+            temporary_path = Path(temporary.name)
+        os.replace(temporary_path, path)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
+
+
+@contextmanager
+def _exclusive_allocation_lock(state_dir: Path):
+    state_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = state_dir / ".source-allocation.lock"
+    try:
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError as error:
+        raise IntakeViolation("SOURCE_ALLOCATION_LOCKED") from error
+    try:
+        os.close(descriptor)
+        yield
+    finally:
+        lock_path.unlink(missing_ok=True)
+
+
+def _read_jsonl_record(path: Path, *, candidate_id: str) -> dict[str, Any]:
+    if not path.is_file():
+        raise IntakeViolation("MATERIAL_BANK_MISSING")
+    if not candidate_id.startswith(_CANDIDATE_PREFIX):
+        raise IntakeViolation("CANDIDATE_REFERENCE_INVALID")
+    matches: list[dict[str, Any]] = []
+    try:
+        with path.open("r", encoding="utf-8") as source:
+            for raw_line in source:
+                if not raw_line.strip():
+                    continue
+                record = json.loads(raw_line)
+                if not isinstance(record, dict):
+                    raise IntakeViolation("MATERIAL_BANK_INVALID")
+                if record.get("candidate_id") == candidate_id:
+                    matches.append(record)
+    except (OSError, json.JSONDecodeError) as error:
+        raise IntakeViolation("MATERIAL_BANK_INVALID") from error
+    if len(matches) != 1:
+        raise IntakeViolation("MATERIAL_BANK_RECORD_NOT_UNIQUE")
+    return dict(matches[0])
+
+
+def _load_source_registry(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"schema_version": SOURCE_REGISTRY_SCHEMA_VERSION, "records": []}
+    registry = _read_json(path, missing="SOURCE_REGISTRY_MISSING", invalid="SOURCE_REGISTRY_INVALID")
+    if registry.get("schema_version") != SOURCE_REGISTRY_SCHEMA_VERSION:
+        raise IntakeViolation("SOURCE_REGISTRY_SCHEMA_INVALID")
+    records = registry.get("records")
+    if not isinstance(records, list):
+        raise IntakeViolation("SOURCE_REGISTRY_RECORDS_INVALID")
+    content_ids: set[str] = set()
+    candidate_references: set[str] = set()
+    for record in records:
+        if not isinstance(record, dict):
+            raise IntakeViolation("SOURCE_REGISTRY_RECORD_INVALID")
+        content_id = record.get("content_id")
+        candidate_reference = record.get("candidate_reference")
+        identity = record.get("identity")
+        if not isinstance(content_id, str) or not _CONTENT_ID.fullmatch(content_id):
+            raise IntakeViolation("SOURCE_REGISTRY_CONTENT_ID_INVALID")
+        _safe_slug(_required_text(record, "content_slug", "SOURCE_REGISTRY_SLUG_INVALID"))
+        if (
+            not isinstance(candidate_reference, str)
+            or not candidate_reference.startswith(_CANDIDATE_PREFIX)
+        ):
+            raise IntakeViolation("SOURCE_REGISTRY_CANDIDATE_INVALID")
+        if content_id in content_ids:
+            raise IntakeViolation("SOURCE_REGISTRY_CONTENT_ID_DUPLICATE")
+        if candidate_reference in candidate_references:
+            raise IntakeViolation("SOURCE_REGISTRY_CANDIDATE_DUPLICATE")
+        if not isinstance(identity, dict):
+            raise IntakeViolation("SOURCE_REGISTRY_IDENTITY_INVALID")
+        for field in (
+            "candidate_reference",
+            "inventory_id",
+            "review_article_id",
+            "product_order_number",
+        ):
+            _required_text(identity, field, "SOURCE_REGISTRY_IDENTITY_INVALID")
+        review_hash = identity.get("review_text_sha256")
+        if not isinstance(review_hash, str) or not _SHA256.fullmatch(review_hash):
+            raise IntakeViolation("SOURCE_REGISTRY_IDENTITY_INVALID")
+        if identity["candidate_reference"] != candidate_reference:
+            raise IntakeViolation("SOURCE_REGISTRY_IDENTITY_INVALID")
+        content_ids.add(content_id)
+        candidate_references.add(candidate_reference)
+    return registry
+
+
+def _load_material_bank_inventory(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"schema_version": INVENTORY_SCHEMA_VERSION, "records": []}
+    inventory = _read_json(
+        path,
+        missing="MATERIAL_BANK_INVENTORY_MISSING",
+        invalid="MATERIAL_BANK_INVENTORY_INVALID",
+    )
+    if inventory.get("schema_version") != INVENTORY_SCHEMA_VERSION:
+        raise IntakeViolation("MATERIAL_BANK_INVENTORY_SCHEMA_INVALID")
+    if not isinstance(inventory.get("records"), list):
+        raise IntakeViolation("MATERIAL_BANK_INVENTORY_RECORDS_INVALID")
+    return inventory
+
+
+def _used_content_ids(*, output_root: Path, reviews_root: Path, registry: dict[str, Any]) -> set[int]:
+    used: set[int] = set()
+    for record in registry["records"]:
+        if isinstance(record, dict) and isinstance(record.get("content_id"), str):
+            match = _CONTENT_ID.fullmatch(record["content_id"])
+            if match:
+                used.add(int(record["content_id"]))
+    scan_paths: list[Path] = []
+    if output_root.exists():
+        scan_paths.extend(output_root.glob("inbox_*/*"))
+    if reviews_root.exists():
+        scan_paths.extend(reviews_root.glob("*.txt"))
+        scan_paths.extend(reviews_root.glob("inbox_*/*.txt"))
+        scan_paths.extend((reviews_root / "production_registry").glob("*.txt"))
+    for path in scan_paths:
+        match = _CONTENT_PREFIX.match(path.name)
+        if match:
+            used.add(int(match.group(1)))
+    return used
+
+
+def _next_content_id(*, output_root: Path, reviews_root: Path, registry: dict[str, Any]) -> str:
+    used = _used_content_ids(output_root=output_root, reviews_root=reviews_root, registry=registry)
+    next_id = max(used, default=0) + 1
+    if next_id > 999:
+        raise IntakeViolation("CONTENT_ID_SPACE_EXHAUSTED")
+    return f"{next_id:03d}"
+
+
+def _material_identity(record: dict[str, Any]) -> dict[str, str]:
+    return {
+        "candidate_reference": _required_text(
+            record, "candidate_id", "CANDIDATE_REFERENCE_MISSING"
+        ),
+        "inventory_id": _required_text(record, "inventory_id", "INVENTORY_ID_MISSING"),
+        "review_article_id": _required_text(record, "review_id", "REVIEW_ARTICLE_ID_MISSING"),
+        "product_order_number": _required_text(
+            record, "order_id", "PRODUCT_ORDER_NUMBER_MISSING"
+        ),
+        "review_text_sha256": _sha256_text(
+            _required_text(record, "review_text", "REVIEW_TEXT_MISSING")
+        ),
+    }
+
+
+def _material_record_key(candidate_id: str) -> str:
+    return f"material-bank::{candidate_id}"
+
+
+def create_canonical_package_from_material_bank(
+    *,
+    output_root: str | Path,
+    reviews_root: str | Path,
+    material_bank_path: str | Path,
+    candidate_id: str,
+    content_slug: str,
+    now: datetime | None = None,
+) -> CanonicalPackage:
+    """Register one selected material-bank record and create its canonical package.
+
+    The local source registry, not the model, assigns the next unused numeric
+    content ID. Repeating the same candidate reuses its first binding.
+    """
+
+    root = Path(output_root).resolve()
+    local_reviews = Path(reviews_root).resolve()
+    bank_path = Path(material_bank_path).resolve()
+    selected = _read_jsonl_record(bank_path, candidate_id=candidate_id)
+    identity = _material_identity(selected)
+    if identity["candidate_reference"] != candidate_id:
+        raise IntakeViolation("CANDIDATE_REFERENCE_INVALID")
+    requested_slug = _safe_slug(content_slug)
+    review_text = _required_text(selected, "review_text", "REVIEW_TEXT_MISSING")
+    state_dir = root / POINTER_DIRECTORY
+    source_registry_path = state_dir / SOURCE_REGISTRY_FILENAME
+    inventory_path = state_dir / MATERIAL_BANK_INVENTORY_FILENAME
+
+    with _exclusive_allocation_lock(state_dir):
+        registry = _load_source_registry(source_registry_path)
+        inventory = _load_material_bank_inventory(inventory_path)
+        matches = [
+            record
+            for record in registry["records"]
+            if isinstance(record, dict)
+            and record.get("candidate_reference") == candidate_id
+        ]
+        if len(matches) > 1:
+            raise IntakeViolation("SOURCE_REGISTRY_RECORD_NOT_UNIQUE")
+        if matches:
+            binding = dict(matches[0])
+            if binding.get("identity") != identity:
+                raise IntakeViolation("SOURCE_REGISTRY_IDENTITY_CONFLICT")
+            content_id = _required_text(binding, "content_id", "CONTENT_ID_MISSING")
+            bound_slug = _safe_slug(
+                _required_text(binding, "content_slug", "CONTENT_SLUG_MISSING")
+            )
+        else:
+            content_id = _next_content_id(
+                output_root=root,
+                reviews_root=local_reviews,
+                registry=registry,
+            )
+            bound_slug = requested_slug
+            binding = {
+                "record_key": _material_record_key(candidate_id),
+                "content_id": content_id,
+                "content_slug": bound_slug,
+                "candidate_reference": candidate_id,
+                "identity": identity,
+            }
+            registry["records"].append(binding)
+
+        source_path = local_reviews / "production_registry" / f"{content_id}_{bound_slug}.txt"
+        if source_path.exists():
+            try:
+                existing_text = source_path.read_text(encoding="utf-8")
+            except OSError as error:
+                raise IntakeViolation("REVIEW_SOURCE_UNREADABLE") from error
+            if existing_text != review_text:
+                raise IntakeViolation("REVIEW_SOURCE_TEXT_MISMATCH")
+
+        try:
+            relative_source = source_path.resolve().relative_to(REPOSITORY_ROOT.resolve()).as_posix()
+        except ValueError:
+            relative_source = str(source_path.resolve())
+        canonical_record = {
+            "record_key": _material_record_key(candidate_id),
+            "content_id": content_id,
+            "content_slug": bound_slug,
+            "review_source_path": relative_source,
+            "review_text": review_text,
+            "product_order_number": identity["product_order_number"],
+            "review_article_id": identity["review_article_id"],
+            "source_reference": (
+                f"material-bank:{bank_path.name}#{identity['inventory_id']}"
+            ),
+            "candidate_reference": candidate_id,
+        }
+        inventory["records"] = [
+            record
+            for record in inventory["records"]
+            if not (
+                isinstance(record, dict)
+                and record.get("record_key") == canonical_record["record_key"]
+            )
+        ]
+        inventory["records"].append(canonical_record)
+        inventory["records"].sort(key=lambda record: record["content_id"])
+        registry["records"].sort(key=lambda record: record["content_id"])
+
+        _atomic_write_json(source_registry_path, registry)
+        if not source_path.exists():
+            _atomic_write_text(source_path, review_text)
+        _atomic_write_json(inventory_path, inventory)
+
+    return create_canonical_package(
+        output_root=root,
+        inventory_path=inventory_path,
+        record_key=canonical_record["record_key"],
+        now=now,
+    )
+
+
 def _pointer_payload(output_root: Path, package: CanonicalPackage, *, updated_at: str) -> dict[str, Any]:
     relative_package = package.package_dir.resolve().relative_to(output_root.resolve()).as_posix()
     return {
@@ -263,18 +565,28 @@ def _pointer_payload(output_root: Path, package: CanonicalPackage, *, updated_at
     }
 
 
+def _load_package_registry(output_root: Path) -> dict[str, Any]:
+    registry_path = output_root / POINTER_DIRECTORY / REGISTRY_FILENAME
+    if not registry_path.exists():
+        return {"schema_version": "review-reel-production-registry-v1", "packages": []}
+    registry = _read_json(
+        registry_path,
+        missing="REGISTRY_MISSING",
+        invalid="REGISTRY_INVALID",
+    )
+    if registry.get("schema_version") != "review-reel-production-registry-v1":
+        raise IntakeViolation("REGISTRY_SCHEMA_INVALID")
+    if not isinstance(registry.get("packages"), list):
+        raise IntakeViolation("REGISTRY_PACKAGES_INVALID")
+    return registry
+
+
 def _set_active_package(output_root: Path, package: CanonicalPackage, *, updated_at: str) -> None:
     state_dir = output_root / POINTER_DIRECTORY
-    pointer = _pointer_payload(output_root, package, updated_at=updated_at)
-    _atomic_write_json(state_dir / ACTIVE_POINTER_FILENAME, pointer)
     registry_path = state_dir / REGISTRY_FILENAME
-    try:
-        registry = _read_json(registry_path, missing="REGISTRY_MISSING", invalid="REGISTRY_INVALID")
-    except IntakeViolation:
-        registry = {"schema_version": "review-reel-production-registry-v1", "packages": []}
+    registry = _load_package_registry(output_root)
+    pointer = _pointer_payload(output_root, package, updated_at=updated_at)
     records = registry.get("packages")
-    if not isinstance(records, list):
-        records = []
     records = [record for record in records if isinstance(record, dict) and record.get("package_relative_path") != pointer["package_relative_path"]]
     records.append(
         {
@@ -292,6 +604,7 @@ def _set_active_package(output_root: Path, package: CanonicalPackage, *, updated
             "packages": sorted(records, key=lambda record: (record["updated_at"], record["package_relative_path"])),
         },
     )
+    _atomic_write_json(state_dir / ACTIVE_POINTER_FILENAME, pointer)
 
 
 def create_canonical_package(
@@ -309,6 +622,7 @@ def create_canonical_package(
 
     root = Path(output_root).resolve()
     inventory = Path(inventory_path).resolve()
+    _load_package_registry(root)
     record, source_path = _resolve_inventory_record(inventory, record_key)
     identity = _identity(record)
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)

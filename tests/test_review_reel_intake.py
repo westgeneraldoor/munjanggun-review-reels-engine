@@ -11,6 +11,7 @@ from video_engine_v2.review_reel_intake import (
     IntakeViolation,
     build_one_shot_html_commands,
     create_canonical_package,
+    create_canonical_package_from_material_bank,
     resolve_active_package,
     route_user_command,
     run_one_shot_html,
@@ -64,22 +65,22 @@ class ReviewReelIntakeTests(unittest.TestCase):
         )
 
     def test_reel_phrases_route_to_review_reel_production_before_generic_review_content(self):
-        self.assertEqual(
-            route_user_command("리뷰 릴스 만들자 리뷰 콘텐츠 신규 만들어줘"),
-            {
-                "workflow": "review_reel_production",
-                "state": "selection_required",
-                "next_action": "select_inventory_record",
-            },
-        )
-        self.assertEqual(
-            route_user_command("리뷰 하나 골라 폴더 만들어줘")["state"],
-            "canonical_package_create_requested",
-        )
-        self.assertEqual(
-            route_user_command("사진 다 넣었어. HTML까지 가자")["state"],
-            "one_shot_html_requested",
-        )
+        cases = {
+            "리뷰 릴스 만들자 리뷰 콘텐츠 신규 만들어줘": "selection_required",
+            "리뷰릴스 만들자": "selection_required",
+            "리뷰 릴스 제작하자": "selection_required",
+            "017번 리뷰 릴스 만들자": "selection_required",
+            "리뷰 하나 골라 폴더 만들어줘": "canonical_package_create_requested",
+            "리뷰 하나 골라서 폴더 만들어줘": "canonical_package_create_requested",
+            "리뷰 골라주고 폴더 만들어줘": "canonical_package_create_requested",
+            "사진 다 넣었어. HTML까지 가자": "one_shot_html_requested",
+            "사진 다 넣었어요 HTML까지 가자": "one_shot_html_requested",
+        }
+        for command, expected_state in cases.items():
+            with self.subTest(command=command):
+                routed = route_user_command(command)
+                self.assertEqual(routed["workflow"], "review_reel_production")
+                self.assertEqual(routed["state"], expected_state)
 
     def test_create_uses_inventory_content_id_and_never_exposes_candidate_in_user_facing_names(self):
         result = self.create()
@@ -111,6 +112,193 @@ class ReviewReelIntakeTests(unittest.TestCase):
             result = self.create()
 
         self.assertEqual((result.package_dir / ".source").read_text(encoding="utf-8"), str(Path("reviews") / "004_fixture.txt"))
+
+    def test_repository_relative_review_source_path_resolves_from_repository_root(self):
+        inventory = json.loads(self.inventory_path.read_text(encoding="utf-8"))
+        inventory["records"][0]["review_source_path"] = "reviews/004_fixture.txt"
+        self.inventory_path.write_text(json.dumps(inventory, ensure_ascii=False), encoding="utf-8")
+
+        with patch("video_engine_v2.review_reel_intake.REPOSITORY_ROOT", self.root):
+            result = self.create()
+
+        self.assertEqual(result.metadata["review_source"]["path"], str(self.review_path.resolve()))
+
+    def test_material_bank_adapter_assigns_stable_internal_ids_and_creates_canonical_packages(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        records = [
+            {
+                "inventory_id": "INV-FIXTURE-1",
+                "review_id": "REVIEW-FIXTURE-1",
+                "order_id": "ORDER-FIXTURE-1",
+                "product_name": "Fixture product",
+                "review_text": "First material-bank fixture review.",
+                "candidate_id": "CAND-20300102-0001",
+            },
+            {
+                "inventory_id": "INV-FIXTURE-2",
+                "review_id": "REVIEW-FIXTURE-2",
+                "order_id": "ORDER-FIXTURE-2",
+                "product_name": "Fixture product",
+                "review_text": "Second material-bank fixture review.",
+                "candidate_id": "CAND-20300102-0002",
+            },
+        ]
+        material_bank.write_text(
+            "\n".join(json.dumps(record, ensure_ascii=False) for record in records) + "\n",
+            encoding="utf-8",
+        )
+        reviews_root = self.root / "reviews"
+        (reviews_root / "005_existing.txt").write_text("existing", encoding="utf-8")
+        existing_package = self.output_root / "inbox_20291231" / "004_existing_20291231_235959"
+        existing_package.mkdir(parents=True)
+        (existing_package / "999_customer_photo.jpg").write_bytes(b"fixture")
+
+        with patch("video_engine_v2.review_reel_intake.REPOSITORY_ROOT", self.root):
+            first = create_canonical_package_from_material_bank(
+                output_root=self.output_root,
+                reviews_root=reviews_root,
+                material_bank_path=material_bank,
+                candidate_id="CAND-20300102-0001",
+                content_slug="첫번째후기",
+                now=self.now,
+            )
+            repeated = create_canonical_package_from_material_bank(
+                output_root=self.output_root,
+                reviews_root=reviews_root,
+                material_bank_path=material_bank,
+                candidate_id="CAND-20300102-0001",
+                content_slug="바뀌어도기존슬러그유지",
+                now=self.now,
+            )
+            second = create_canonical_package_from_material_bank(
+                output_root=self.output_root,
+                reviews_root=reviews_root,
+                material_bank_path=material_bank,
+                candidate_id="CAND-20300102-0002",
+                content_slug="두번째후기",
+                now=self.now,
+            )
+
+        self.assertEqual(first.metadata["content_id"], "006")
+        self.assertEqual(repeated.package_dir, first.package_dir)
+        self.assertTrue(repeated.reused_existing)
+        self.assertEqual(second.metadata["content_id"], "007")
+        self.assertNotIn("CAND-", first.package_dir.name)
+        self.assertEqual(
+            Path(first.metadata["review_source"]["path"]).read_text(encoding="utf-8"),
+            records[0]["review_text"],
+        )
+        registry = json.loads(
+            (self.output_root / ".review_reel_production" / "source_registry_private.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual([record["content_id"] for record in registry["records"]], ["006", "007"])
+
+    def test_invalid_material_bank_registry_is_not_silently_replaced(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        material_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-FIXTURE-1",
+                    "review_id": "REVIEW-FIXTURE-1",
+                    "order_id": "ORDER-FIXTURE-1",
+                    "review_text": "Fixture review.",
+                    "candidate_id": "CAND-20300102-0001",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        registry = self.output_root / ".review_reel_production" / "source_registry_private.json"
+        registry.parent.mkdir(parents=True)
+        registry.write_text("{broken", encoding="utf-8")
+
+        with self.assertRaisesRegex(IntakeViolation, "SOURCE_REGISTRY_INVALID"):
+            create_canonical_package_from_material_bank(
+                output_root=self.output_root,
+                reviews_root=self.root / "reviews",
+                material_bank_path=material_bank,
+                candidate_id="CAND-20300102-0001",
+                content_slug="후기",
+                now=self.now,
+            )
+
+        self.assertEqual(registry.read_text(encoding="utf-8"), "{broken")
+
+    def test_duplicate_source_registry_ids_are_rejected_without_reallocation(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        material_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-FIXTURE-3",
+                    "review_id": "REVIEW-FIXTURE-3",
+                    "order_id": "ORDER-FIXTURE-3",
+                    "review_text": "Third fixture review.",
+                    "candidate_id": "CAND-20300102-0003",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        registry = self.output_root / ".review_reel_production" / "source_registry_private.json"
+        registry.parent.mkdir(parents=True)
+        payload = {
+            "schema_version": "review-reel-source-registry-v1",
+            "records": [
+                {
+                    "record_key": "material-bank::CAND-20300102-0001",
+                    "content_id": "006",
+                    "content_slug": "첫번째",
+                    "candidate_reference": "CAND-20300102-0001",
+                    "identity": {
+                        "candidate_reference": "CAND-20300102-0001",
+                        "inventory_id": "INV-FIXTURE-1",
+                        "review_article_id": "REVIEW-FIXTURE-1",
+                        "product_order_number": "ORDER-FIXTURE-1",
+                        "review_text_sha256": "a" * 64,
+                    },
+                },
+                {
+                    "record_key": "material-bank::CAND-20300102-0002",
+                    "content_id": "006",
+                    "content_slug": "두번째",
+                    "candidate_reference": "CAND-20300102-0002",
+                    "identity": {
+                        "candidate_reference": "CAND-20300102-0002",
+                        "inventory_id": "INV-FIXTURE-2",
+                        "review_article_id": "REVIEW-FIXTURE-2",
+                        "product_order_number": "ORDER-FIXTURE-2",
+                        "review_text_sha256": "b" * 64,
+                    },
+                },
+            ],
+        }
+        registry.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        before = registry.read_bytes()
+
+        with self.assertRaisesRegex(IntakeViolation, "SOURCE_REGISTRY_CONTENT_ID_DUPLICATE"):
+            create_canonical_package_from_material_bank(
+                output_root=self.output_root,
+                reviews_root=self.root / "reviews",
+                material_bank_path=material_bank,
+                candidate_id="CAND-20300102-0003",
+                content_slug="세번째",
+                now=self.now,
+            )
+
+        self.assertEqual(registry.read_bytes(), before)
+
+    def test_invalid_package_registry_is_not_silently_replaced(self):
+        registry = self.output_root / ".review_reel_production" / "registry.json"
+        registry.parent.mkdir(parents=True)
+        registry.write_text("{broken", encoding="utf-8")
+
+        with self.assertRaisesRegex(IntakeViolation, "REGISTRY_INVALID"):
+            self.create()
+
+        self.assertEqual(registry.read_text(encoding="utf-8"), "{broken")
+        self.assertFalse(any(self.output_root.glob("inbox_*")))
 
     def test_create_is_idempotent_for_the_same_inventory_record(self):
         first = self.create()

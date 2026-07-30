@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
 from video_engine_v2.review_reel_intake import (  # noqa: E402
     IntakeViolation,
     create_canonical_package,
+    create_canonical_package_from_material_bank,
     route_user_command,
     run_one_shot_html,
 )
@@ -36,6 +37,15 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--output-root", required=True)
     create.add_argument("--inventory", required=True, help="private review-reel inventory JSON")
     create.add_argument("--record-key", required=True, help="exact selected inventory record_key")
+    material = commands.add_parser(
+        "create-from-material-bank",
+        help="Register one selected candidate_top60 JSONL record and create its canonical package",
+    )
+    material.add_argument("--output-root", required=True)
+    material.add_argument("--reviews-root", required=True)
+    material.add_argument("--material-bank", required=True, help="private candidate JSONL")
+    material.add_argument("--candidate-id", required=True)
+    material.add_argument("--content-slug", required=True)
     one_shot = commands.add_parser("one-shot-html", help="Resolve the active package and run official one-shot HTML")
     one_shot.add_argument("--output-root", required=True)
     one_shot.add_argument("--planning", required=True)
@@ -51,12 +61,21 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "route":
             print(json.dumps(route_user_command(args.user_command), ensure_ascii=False))
             return 0
-        if args.command == "create":
-            package = create_canonical_package(
-                output_root=args.output_root,
-                inventory_path=args.inventory,
-                record_key=args.record_key,
-            )
+        if args.command in {"create", "create-from-material-bank"}:
+            if args.command == "create":
+                package = create_canonical_package(
+                    output_root=args.output_root,
+                    inventory_path=args.inventory,
+                    record_key=args.record_key,
+                )
+            else:
+                package = create_canonical_package_from_material_bank(
+                    output_root=args.output_root,
+                    reviews_root=args.reviews_root,
+                    material_bank_path=args.material_bank,
+                    candidate_id=args.candidate_id,
+                    content_slug=args.content_slug,
+                )
             print(
                 json.dumps(
                     {

@@ -24,17 +24,47 @@
 
 | 사용자 명령 | workflow | 상태 | 다음 행동 | 생성 금지 |
 |---|---|---|---|---|
-| `리뷰 릴스 만들자` | `review_reel_production` | `selection_required` | private inventory/registry에서 실제 record를 확인하고 선택을 받는다 | package, script, TTS, HTML, MP4 |
-| `리뷰 하나 골라 폴더 만들어줘` | `review_reel_production` | `canonical_package_create_requested` | 실제 inventory의 선택된 `record_key`로 canonical package를 만든다 | script, SRT, TTS, HTML, MP4 |
+| `리뷰 릴스 만들자` | `review_reel_production` | `selection_required` | private material bank/registry에서 실제 record를 확인하고 선택을 받는다 | package, script, TTS, HTML, MP4 |
+| `리뷰 하나 골라 폴더 만들어줘` | `review_reel_production` | `canonical_package_create_requested` | 선택된 material-bank record를 local registry에 등록하고 canonical package를 만든다 | script, SRT, TTS, HTML, MP4 |
 | `사진 다 넣었어. HTML까지 가자` | `review_reel_production` | `one_shot_html_requested` | active pointer를 검증한 뒤 official one-shot HTML만 시도한다 | MP4, direct builder/renderer |
 
 문장 안에 일반 `리뷰 콘텐츠` 표현이 같이 있어도 릴스 명령이 먼저다. generic
 review-content/material-bank 라우터는 위 세 상태를 가로챌 수 없다.
+띄어쓰기와 자연스러운 어미 차이도 같은 명령으로 본다. 예를 들어
+`리뷰릴스 만들자`, `리뷰 릴스 제작하자`, `리뷰 하나 골라서 폴더 만들어줘`,
+`리뷰 골라주고 폴더 만들어줘`, `사진 다 넣었어요 HTML까지 가자`는 각각 위 상태로
+동일하게 라우팅되어야 한다.
+
+## 실제 material bank 연결과 번호 배정
+
+기본 production 앞단은 이미 존재하는 local-only
+`reviews/material_bank/.../candidate_top60_private.jsonl`을 직접 읽는다. 이 파일의
+실제 필드인 `candidate_id`, `inventory_id`, `order_id`, `review_id`, `review_text`를
+공식 adapter가 canonical 필드로 바꾼다.
+
+```powershell
+python scripts/review_reel_intake.py create-from-material-bank `
+  --output-root "output" `
+  --reviews-root "reviews" `
+  --material-bank "reviews/material_bank/2026-07-29/candidate_top60_private.jsonl" `
+  --candidate-id "CAND-YYYYMMDD-NNNN" `
+  --content-slug "사건중심짧은이름"
+```
+
+- 세 자리 `content_id`는 AI가 쓰거나 추정하지 않는다.
+- `output/.review_reel_production/source_registry_private.json`이 기존 `reviews/`와
+  `output/`의 번호를 스캔한 뒤 다음 미사용 번호를 배정한다.
+- 같은 candidate를 다시 실행하면 최초 번호·slug·source를 그대로 재사용한다.
+- registry JSON이 깨졌거나 같은 candidate의 원문/주문/리뷰 ID가 바뀌면 덮어쓰지
+  않고 하드 실패한다.
+- 원문은 `reviews/production_registry/<ID>_<slug>.txt`에 local-only로 고정되고,
+  adapter가 만든 private canonical inventory와 함께 Git에서 계속 제외된다.
 
 ## canonical inventory와 이름 규칙
 
-`scripts/review_reel_intake.py create`가 허용하는 private JSON inventory는 다음 필드를
-선택 record에 모두 보관해야 한다.
+`create-from-material-bank`가 만든 private canonical inventory 또는 이미 검증된 별도
+inventory를 `scripts/review_reel_intake.py create`로 사용할 수 있다. 선택 record는
+다음 필드를 모두 보관해야 한다.
 
 ```json
 {
@@ -53,9 +83,11 @@ review-content/material-bank 라우터는 위 세 상태를 가로챌 수 없다
 }
 ```
 
-- `content_id`는 inventory/registry에 이미 있는 정확한 세 자리 ID만 쓴다. 새 번호를
-  계산·추정하거나 `CAND-*`로 바꾸지 않는다.
+- `content_id`는 local registry가 배정했거나 별도 inventory에 이미 있는 정확한 세 자리
+  ID만 쓴다. AI가 계산·추정하거나 `CAND-*`로 바꾸지 않는다.
 - CLI는 `review_source_path`의 실제 UTF-8 원문과 `review_text`가 같은지 확인한다.
+  `reviews/...` 상대경로는 inventory 파일 위치가 아니라 repository root를 기준으로
+  해석한다.
   따라서 리뷰 원문, 상품주문번호, 리뷰글번호, source reference, candidate reference가
   `CANONICAL_PACKAGE_METADATA.json`에 함께 결속된다.
 - `CAND-*`는 `candidate_reference` 안에서만 보존한다. package 이름, 이미지 폴더 이름,
@@ -85,7 +117,7 @@ script, SRT, TTS, HTML, MP4가 생기지 않아야 한다.
 python scripts/review_reel_intake.py route --user-command "리뷰 릴스 만들자"
 ```
 
-선택이 끝난 뒤 local-only inventory에서 단 하나의 record를 지정해 package를 만든다.
+기존 별도 inventory를 쓰는 경우에만 아래 저수준 명령을 사용한다.
 PowerShell `mkdir`이나 임의 output 경로 생성은 사용하지 않는다.
 
 ```powershell
