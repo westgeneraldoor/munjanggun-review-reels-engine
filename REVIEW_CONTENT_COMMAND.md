@@ -1,5 +1,14 @@
 # REVIEW_CONTENT_COMMAND.md — 리뷰 콘텐츠 신규 제작 트리거
 
+## 현재 라우팅 경계
+
+이 문서는 일반 review-content 흐름을 위한 문서다. `리뷰 릴스 만들자`,
+`리뷰 하나 골라 폴더 만들어줘`, `사진 다 넣었어. HTML까지 가자`는 항상
+`review_reel_production`으로 라우팅하며, 이 문서의 material-bank 후보 또는
+dashboard 후보를 제작 package로 사용하지 않는다. 현재 권한과 공식 CLI는
+`docs/review_reel_production_routing_v1.md`의 `scripts/review_reel_intake.py`를 따른다.
+`CAND-*`는 source metadata에서만 보존하며 user-facing package/이미지 폴더 이름이 될 수 없다.
+
 이 문서는 신규 세션에서 한 줄 명령으로 리뷰 콘텐츠 제작 워크플로우를 시작하기 위한 운영 규칙이다.
 
 ## 한 줄 명령

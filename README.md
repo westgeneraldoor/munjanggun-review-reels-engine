@@ -95,6 +95,13 @@ frame directories rather than overwriting them.
 
 ### HTML-only one-shot review reels
 
+Before any review-reel package is created, use the canonical routing and intake
+contract in `docs/review_reel_production_routing_v1.md`. The official
+`scripts/review_reel_intake.py` CLI creates only a private pre-photo package,
+uses an inventory-backed numeric content ID, and keeps `CAND-*` only as source
+metadata. It also resolves the active package for the one-shot request below;
+it never provides an MP4 render route.
+
 For an explicit user instruction equivalent to `사진 다 넣었어. HTML까지 가자`, a
 review-reel package may use the HTML-only one-shot route. It never grants MP4
 authority and does not bypass the script/SRT/TTS approval gate. The planning

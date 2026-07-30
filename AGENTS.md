@@ -44,6 +44,19 @@ GitHub는 엔진 코드, 문서, 테스트만 관리합니다. 실제 고객 자
 
 상세 계약과 실행 예시는 `docs/review_reels_one_shot_contract_v2.md`를 따른다.
 
+## 리뷰 릴스 앞단 라우팅과 canonical intake
+
+`리뷰 릴스 만들자`, `리뷰 하나 골라 폴더 만들어줘`, `사진 다 넣었어. HTML까지 가자`는
+generic review-content/material-bank보다 항상 `review_reel_production`으로 먼저 라우팅한다.
+상태 전이, 실제 inventory 근거의 `content_id`, package 이름, active pointer, one-shot
+연결은 `docs/review_reel_production_routing_v1.md`와
+`scripts/review_reel_intake.py`만 따른다.
+
+`CAND-*`는 candidate/source reference metadata에만 남기며 package와 이미지 폴더 이름,
+사용자-facing 제작 ID로 쓰지 않는다. 새 local package는 반드시 공식 intake CLI로만
+만들고, 사진 전에는 script/SRT/TTS/HTML/MP4를 만들지 않는다. dashboard와
+`docs/archive/` 기록은 현재 routing authority가 아니다.
+
 ## 포맷 상태
 
 - v2: current production
