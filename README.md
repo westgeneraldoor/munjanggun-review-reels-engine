@@ -95,6 +95,25 @@ frame directories rather than overwriting them.
 
 ### HTML-only one-shot review reels
 
+Before any review-reel package is created, use the canonical routing and intake
+contract in `docs/review_reel_production_routing_v1.md`. The official
+`scripts/review_reel_intake.py` CLI creates only a private pre-photo package,
+uses a local-registry-backed numeric content ID, and keeps `CAND-*` only as
+source metadata. The `create-from-material-bank` command adapts the actual
+private JSONL fields (`candidate_id`, `inventory_id`, `order_id`, `review_id`,
+and `review_text`) without requiring an operator to invent a second inventory.
+It also resolves the active package for the one-shot request below; it never
+provides an MP4 render route.
+
+```powershell
+python scripts/review_reel_intake.py create-from-material-bank --output-root "output" --reviews-root "reviews" --material-bank "<candidate_top60_private.jsonl>" --candidate-id "<selected CAND-*>" --content-slug "<event-focused slug>"
+```
+
+The private source registry scans existing `reviews/` and `output/` IDs, assigns
+the next unused three-digit ID, and reuses that binding on every retry. Invalid
+registry data or changed source identity is a hard failure, never a silent
+reset.
+
 For an explicit user instruction equivalent to `사진 다 넣었어. HTML까지 가자`, a
 review-reel package may use the HTML-only one-shot route. It never grants MP4
 authority and does not bypass the script/SRT/TTS approval gate. The planning

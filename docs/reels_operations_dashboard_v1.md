@@ -1,5 +1,9 @@
 # 문장군 리뷰 릴스 운영 대시보드 v1
 
+> 범위: 이 문서는 관측 dashboard다. 신규 제작의 라우팅·후보 선택·package 이름은
+> `docs/review_reel_production_routing_v1.md`와 `scripts/review_reel_intake.py`가
+> 결정하며, 이 문서의 후보 표나 과거 메모는 이를 대체하지 않는다.
+
 마지막 운영 원칙 갱신: 2026-07-28
 
 이 문서는 신규 세션에서 `리뷰 릴스 만들자`라고 했을 때 가장 먼저 보는 릴스 운영 현황판입니다.
@@ -23,6 +27,13 @@
 | 최종 MP4 스펙 | 1080x1920 / 30fps / 약 9~10Mbps / AAC 44.1kHz stereo 192k |
 
 ## Live package state
+
+### Routing boundary
+
+This dashboard is an observation aid and **not a routing authority**. New
+review-reel sessions must use `docs/review_reel_production_routing_v1.md` and
+`scripts/review_reel_intake.py`; historic candidates, `CAND-*` identifiers, and
+archive notes cannot select or name a new production package.
 
 이 문서는 수동 완료 목록이나 발행·성과 숫자의 진실 원본이 아닙니다. 숫자 package,
 upload MP4 artifact, render QA, published, performance는 매 세션 위

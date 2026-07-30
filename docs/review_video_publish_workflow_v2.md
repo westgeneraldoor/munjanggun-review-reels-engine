@@ -1,5 +1,9 @@
 # 문장군 리뷰 영상 신규 발행 워크플로 v2
 
+> 앞단 routing은 먼저 `docs/review_reel_production_routing_v1.md`를 따른다.
+> 이 문서는 canonical package가 선택·생성된 뒤의 제작 gate를 설명한다. dashboard,
+> archive, generic review-content 문서는 package 선택이나 이름의 authority가 아니다.
+
 신규 세션에서 바로 이어가기 위한 운영 기준입니다.
 
 ## 시작 명령

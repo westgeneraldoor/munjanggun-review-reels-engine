@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 AUTHORITY_DOCUMENTS = [
     "AGENTS.md",
     "README.md",
+    "docs/review_reel_production_routing_v1.md",
     "docs/brand/PROJECT_BRAND_ADAPTER.md",
     "docs/reels_operations_dashboard_v1.md",
     "docs/review_video_publish_workflow_v2.md",
@@ -45,6 +46,19 @@ class AuthorityDocumentsTest(unittest.TestCase):
             self.assertIn("v3.1: experimental", text)
         self.assertIn("Instagram과 Naver Clip", texts["AGENTS.md"])
         self.assertIn("HyperFrames", texts["README.md"])
+
+    def test_reel_routing_authority_prevents_dashboard_or_archive_candidate_takeover(self):
+        routing = (ROOT / "docs/review_reel_production_routing_v1.md").read_text(encoding="utf-8")
+        command = (ROOT / "REVIEW_CONTENT_COMMAND.md").read_text(encoding="utf-8")
+        dashboard = (ROOT / "docs/reels_operations_dashboard_v1.md").read_text(encoding="utf-8")
+
+        self.assertIn("review_reel_production", routing)
+        self.assertIn("scripts/review_reel_intake.py", routing)
+        self.assertIn("CAND-*", routing)
+        self.assertIn("not a routing authority", routing)
+        self.assertIn("not current routing authority", routing)
+        self.assertIn("review_reel_production", command)
+        self.assertIn("not a routing authority", dashboard)
 
 
 if __name__ == "__main__":
