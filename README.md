@@ -93,6 +93,25 @@ The final v2 command enforces 1080x1920, 30fps, H.264/yuv420p, AAC 44.1kHz
 stereo, and the approved 11 Mbps video preset. It refuses pre-existing MP4 or
 frame directories rather than overwriting them.
 
+### HTML-only one-shot review reels
+
+For an explicit user instruction equivalent to `사진 다 넣었어. HTML까지 가자`, a
+review-reel package may use the HTML-only one-shot route. It never grants MP4
+authority and does not bypass the script/SRT/TTS approval gate. The planning
+recipe must contain the `review-reels-one-shot-v2` contract with HTML scope
+authorized and MP4 scope explicitly false. Run both official phases with the
+same flag:
+
+```powershell
+python scripts/produce_review_v2.py preflight --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --one-shot-html
+python scripts/produce_review_v2.py html --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --one-shot-html
+```
+
+The strict contract requires photo/privacy evidence, an actual review capture,
+the event-to-CTA narrative sequence, direct visual relevance, readable
+captions, voice-master timing, and source-grounded claims. See
+`docs/review_reels_one_shot_contract_v2.md` for the complete boundary.
+
 The privacy manifest is a binding evidence record: it must include a non-empty
 `checked_at`, a local sanitization report, no unresolved risks, and the exact
 selected asset set with package-relative paths, byte counts, and SHA-256

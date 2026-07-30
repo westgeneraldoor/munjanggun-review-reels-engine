@@ -38,6 +38,11 @@ function sha256(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
+function compactReceiptHash(receiptHash) {
+  return Buffer.from(receiptHash, 'hex').toString('base64')
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
 function receiptBoundary(receiptPath, receipt) {
   if (typeof receipt?.package_path !== 'string' || !receipt.package_path.trim()) {
     throw new Error('GATE_RECEIPT_INVALID');
@@ -59,13 +64,14 @@ function receiptBoundary(receiptPath, receipt) {
   return {
     packagePath,
     receiptHash,
-    markerPath: path.join(receiptDir, 'consumed', `${receiptHash}.json`),
+    markerPath: path.join(receiptDir, 'consumed', `${compactReceiptHash(receiptHash)}.json`),
+    legacyMarkerPath: path.join(receiptDir, 'consumed', `${receiptHash}.json`),
   };
 }
 
 function assertGateReceiptAvailable(receiptPath, receipt) {
   const boundary = receiptBoundary(receiptPath, receipt);
-  if (fs.existsSync(boundary.markerPath)) {
+  if (fs.existsSync(boundary.markerPath) || fs.existsSync(boundary.legacyMarkerPath)) {
     throw new Error('GATE_RECEIPT_ALREADY_CONSUMED');
   }
   return boundary;
