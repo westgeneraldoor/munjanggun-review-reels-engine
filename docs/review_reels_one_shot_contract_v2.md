@@ -52,6 +52,16 @@ python scripts/produce_review_v2.py html --package "<output review package>" --p
 sync manifest는 one-shot scope와 recipe/privacy/voice hashes를 함께 기록한다. 어느 하나가
 바뀌거나 HTML 단계에서 flag가 누락되면 stale gate로 실패한다.
 
+## TTS 해시와 시작 시점 결속
+
+one-shot recipe의 `audio_plan.tts_text_sha256`와 `audio_plan.final_voice_sha256`는 모두 정확히 64자의 소문자 hexadecimal SHA-256 값이어야 한다. 빈 값, 대문자, 길이가 다른 값은 실패한다.
+
+`tts_text_sha256`의 유일한 계산 기준은 edit recipe의 `beats` 순서이다. 각 beat의 `narration_ref`를 Unicode NFC로 정규화하고, 모든 공백 묶음을 ASCII 공백 하나로 바꾼 뒤 앞뒤 공백을 제거한다. 이 정규화된 beat들을 LF (`\n`) 하나로 순서대로 결합한 UTF-8 바이트열의 SHA-256이 `tts_text_sha256`이다. 임의의 script 파일, caption, planning text는 이 계산에 포함하지 않는다.
+
+`final_voice_sha256`은 `source.voice`가 가리키는 package 내부 최종 voice 파일의 현재 바이트 SHA-256이다. 공식 `scripts/produce_review_v2.py preflight --one-shot-html`는 두 선언값의 형식과 현재 값 일치를 모두 검사하며, stale text hash 또는 stale voice hash이면 sync manifest를 만들지 않고 실패한다.
+
+각 one-shot beat의 visual 시작은 `time[0]`, narration 시작은 `narration_start_sec`이다. visual은 narration보다 0.05초를 초과해 먼저 시작할 수 없으며, 이 허용오차를 넘는 visual pre-roll은 hard fail이다. caption은 기존과 같이 narration보다 먼저 시작하면 즉시 hard fail이다.
+
 ## MP4의 별도 권한
 
 HTML 생성 뒤에는 기존 `HTML_APPROVAL.json`과 별도 명시적 MP4 승인이 모두 필요하다.

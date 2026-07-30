@@ -411,6 +411,44 @@ class ProductionGateTests(unittest.TestCase):
         self.assertTrue(manifest["ok"])
         self.assertTrue(self.sync.is_file())
 
+    def test_one_shot_preflight_rejects_stale_tts_text_hash_without_writing_sync_manifest(self):
+        self.write_one_shot_html_package()
+        edit = json.loads(self.edit.read_text(encoding="utf-8"))
+        edit["audio_plan"]["tts_text_sha256"] = "0" * 64
+        self.edit.write_text(json.dumps(edit), encoding="utf-8")
+
+        with self.assertRaises(GateViolation) as raised:
+            create_sync_manifest(
+                package_dir=self.package,
+                planning_path=self.planning,
+                edit_path=self.edit,
+                privacy_manifest_path=self.privacy,
+                sync_manifest_path=self.sync,
+                allow_one_shot_html_contract=True,
+            )
+
+        self.assertIn("TTS_TEXT_HASH_MISMATCH", str(raised.exception))
+        self.assertFalse(self.sync.exists())
+
+    def test_one_shot_preflight_rejects_stale_final_voice_hash_without_writing_sync_manifest(self):
+        self.write_one_shot_html_package()
+        edit = json.loads(self.edit.read_text(encoding="utf-8"))
+        edit["audio_plan"]["final_voice_sha256"] = "0" * 64
+        self.edit.write_text(json.dumps(edit), encoding="utf-8")
+
+        with self.assertRaises(GateViolation) as raised:
+            create_sync_manifest(
+                package_dir=self.package,
+                planning_path=self.planning,
+                edit_path=self.edit,
+                privacy_manifest_path=self.privacy,
+                sync_manifest_path=self.sync,
+                allow_one_shot_html_contract=True,
+            )
+
+        self.assertIn("FINAL_VOICE_HASH_MISMATCH", str(raised.exception))
+        self.assertFalse(self.sync.exists())
+
     def test_official_cli_builds_html_for_a_valid_one_shot_contract(self):
         self.write_one_shot_html_package()
         environment = os.environ.copy()

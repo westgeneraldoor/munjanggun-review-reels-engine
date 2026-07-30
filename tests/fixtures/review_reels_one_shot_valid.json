@@ -50,8 +50,8 @@
       "sync_policy": {"raw_tts_duration_sec": 32.0, "final_voice_duration_sec": 32.0},
       "final_voice_is_master": true,
       "tts_text_matches_narration": true,
-      "tts_text_sha256": "fixture-tts-text-sha256",
-      "final_voice_sha256": "fixture-final-voice-sha256"
+      "tts_text_sha256": "2f3962c248a0bfea83a0196274e1b543686fed354f967aae6e43134d72ab0e05",
+      "final_voice_sha256": "c57d7e92019708b614c90fa3685cd644f543a60153fb99ec9b67c381a245fb2a"
     },
     "beats": [
       {"id": "b01", "narrative_role": "event", "planning_scene_id": "s01", "time": [0, 4], "caption_start_sec": 0, "narration_start_sec": 0, "asset": "before_entry", "asset_id": "photo_before_01", "visual_relevance": "direct", "caption": "Entry path", "caption_layout": {"line_count": 1, "min_font_px": 36, "safe_area": "pass", "does_not_cover_subject": true}, "caption_focus_keywords": ["Entry"], "narration_ref": "The entry path felt inconvenient.", "meaning_match": true, "meaning_match_source": "planning_scene:s01"},

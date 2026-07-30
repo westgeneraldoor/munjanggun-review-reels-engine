@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import re
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -23,6 +25,7 @@ REQUIRED_NARRATIVE_ROLES = (
     "cta",
 )
 MIN_CAPTION_FONT_PX = 32
+SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 CORRUPT_MARKERS = ("??", "\ufffd")
 WEAK_HOOK_PHRASES = (
     "좋아졌습니다",
@@ -725,6 +728,24 @@ def _is_actual_review_capture(source: dict[str, Any]) -> bool:
     return _as_text(source.get("source_kind") or source.get("proof_asset_type")).strip() == "actual_review_capture"
 
 
+def canonical_tts_input_narration(edit_recipe: dict[str, Any]) -> str:
+    """Return the single normalized UTF-8 narration input represented by edit beats."""
+    beats = edit_recipe.get("beats") or []
+    if not isinstance(beats, list):
+        return ""
+    normalized_beats = []
+    for beat in beats:
+        narration = beat.get("narration_ref") if isinstance(beat, dict) else ""
+        normalized = unicodedata.normalize("NFC", _as_text(narration))
+        normalized_beats.append(re.sub(r"\s+", " ", normalized).strip())
+    return "\n".join(normalized_beats)
+
+
+def canonical_tts_input_sha256(edit_recipe: dict[str, Any]) -> str:
+    """Hash the canonical TTS narration exactly as the one-shot evidence contract defines."""
+    return hashlib.sha256(canonical_tts_input_narration(edit_recipe).encode("utf-8")).hexdigest()
+
+
 def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edit_recipe: dict[str, Any]) -> dict[str, Any]:
     """Validate the HTML-only one-shot contract without granting MP4 authority."""
     issues: list[dict[str, Any]] = []
@@ -790,8 +811,11 @@ def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edi
         if audio_plan.get(field) is not True:
             issues.append(_issue("TTS_MASTER_EVIDENCE_MISSING", f"audio_plan.{field} must be true."))
     for field in ("tts_text_sha256", "final_voice_sha256"):
-        if not _as_text(audio_plan.get(field)).strip():
+        value = _as_text(audio_plan.get(field)).strip()
+        if not value:
             issues.append(_issue("TTS_EVIDENCE_HASH_MISSING", f"audio_plan.{field} is required."))
+        elif not SHA256_HEX.fullmatch(value):
+            issues.append(_issue("TTS_EVIDENCE_HASH_INVALID", f"audio_plan.{field} must be 64 lowercase hexadecimal characters."))
 
     beats = edit_recipe.get("beats") or []
     beat_roles = [_role(beat) for beat in beats if isinstance(beat, dict)]
@@ -849,6 +873,14 @@ def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edi
             issues.append(_issue("CAPTION_VOICE_ALIGNMENT_MISSING", "Caption and narration timestamps are required.", scene_id=scene_id))
         elif caption_start < narration_start:
             issues.append(_issue("CAPTION_AHEAD_OF_VOICE", "Captions must not precede their narration.", scene_id=scene_id))
+
+        time_range = beat.get("time")
+        try:
+            visual_start = float(time_range[0]) if isinstance(time_range, list) else None
+        except (IndexError, TypeError, ValueError):
+            visual_start = None
+        if visual_start is not None and narration_start is not None and visual_start < narration_start - 0.05:
+            issues.append(_issue("VISUAL_AHEAD_OF_VOICE", "Visuals must not start more than 0.05 seconds before their narration.", scene_id=scene_id))
 
         asset_id = _as_text(beat.get("asset_id") or beat.get("asset")).strip()
         if asset_id:

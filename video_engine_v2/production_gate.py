@@ -12,7 +12,7 @@ import re
 from typing import Any
 from urllib.parse import quote
 
-from video_engine_v2.reels_qa import build_sync_manifest, validate_html_preflight
+from video_engine_v2.reels_qa import canonical_tts_input_sha256, build_sync_manifest, validate_html_preflight
 
 
 FINAL_RENDER_PRESET = {
@@ -515,6 +515,18 @@ def _validate_edit_privacy_report_binding(package_dir: Path, edit_recipe: dict[s
         raise GateViolation("PRIVACY_REPORT_EDIT_MISMATCH")
 
 
+def _validate_one_shot_audio_hashes(package_dir: Path, edit_recipe: dict[str, Any]) -> None:
+    audio_plan = edit_recipe.get("audio_plan") or {}
+    if not isinstance(audio_plan, dict):
+        raise GateViolation("TTS_EVIDENCE_HASH_INVALID")
+    declared_tts_hash = _require_sha256(audio_plan.get("tts_text_sha256"), invalid_code="TTS_EVIDENCE_HASH_INVALID")
+    if declared_tts_hash != canonical_tts_input_sha256(edit_recipe):
+        raise GateViolation("TTS_TEXT_HASH_MISMATCH")
+    declared_voice_hash = _require_sha256(audio_plan.get("final_voice_sha256"), invalid_code="TTS_EVIDENCE_HASH_INVALID")
+    if declared_voice_hash != _voice_gate_input(package_dir, edit_recipe)["sha256"]:
+        raise GateViolation("FINAL_VOICE_HASH_MISMATCH")
+
+
 def _load_recipes(package_dir: Path, planning_path: Path, edit_path: Path) -> tuple[Path, Path, dict[str, Any], dict[str, Any]]:
     planning = _ensure_inside(package_dir, planning_path, outside_code="PLANNING_OUTSIDE_PACKAGE")
     edit = _ensure_inside(package_dir, edit_path, outside_code="EDIT_OUTSIDE_PACKAGE")
@@ -547,6 +559,8 @@ def _validate_preflight(
     )
     if not result["ok"]:
         raise GateViolation("REELS_QA_FAILED")
+    if allow_one_shot_html_contract:
+        _validate_one_shot_audio_hashes(package_dir, edit_recipe)
     return planning, edit, planning_recipe, edit_recipe
 
 
