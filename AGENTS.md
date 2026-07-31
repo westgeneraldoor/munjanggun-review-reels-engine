@@ -35,6 +35,10 @@ GitHub는 엔진 코드, 문서, 테스트만 관리합니다. 실제 고객 자
 
 - 공식 `scripts/produce_review_v2.py`의 `preflight`와 `html` 양쪽에
   `--one-shot-html`을 붙인다. 내부 builder나 renderer를 직접 실행하지 않는다.
+- one-shot의 SRT/TTS는 `scripts/generate_one_shot_tts.py`만 사용한다. 이 명령은
+  canonical package가 공식 `photo-review`를 통과했고 planning recipe와 표준
+  `*_script.md`의 내레이션이 정확히 같을 때만 Gemini TTS `Sulafat` 음성을 만든다.
+  Windows SAPI, 임의 MP3, 수동 SRT는 production 증거로 인정하지 않는다.
 - planning recipe의 `workflow_contract.name`은 `review-reels-one-shot-v2`,
   `html_scope_authorized: true`, `mp4_scope_authorized: false`여야 한다.
 - `scripts/review_reel_intake.py photo-review`가 모든 사진의 use/hold/exclude 판단과
@@ -125,7 +129,10 @@ one-shot의 창작·편집 기준은 `docs/review_reels_gold_playbook_v1.md`를 
 근거가 있을 때만 넣는다. 공식 음성은 Gemini TTS `Sulafat`이며 Windows SAPI 등
 임시 음성은 production HTML에 연결하지 않는다.
 
-`generate.py`를 사용하는 경우 `--approval-package`가 필수입니다. 승인 패키지의
+일반 승인 제작에서 `generate.py`를 사용하는 경우 `--approval-package`가 필수입니다.
+사진검수 완료 뒤 사용자가 one-shot HTML을 명시 승인한 경우에만
+`scripts/generate_one_shot_tts.py`가 별도 PD 승인 패키지 없이 SRT/TTS를 생성할 수
+있습니다. 이 예외는 HTML 범위일 뿐 MP4 권한을 만들지 않습니다. 승인 패키지의
 `.source`는 현재 리뷰와 일치해야 하고, `STATUS.md`의 `photo_checked`와
 `pd_plan_approved`, `APPROVAL_LOG.md`의 긍정적 PD 기획 승인이 모두 확인되어야
 합니다. 리뷰 번호 선택만으로 이 기록을 만들거나 승인으로 간주하면 안 됩니다.
@@ -156,6 +163,9 @@ v2 production의 유일한 공식 진입점은 아래 오케스트레이터입�
 `reels_qa`, HTML builder, renderer를 직접 호출해 gate를 우회하지 않습니다.
 
 ```powershell
+# 0. one-shot HTML용 표준 SRT 및 Gemini/Sulafat 최종 음성 생성
+python scripts/generate_one_shot_tts.py --package "<output review package>" --planning "<planning_recipe.json>" --script "<*_script.md>"
+
 # 1. HTML/MP4 산출물 없이 sync manifest를 생성하는 preflight
 python scripts/produce_review_v2.py preflight --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json"
 

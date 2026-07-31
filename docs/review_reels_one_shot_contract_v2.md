@@ -6,9 +6,10 @@
 리뷰 릴스의 사진 검수 결과를 바탕으로 HTML preflight와 HTML 프리뷰까지 진행할 수 있다.
 이 계약은 일반 PD 기획 승인 절차를 HTML 단계에 한정해 대체한다.
 
-이 계약은 MP4 렌더 권한을 포함하지 않으며, `generate.py`의 script/SRT/TTS 승인 게이트를
-완화하지 않는다. 실제 고객 자료, 이미지, 음성, HTML, MP4 또는 approval record를 Git에
-추가하지 않는다.
+이 계약은 MP4 렌더 권한을 포함하지 않는다. 일반 `generate.py` 승인 게이트는 유지하며,
+사진검수를 통과한 one-shot package의 SRT/TTS만 공식
+`scripts/generate_one_shot_tts.py` 경로로 생성한다. 실제 고객 자료, 이미지, 음성,
+HTML, MP4 또는 approval record를 Git에 추가하지 않는다.
 
 ## 계약 필드
 
@@ -46,12 +47,19 @@ planning recipe는 다음 필드를 모두 가져야 한다.
 ## 유일한 실행 경로
 
 직접 `reels_qa`, `build_html_preview_v2.py`, `render_html_preview_v2.js`를 실행해 gate를
-우회하지 않는다. 동일 package와 recipe로 다음 두 명령을 순서대로 실행한다.
+우회하지 않는다. 동일 package와 recipe로 다음 세 명령을 순서대로 실행한다.
 
 ```powershell
+python scripts/generate_one_shot_tts.py --package "<output review package>" --planning "<planning_recipe.json>" --script "<*_script.md>"
 python scripts/produce_review_v2.py preflight --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --one-shot-html
 python scripts/produce_review_v2.py html --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --one-shot-html
 ```
+
+첫 명령은 canonical package의 `photo_reviewed` 상태와 review source hash, one-shot
+contract, planning scene 내레이션과 표준 `*_script.md` 내레이션의 일치를 검사한다.
+기존 SRT/voice/report를 덮어쓰지 않으며 Gemini TTS `Sulafat`과 hash-bound 생성
+보고서만 허용한다. Windows SAPI, 임의 MP3, 수동 SRT는 one-shot production 입력이
+아니다. 이 명령은 HTML 또는 MP4 승인 상태를 바꾸지 않는다.
 
 sync manifest는 one-shot scope와 recipe/privacy/voice hashes를 함께 기록한다. 어느 하나가
 바뀌거나 HTML 단계에서 flag가 누락되면 stale gate로 실패한다.
