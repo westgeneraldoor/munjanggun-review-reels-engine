@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from pathlib import Path
+from PIL import Image
 from urllib.parse import quote
 
 from video_engine_v2.production_gate import (
@@ -64,7 +65,7 @@ class ProductionGateTests(unittest.TestCase):
         assets = self.package / "assets"
         assets.mkdir()
         asset = assets / "main.jpg"
-        asset.write_bytes(b"asset")
+        Image.new("RGB", (32, 32), color=(220, 220, 220)).save(asset, format="JPEG")
         voice = self.package / "voice.mp3"
         voice.write_bytes(b"voice")
         self.planning.write_text(
@@ -202,6 +203,84 @@ class ProductionGateTests(unittest.TestCase):
             }
         )
         edit["asset_roles"] = {beat["asset"]: "main.jpg" for beat in edit["beats"]}
+        (self.package / edit["source"]["script"]).write_text("# fixture script\n", encoding="utf-8")
+        (self.package / edit["source"]["srt"]).write_text("1\n00:00:00,000 --> 00:00:01,000\nfixture\n", encoding="utf-8")
+        report_path = self.package / edit["source"]["tts_generation_report"]
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "review-reel-tts-generation-report-v1",
+                    "provider": "google_gemini_tts",
+                    "model": "gemini-3.1-flash-tts-preview",
+                    "voice": "Sulafat",
+                    "tts_text_sha256": edit["audio_plan"]["tts_text_sha256"],
+                    "voice_relative_path": "voice.mp3",
+                    "voice_bytes": (self.package / "voice.mp3").stat().st_size,
+                    "voice_sha256": hashlib.sha256((self.package / "voice.mp3").read_bytes()).hexdigest(),
+                    "raw_tts_duration_sec": 32.0,
+                    "final_voice_duration_sec": 32.0,
+                }
+            ),
+            encoding="utf-8",
+        )
+        selection_path = self.package / "_work" / "photo_selection_private.json"
+        selection_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "review-reel-photo-selection-v1",
+                    "content_id": planning["content_id"],
+                    "checked_at": "2030-01-02T03:04:05Z",
+                    "unresolved_items": [],
+                    "decisions": [
+                        {
+                            "relative_path": "assets/main.jpg",
+                            "decision": "use",
+                            "reason": "De-identified fixture image.",
+                            "privacy_status": "clear",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        review_text = planning["review_source"]["text"]
+        (self.package / "CANONICAL_PACKAGE_METADATA.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "review-reel-canonical-package-v1",
+                    "workflow": "review_reel_production",
+                    "content_id": planning["content_id"],
+                    "lifecycle_state": "photo_reviewed",
+                    "approvals": {
+                        "photo_checked": True,
+                        "pd_plan_approved": False,
+                        "html_scope_authorized": False,
+                        "mp4_scope_authorized": False,
+                    },
+                    "review_source": {
+                        "text_sha256": hashlib.sha256(review_text.encode("utf-8")).hexdigest(),
+                    },
+                    "photo_review": {
+                        "checked_at": "2030-01-02T03:04:05Z",
+                        "selection": {
+                            "relative_path": selection_path.relative_to(self.package).as_posix(),
+                            "bytes": selection_path.stat().st_size,
+                            "sha256": hashlib.sha256(selection_path.read_bytes()).hexdigest(),
+                        },
+                        "privacy_manifest": {
+                            "relative_path": self.privacy.relative_to(self.package).as_posix(),
+                            "bytes": self.privacy.stat().st_size,
+                            "sha256": hashlib.sha256(self.privacy.read_bytes()).hexdigest(),
+                        },
+                        "source_media_count": 1,
+                        "selected_asset_count": 1,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        planning["review_source"]["canonical_text_sha256"] = hashlib.sha256(review_text.encode("utf-8")).hexdigest()
         self.planning.write_text(json.dumps(planning), encoding="utf-8")
         self.edit.write_text(json.dumps(edit), encoding="utf-8")
         (self.package / "STATUS.md").write_text(
@@ -449,6 +528,92 @@ class ProductionGateTests(unittest.TestCase):
         self.assertIn("FINAL_VOICE_HASH_MISMATCH", str(raised.exception))
         self.assertFalse(self.sync.exists())
 
+    def test_one_shot_preflight_rejects_missing_or_inconsistent_canonical_package_state(self):
+        self.write_one_shot_html_package()
+        metadata_path = self.package / "CANONICAL_PACKAGE_METADATA.json"
+        metadata_path.unlink()
+
+        with self.assertRaises(GateViolation) as missing:
+            create_sync_manifest(
+                package_dir=self.package,
+                planning_path=self.planning,
+                edit_path=self.edit,
+                privacy_manifest_path=self.privacy,
+                sync_manifest_path=self.sync,
+                allow_one_shot_html_contract=True,
+            )
+        self.assertIn("CANONICAL_PACKAGE_METADATA_MISSING", str(missing.exception))
+
+        self.write_one_shot_html_package()
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["lifecycle_state"] = "photo_intake_pending"
+        metadata["approvals"]["photo_checked"] = False
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        with self.assertRaises(GateViolation) as inconsistent:
+            create_sync_manifest(
+                package_dir=self.package,
+                planning_path=self.planning,
+                edit_path=self.edit,
+                privacy_manifest_path=self.privacy,
+                sync_manifest_path=self.sync,
+                allow_one_shot_html_contract=True,
+            )
+        self.assertIn("CANONICAL_PHOTO_REVIEW_STATE_INVALID", str(inconsistent.exception))
+
+    def test_one_shot_preflight_rejects_non_gemini_or_unbound_tts_provenance(self):
+        self.write_one_shot_html_package()
+        edit = json.loads(self.edit.read_text(encoding="utf-8"))
+        report_path = self.package / edit["source"]["tts_generation_report"]
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        report["provider"] = "windows_sapi"
+        report["voice"] = "Microsoft Heami Desktop"
+        report_path.write_text(json.dumps(report), encoding="utf-8")
+
+        with self.assertRaises(GateViolation) as wrong_provider:
+            create_sync_manifest(
+                package_dir=self.package,
+                planning_path=self.planning,
+                edit_path=self.edit,
+                privacy_manifest_path=self.privacy,
+                sync_manifest_path=self.sync,
+                allow_one_shot_html_contract=True,
+            )
+        self.assertIn("TTS_PROVENANCE_NOT_APPROVED", str(wrong_provider.exception))
+
+        report["provider"] = "google_gemini_tts"
+        report["voice"] = "Sulafat"
+        report["voice_sha256"] = "0" * 64
+        report_path.write_text(json.dumps(report), encoding="utf-8")
+
+        with self.assertRaises(GateViolation) as stale_report:
+            create_sync_manifest(
+                package_dir=self.package,
+                planning_path=self.planning,
+                edit_path=self.edit,
+                privacy_manifest_path=self.privacy,
+                sync_manifest_path=self.sync,
+                allow_one_shot_html_contract=True,
+            )
+        self.assertIn("TTS_PROVENANCE_STALE", str(stale_report.exception))
+
+    def test_one_shot_preflight_rejects_stale_photo_review_evidence(self):
+        self.write_one_shot_html_package()
+        selection = self.package / "_work" / "photo_selection_private.json"
+        selection.write_text(selection.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+
+        with self.assertRaises(GateViolation) as stale:
+            create_sync_manifest(
+                package_dir=self.package,
+                planning_path=self.planning,
+                edit_path=self.edit,
+                privacy_manifest_path=self.privacy,
+                sync_manifest_path=self.sync,
+                allow_one_shot_html_contract=True,
+            )
+
+        self.assertIn("CANONICAL_PHOTO_REVIEW_EVIDENCE_STALE", str(stale.exception))
+
     def test_official_cli_builds_html_for_a_valid_one_shot_contract(self):
         self.write_one_shot_html_package()
         environment = os.environ.copy()
@@ -494,8 +659,16 @@ class ProductionGateTests(unittest.TestCase):
         )
 
         self.assertEqual(preflight.returncode, 0, preflight.stderr)
-        self.assertEqual(html.returncode, 0, html.stderr)
+        self.assertEqual(html.returncode, 0, html.stderr + html.stdout)
         self.assertTrue(self.html.is_file())
+        qa_report = json.loads(
+            (self.html.parent / "html_internal_qa_report.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(qa_report["automatic_status"], "pass")
+        self.assertEqual(qa_report["overall_status"], "manual_review_required")
+        self.assertEqual(qa_report["manual_review"]["status"], "pending")
+        self.assertEqual(len(qa_report["checks"]), 8)
+        self.assertEqual(len(list((self.html.parent / "_qa_frames").glob("*.png"))), 8)
 
     def test_preflight_rejects_assets_that_were_not_in_the_privacy_manifest(self):
         extra_asset = self.package / "assets" / "extra.jpg"
@@ -1113,7 +1286,7 @@ class ProductionGateTests(unittest.TestCase):
             encoding="utf-8",
             errors="strict",
         )
-        self.assertEqual(html.returncode, 0, html.stderr)
+        self.assertEqual(html.returncode, 0, html.stderr + html.stdout)
         self.assertTrue(self.html.exists())
         self.assertTrue(list((self.package / "_work" / "production_gates").glob("html_*.json")))
         artifact_path = self.html.parent / "html_artifact_evidence.json"

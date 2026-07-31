@@ -92,6 +92,133 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
         self.assertIn("REVIEW_PROOF_NOT_ACTUAL_CAPTURE", codes)
         self.assertIn("REPEATED_PHOTO_FILLER", codes)
 
+    def test_preflight_rejects_slow_sleepy_voice_below_the_documented_floor(self):
+        fixture = load_fixture()
+        fixture["edit"]["audio_plan"]["sync_policy"]["raw_tts_duration_sec"] = 70.0
+        fixture["edit"]["audio_plan"]["sync_policy"]["final_voice_duration_sec"] = 70.0
+
+        result = validate_html_preflight(
+            fixture["planning"],
+            fixture["edit"],
+            require_one_shot_contract=True,
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertIn("TOTAL_VOICE_CPS_TOO_LOW", {issue["code"] for issue in result["issues"]})
+
+    def test_preflight_rejects_voice_above_the_one_shot_speed_ceiling(self):
+        fixture = load_fixture()
+        fixture["edit"]["audio_plan"]["sync_policy"]["raw_tts_duration_sec"] = 12.0
+        fixture["edit"]["audio_plan"]["sync_policy"]["final_voice_duration_sec"] = 12.0
+
+        result = validate_html_preflight(
+            fixture["planning"],
+            fixture["edit"],
+            require_one_shot_contract=True,
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertIn("TOTAL_VOICE_CPS_TOO_HIGH", {issue["code"] for issue in result["issues"]})
+
+    def test_preflight_counts_all_actual_review_captures_not_only_the_literal_asset_name(self):
+        fixture = load_fixture()
+        fixture["planning"]["scenes"][1]["visual_source"]["source_kind"] = "actual_review_capture"
+        fixture["edit"]["beats"][1]["source_kind"] = "actual_review_capture"
+        fixture["edit"]["beats"][1]["asset"] = "review_initial_capture"
+        fixture["edit"]["beats"][1]["asset_id"] = "review_initial_capture_01"
+
+        result = validate_html_preflight(
+            fixture["planning"],
+            fixture["edit"],
+            require_one_shot_contract=True,
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertIn("DUPLICATE_REVIEW_CAPTURE", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_rejects_an_overlong_review_capture_scene(self):
+        fixture = load_fixture()
+        review_beat = fixture["edit"]["beats"][6]
+        review_beat["time"] = [24.0, 31.0]
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertFalse(result["ok"])
+        self.assertIn("REVIEW_PROOF_DWELL_TOO_LONG", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_requires_standard_script_srt_and_tts_provenance_artifacts(self):
+        cases = (
+            ("script", "narration.txt", "SCRIPT_ARTIFACT_INVALID"),
+            ("srt", "captions.txt", "SRT_ARTIFACT_INVALID"),
+            ("tts_generation_report", "", "TTS_PROVENANCE_MISSING"),
+        )
+        for field, value, expected_code in cases:
+            with self.subTest(field=field):
+                fixture = load_fixture()
+                fixture["edit"]["source"][field] = value
+
+                result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+                self.assertFalse(result["ok"])
+                self.assertIn(expected_code, {issue["code"] for issue in result["issues"]})
+
+    def test_contract_does_not_force_context_or_measurement_filler_for_a_time_lapse_review(self):
+        fixture = load_fixture()
+        fixture["planning"]["writer_brief"]["story_mode"] = "time_lapse_review"
+        fixture["planning"]["scenes"] = [
+            scene
+            for scene in fixture["planning"]["scenes"]
+            if scene["narrative_role"] not in {"context", "choice_turn"}
+        ]
+        fixture["edit"]["beats"] = [
+            beat
+            for beat in fixture["edit"]["beats"]
+            if beat["narrative_role"] not in {"context", "choice_turn"}
+        ]
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertTrue(result["ok"], result["issues"])
+
+    def test_contract_rejects_an_opening_that_waits_too_long_to_turn(self):
+        fixture = load_fixture()
+        fixture["edit"]["beats"][0]["time"] = [0.0, 4.25]
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertFalse(result["ok"])
+        self.assertIn("OPENING_BEAT_TOO_LONG", {issue["code"] for issue in result["issues"]})
+
+    def test_117_style_regression_is_blocked_before_html(self):
+        fixture = load_fixture()
+        fixture["planning"]["writer_brief"]["story_mode"] = "time_lapse_review"
+        fixture["edit"]["beats"][0]["time"] = [0.0, 4.25]
+        fixture["planning"]["scenes"][1]["visual_source"]["source_kind"] = "actual_review_capture"
+        fixture["edit"]["beats"][1]["source_kind"] = "actual_review_capture"
+        fixture["edit"]["beats"][1]["asset"] = "review_initial_capture"
+        fixture["edit"]["beats"][1]["asset_id"] = "review_initial_capture_01"
+        fixture["edit"]["beats"][6]["time"] = [24.0, 33.3]
+        fixture["edit"]["audio_plan"]["sync_policy"]["raw_tts_duration_sec"] = 70.0
+        fixture["edit"]["audio_plan"]["sync_policy"]["final_voice_duration_sec"] = 70.0
+
+        result = validate_html_preflight(
+            fixture["planning"],
+            fixture["edit"],
+            require_one_shot_contract=True,
+        )
+        codes = {issue["code"] for issue in result["issues"]}
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(
+            {
+                "OPENING_BEAT_TOO_LONG",
+                "DUPLICATE_REVIEW_CAPTURE",
+                "REVIEW_PROOF_DWELL_TOO_LONG",
+                "TOTAL_VOICE_CPS_TOO_LOW",
+            }.issubset(codes),
+            result["issues"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

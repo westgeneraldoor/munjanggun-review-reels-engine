@@ -527,6 +527,136 @@ def _validate_one_shot_audio_hashes(package_dir: Path, edit_recipe: dict[str, An
         raise GateViolation("FINAL_VOICE_HASH_MISMATCH")
 
 
+def _validate_one_shot_package_state(
+    package_dir: Path,
+    planning_recipe: dict[str, Any],
+    privacy_manifest_path: Path,
+) -> None:
+    metadata = _read_json(
+        package_dir / "CANONICAL_PACKAGE_METADATA.json",
+        missing_code="CANONICAL_PACKAGE_METADATA_MISSING",
+        invalid_code="CANONICAL_PACKAGE_METADATA_INVALID",
+    )
+    if metadata.get("workflow") != "review_reel_production":
+        raise GateViolation("CANONICAL_PACKAGE_METADATA_INVALID")
+    content_id = planning_recipe.get("content_id")
+    if not isinstance(content_id, str) or not content_id or metadata.get("content_id") != content_id:
+        raise GateViolation("CANONICAL_PACKAGE_IDENTITY_MISMATCH")
+    approvals = metadata.get("approvals") or {}
+    if (
+        metadata.get("lifecycle_state") not in {"photo_reviewed", "one_shot_ready"}
+        or approvals.get("photo_checked") is not True
+        or _status_fields(package_dir).get("photo_checked") is not True
+    ):
+        raise GateViolation("CANONICAL_PHOTO_REVIEW_STATE_INVALID")
+    if approvals.get("mp4_scope_authorized") is not False:
+        raise GateViolation("CANONICAL_MP4_SCOPE_INVALID")
+    if approvals.get("html_scope_authorized") is not False:
+        raise GateViolation("CANONICAL_HTML_SCOPE_INVALID")
+
+    photo_review = metadata.get("photo_review")
+    if not isinstance(photo_review, dict):
+        raise GateViolation("CANONICAL_PHOTO_REVIEW_EVIDENCE_MISSING")
+    bound_paths: dict[str, Path] = {}
+    for field in ("selection", "privacy_manifest"):
+        evidence = photo_review.get(field)
+        if not isinstance(evidence, dict):
+            raise GateViolation("CANONICAL_PHOTO_REVIEW_EVIDENCE_INVALID")
+        value = evidence.get("relative_path")
+        path, relative_path = _package_relative_file(
+            package_dir,
+            value,
+            outside_code="CANONICAL_PHOTO_REVIEW_EVIDENCE_INVALID",
+        )
+        if (
+            evidence.get("bytes") != path.stat().st_size
+            or _require_sha256(
+                evidence.get("sha256"),
+                invalid_code="CANONICAL_PHOTO_REVIEW_EVIDENCE_INVALID",
+            )
+            != _sha256(path)
+        ):
+            raise GateViolation("CANONICAL_PHOTO_REVIEW_EVIDENCE_STALE")
+        bound_paths[field] = path
+    if bound_paths["privacy_manifest"] != privacy_manifest_path.resolve():
+        raise GateViolation("CANONICAL_PRIVACY_MANIFEST_MISMATCH")
+    selection = _read_json(
+        bound_paths["selection"],
+        missing_code="CANONICAL_PHOTO_REVIEW_EVIDENCE_MISSING",
+        invalid_code="CANONICAL_PHOTO_REVIEW_EVIDENCE_INVALID",
+    )
+    if (
+        selection.get("schema_version") != "review-reel-photo-selection-v1"
+        or selection.get("content_id") != content_id
+        or selection.get("unresolved_items") != []
+        or not isinstance(selection.get("decisions"), list)
+        or not selection["decisions"]
+    ):
+        raise GateViolation("CANONICAL_PHOTO_REVIEW_EVIDENCE_INVALID")
+
+    metadata_source = metadata.get("review_source") or {}
+    planning_source = planning_recipe.get("review_source") or {}
+    metadata_hash = metadata_source.get("text_sha256")
+    planning_hash = planning_source.get("canonical_text_sha256")
+    if (
+        not isinstance(metadata_hash, str)
+        or not _SHA256.fullmatch(metadata_hash)
+        or planning_hash != metadata_hash
+    ):
+        raise GateViolation("CANONICAL_REVIEW_SOURCE_MISMATCH")
+
+
+def _validate_one_shot_tts_provenance(package_dir: Path, edit_recipe: dict[str, Any]) -> None:
+    source = edit_recipe.get("source") or {}
+    if not isinstance(source, dict):
+        raise GateViolation("TTS_PROVENANCE_MISSING")
+
+    for field, suffix, code in (
+        ("script", "_script.md", "SCRIPT_ARTIFACT_INVALID"),
+        ("srt", ".srt", "SRT_ARTIFACT_INVALID"),
+    ):
+        value = source.get(field)
+        path, relative_path = _package_relative_file(package_dir, value, outside_code=code)
+        if not relative_path.lower().endswith(suffix) or not path.is_file():
+            raise GateViolation(code)
+
+    report_value = source.get("tts_generation_report")
+    report_path, _ = _package_relative_file(
+        package_dir,
+        report_value,
+        outside_code="TTS_PROVENANCE_MISSING",
+    )
+    report = _read_json(
+        report_path,
+        missing_code="TTS_PROVENANCE_MISSING",
+        invalid_code="TTS_PROVENANCE_INVALID",
+    )
+    model = report.get("model")
+    if (
+        report.get("schema_version") != "review-reel-tts-generation-report-v1"
+        or report.get("provider") != "google_gemini_tts"
+        or not isinstance(model, str)
+        or not model.startswith("gemini-")
+        or "tts" not in model
+        or report.get("voice") != "Sulafat"
+    ):
+        raise GateViolation("TTS_PROVENANCE_NOT_APPROVED")
+
+    audio_plan = edit_recipe.get("audio_plan") or {}
+    sync_policy = audio_plan.get("sync_policy") or {}
+    voice_evidence = _voice_gate_input(package_dir, edit_recipe)
+    expected = {
+        "tts_text_sha256": audio_plan.get("tts_text_sha256"),
+        "voice_relative_path": voice_evidence["relative_path"],
+        "voice_bytes": voice_evidence["bytes"],
+        "voice_sha256": voice_evidence["sha256"],
+        "raw_tts_duration_sec": sync_policy.get("raw_tts_duration_sec"),
+        "final_voice_duration_sec": sync_policy.get("final_voice_duration_sec"),
+    }
+    if any(report.get(key) != value for key, value in expected.items()):
+        raise GateViolation("TTS_PROVENANCE_STALE")
+
+
 def _load_recipes(package_dir: Path, planning_path: Path, edit_path: Path) -> tuple[Path, Path, dict[str, Any], dict[str, Any]]:
     planning = _ensure_inside(package_dir, planning_path, outside_code="PLANNING_OUTSIDE_PACKAGE")
     edit = _ensure_inside(package_dir, edit_path, outside_code="EDIT_OUTSIDE_PACKAGE")
@@ -560,7 +690,9 @@ def _validate_preflight(
     if not result["ok"]:
         raise GateViolation("REELS_QA_FAILED")
     if allow_one_shot_html_contract:
+        _validate_one_shot_package_state(package_dir, planning_recipe, privacy_manifest_path)
         _validate_one_shot_audio_hashes(package_dir, edit_recipe)
+        _validate_one_shot_tts_provenance(package_dir, edit_recipe)
     return planning, edit, planning_recipe, edit_recipe
 
 

@@ -1,5 +1,6 @@
 {
   "planning": {
+    "content_id": "001",
     "workflow_contract": {
       "name": "review-reels-one-shot-v2",
       "html_scope_authorized": true,
@@ -20,6 +21,7 @@
     "hooks": [{"text": "Would a blocked entry path change?"}],
     "selected_hook": {"text": "Would a blocked entry path change?"},
     "writer_brief": {
+      "story_mode": "problem_solution",
       "one_line_story": "A de-identified entry-path review changed through installation.",
       "hook_candidates": [{"text": "Would a blocked entry path change?"}],
       "recommended_hook": "Would a blocked entry path change?",
@@ -45,12 +47,17 @@
     ]
   },
   "edit": {
-    "source": {"privacy_review": {"checked": true, "unresolved_risks": []}},
+    "source": {
+      "script": "001_demo_script.md",
+      "srt": "001_demo_subtitle.srt",
+      "tts_generation_report": "_work/tts_generation_report.json",
+      "privacy_review": {"checked": true, "unresolved_risks": []}
+    },
     "audio_plan": {
       "sync_policy": {"raw_tts_duration_sec": 32.0, "final_voice_duration_sec": 32.0},
       "final_voice_is_master": true,
       "tts_text_matches_narration": true,
-      "tts_text_sha256": "2f3962c248a0bfea83a0196274e1b543686fed354f967aae6e43134d72ab0e05",
+      "tts_text_sha256": "33b9903a6c5e4f6385b841beac211ef677ebeeca5ac6911becab99fb52644406",
       "final_voice_sha256": "c57d7e92019708b614c90fa3685cd644f543a60153fb99ec9b67c381a245fb2a"
     },
     "beats": [

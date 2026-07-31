@@ -8,6 +8,8 @@ Phase 2 [F-001] 리뷰 → 사연극 스크립트 생성
 """
 
 import argparse
+import hashlib
+import json
 import os
 import re
 import subprocess
@@ -684,6 +686,40 @@ def get_reference_speed_target_seconds(tts_text: str) -> float:
     return max(speakable_chars / TARGET_TTS_CHARS_PER_SECOND, 1.0)
 
 
+def write_tts_generation_report(
+    *,
+    output_folder: Path,
+    artifact_stem: str,
+    tts_text: str,
+    raw_tts_duration_sec: float,
+    final_voice_path: Path,
+    final_voice_duration_sec: float,
+) -> Path:
+    """Write hash-bound provenance for an approved Gemini/Sulafat voice."""
+
+    work_dir = output_folder / "_work"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    report_path = work_dir / f"{artifact_stem}_tts_generation_report.json"
+    normalized_text = normalize_tts_text(tts_text)
+    payload = {
+        "schema_version": "review-reel-tts-generation-report-v1",
+        "provider": "google_gemini_tts",
+        "model": TTS_MODEL,
+        "voice": TTS_VOICE,
+        "tts_text_sha256": hashlib.sha256(normalized_text.encode("utf-8")).hexdigest(),
+        "voice_relative_path": final_voice_path.resolve().relative_to(output_folder.resolve()).as_posix(),
+        "voice_bytes": final_voice_path.stat().st_size,
+        "voice_sha256": hashlib.sha256(final_voice_path.read_bytes()).hexdigest(),
+        "raw_tts_duration_sec": round(float(raw_tts_duration_sec), 3),
+        "final_voice_duration_sec": round(float(final_voice_duration_sec), 3),
+    }
+    report_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return report_path
+
+
 def generate_voice(script_text: str, output_folder: Path, artifact_stem: str | None = None) -> Path:
     """script.md 내레이션을 Gemini TTS로 읽어 짧은제목_voice.mp3를 생성한다."""
     load_dotenv(BASE_DIR / ".env")
@@ -720,6 +756,7 @@ def generate_voice(script_text: str, output_folder: Path, artifact_stem: str | N
     mp3_path = output_folder / f"{artifact_stem}_voice.mp3"
     write_wave_file(wav_path, data)
     convert_wav_to_mp3(wav_path, raw_mp3_path)
+    raw_duration = get_audio_duration_seconds(raw_mp3_path)
     target_seconds = get_reference_speed_target_seconds(tts_text)
     safe_print(
         "[OK] TTS 속도 기준 적용: "
@@ -727,6 +764,15 @@ def generate_voice(script_text: str, output_folder: Path, artifact_stem: str | N
         f"(레퍼런스 {REFERENCE_NARRATION_CHARS_NO_SPACE}자/{REFERENCE_VOICE_SECONDS:.2f}초)"
     )
     speed_adjust_mp3(raw_mp3_path, mp3_path, target_seconds=target_seconds)
+    final_duration = get_audio_duration_seconds(mp3_path)
+    write_tts_generation_report(
+        output_folder=output_folder,
+        artifact_stem=artifact_stem,
+        tts_text=tts_text,
+        raw_tts_duration_sec=raw_duration,
+        final_voice_path=mp3_path,
+        final_voice_duration_sec=final_duration,
+    )
     wav_path.unlink(missing_ok=True)
     raw_mp3_path.unlink(missing_ok=True)
     return mp3_path

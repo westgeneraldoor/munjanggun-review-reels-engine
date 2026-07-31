@@ -1,4 +1,6 @@
 import unittest
+import hashlib
+import json
 import re
 import sys
 import tempfile
@@ -35,6 +37,7 @@ from generate import (
     save_srt,
     split_atempo_filters,
     validate_script,
+    write_tts_generation_report,
 )
 
 
@@ -394,6 +397,36 @@ class ValidateScriptTest(unittest.TestCase):
         command = run.call_args.args[0]
         filter_arg = command[command.index("-filter:a") + 1]
         self.assertEqual(filter_arg, "atempo=0.846")
+
+    def test_tts_generation_report_binds_gemini_voice_text_duration_and_file_hashes(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            output = Path(tempdir)
+            voice = output / "fixture_voice.mp3"
+            voice.write_bytes(b"approved-gemini-voice")
+
+            report_path = write_tts_generation_report(
+                output_folder=output,
+                artifact_stem="fixture",
+                tts_text="  같은   대본을  읽습니다. ",
+                raw_tts_duration_sec=31.2344,
+                final_voice_path=voice,
+                final_voice_duration_sec=27.8916,
+            )
+            payload = json.loads(report_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["provider"], "google_gemini_tts")
+        self.assertEqual(payload["voice"], "Sulafat")
+        self.assertEqual(payload["voice_relative_path"], "fixture_voice.mp3")
+        self.assertEqual(payload["raw_tts_duration_sec"], 31.234)
+        self.assertEqual(payload["final_voice_duration_sec"], 27.892)
+        self.assertEqual(
+            payload["tts_text_sha256"],
+            hashlib.sha256("같은 대본을 읽습니다.".encode("utf-8")).hexdigest(),
+        )
+        self.assertEqual(
+            payload["voice_sha256"],
+            hashlib.sha256(b"approved-gemini-voice").hexdigest(),
+        )
 
 
 if __name__ == "__main__":

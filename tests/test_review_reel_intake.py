@@ -1,4 +1,5 @@
 import json
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -12,6 +13,7 @@ from video_engine_v2.review_reel_intake import (
     build_one_shot_html_commands,
     create_canonical_package,
     create_canonical_package_from_material_bank,
+    record_photo_review,
     resolve_active_package,
     route_user_command,
     run_one_shot_html,
@@ -361,6 +363,119 @@ class ReviewReelIntakeTests(unittest.TestCase):
 
         with self.assertRaisesRegex(IntakeViolation, "ACTIVE_PACKAGE_METADATA_MISSING"):
             resolve_active_package(self.output_root)
+
+    def _write_photo_review_evidence(self, package):
+        first = package.image_dir / "after.jpg"
+        second = package.image_dir / "detail.jpg"
+        first.write_bytes(b"after")
+        second.write_bytes(b"detail")
+        selected_relative = first.relative_to(package.package_dir).as_posix()
+        selection = package.package_dir / "_work" / "photo_selection_private.json"
+        selection.parent.mkdir()
+        selection.write_text(
+            json.dumps(
+                {
+                    "schema_version": "review-reel-photo-selection-v1",
+                    "content_id": "004",
+                    "checked_at": "2030-01-02T03:04:05Z",
+                    "unresolved_items": [],
+                    "decisions": [
+                        {
+                            "relative_path": selected_relative,
+                            "decision": "use",
+                            "reason": "Clear finished installation view.",
+                            "privacy_status": "clear",
+                        },
+                        {
+                            "relative_path": second.relative_to(package.package_dir).as_posix(),
+                            "decision": "hold",
+                            "reason": "Redundant detail view.",
+                            "privacy_status": "clear",
+                        },
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        privacy = package.package_dir / "privacy_asset_manifest.json"
+        privacy_report = package.package_dir / "_work" / "privacy_sanitization_report.json"
+        privacy_report.write_text(
+            json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "checked": True,
+                    "checked_at": "2030-01-02T03:04:05Z",
+                    "unresolved_risks": [],
+                    "inspection_categories": ["face", "vehicle_plate", "address", "family_photo"],
+                    "checked_assets": [
+                        {
+                            "relative_path": selected_relative,
+                            "bytes": first.stat().st_size,
+                            "sha256": hashlib.sha256(first.read_bytes()).hexdigest(),
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        privacy.write_text(
+            json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "checked": True,
+                    "checked_at": "2030-01-02T03:04:05Z",
+                    "unresolved_risks": [],
+                    "selected_assets": [
+                        {
+                            "relative_path": selected_relative,
+                            "bytes": first.stat().st_size,
+                            "sha256": hashlib.sha256(first.read_bytes()).hexdigest(),
+                        }
+                    ],
+                    "sanitization_report": "_work/privacy_sanitization_report.json",
+                }
+            ),
+            encoding="utf-8",
+        )
+        return selection, privacy
+
+    def test_photo_review_is_the_only_evidence_bound_transition_to_photo_reviewed(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+
+        reviewed = record_photo_review(
+            output_root=self.output_root,
+            selection_path=selection,
+            privacy_manifest_path=privacy,
+            now=self.now,
+        )
+
+        self.assertEqual(reviewed.metadata["lifecycle_state"], "photo_reviewed")
+        self.assertTrue(reviewed.metadata["approvals"]["photo_checked"])
+        self.assertFalse(reviewed.metadata["approvals"]["html_scope_authorized"])
+        self.assertFalse(reviewed.metadata["approvals"]["mp4_scope_authorized"])
+        self.assertEqual(reviewed.metadata["photo_review"]["source_media_count"], 2)
+        self.assertEqual(reviewed.metadata["photo_review"]["selected_asset_count"], 1)
+        self.assertIn("photo_checked: true", (package.package_dir / "STATUS.md").read_text(encoding="utf-8"))
+        resolved = resolve_active_package(self.output_root)
+        self.assertEqual(resolved.metadata["lifecycle_state"], "photo_reviewed")
+
+    def test_photo_review_rejects_an_incomplete_photo_decision_record(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+        payload = json.loads(selection.read_text(encoding="utf-8"))
+        payload["decisions"].pop()
+        selection.write_text(json.dumps(payload), encoding="utf-8")
+
+        with self.assertRaisesRegex(IntakeViolation, "PHOTO_SELECTION_INCOMPLETE"):
+            record_photo_review(
+                output_root=self.output_root,
+                selection_path=selection,
+                privacy_manifest_path=privacy,
+                now=self.now,
+            )
+
+        self.assertEqual(resolve_active_package(self.output_root).metadata["lifecycle_state"], "photo_intake_pending")
 
     def test_one_shot_html_commands_resolve_the_active_package_and_never_include_render(self):
         result = self.create()

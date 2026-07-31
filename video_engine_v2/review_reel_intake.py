@@ -37,6 +37,19 @@ _CONTENT_PREFIX = re.compile(r"^(\d{3})_")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _WINDOWS_UNSAFE_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _CANDIDATE_PREFIX = "CAND-"
+_PHOTO_MEDIA_EXTENSIONS = {
+    ".avif",
+    ".bmp",
+    ".gif",
+    ".heic",
+    ".heif",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".tif",
+    ".tiff",
+    ".webp",
+}
 
 
 class IntakeViolation(ValueError):
@@ -730,6 +743,253 @@ def resolve_active_package(output_root: str | Path) -> CanonicalPackage:
     if _CANDIDATE_PREFIX in package_dir.name.upper():
         raise IntakeViolation("CANDIDATE_NAME_EXPOSURE_FORBIDDEN")
     return CanonicalPackage(package_dir, image_dir, metadata, reused_existing=True)
+
+
+def _file_evidence(path: Path, *, relative_to: Path) -> dict[str, Any]:
+    return {
+        "relative_path": path.resolve().relative_to(relative_to.resolve()).as_posix(),
+        "bytes": path.stat().st_size,
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+
+
+def _photo_media_paths(package: CanonicalPackage) -> list[Path]:
+    return sorted(
+        (
+            path.resolve()
+            for path in package.image_dir.rglob("*")
+            if path.is_file() and path.suffix.casefold() in _PHOTO_MEDIA_EXTENSIONS
+        ),
+        key=lambda path: path.relative_to(package.package_dir).as_posix().casefold(),
+    )
+
+
+def record_photo_review(
+    *,
+    output_root: str | Path,
+    selection_path: str | Path,
+    privacy_manifest_path: str | Path,
+    now: datetime | None = None,
+) -> CanonicalPackage:
+    """Bind a complete photo decision record to the active canonical package.
+
+    This is the only supported transition from photo_intake_pending to
+    photo_reviewed. It creates no script, voice, HTML, or MP4.
+    """
+
+    root = Path(output_root).resolve()
+    package = resolve_active_package(root)
+    package_dir = package.package_dir.resolve()
+    if package.metadata.get("lifecycle_state") not in {"photo_intake_pending", "photo_reviewed"}:
+        raise IntakeViolation("PHOTO_REVIEW_STATE_INVALID")
+
+    selection_file = _inside(
+        package_dir,
+        Path(selection_path).resolve(),
+        code="PHOTO_SELECTION_OUTSIDE_PACKAGE",
+    )
+    privacy_file = _inside(
+        package_dir,
+        Path(privacy_manifest_path).resolve(),
+        code="PRIVACY_MANIFEST_OUTSIDE_PACKAGE",
+    )
+    selection = _read_json(
+        selection_file,
+        missing="PHOTO_SELECTION_MISSING",
+        invalid="PHOTO_SELECTION_INVALID",
+    )
+    privacy = _read_json(
+        privacy_file,
+        missing="PRIVACY_MANIFEST_MISSING",
+        invalid="PRIVACY_MANIFEST_INVALID",
+    )
+
+    if selection.get("schema_version") != "review-reel-photo-selection-v1":
+        raise IntakeViolation("PHOTO_SELECTION_SCHEMA_INVALID")
+    if selection.get("content_id") != package.metadata.get("content_id"):
+        raise IntakeViolation("PHOTO_SELECTION_IDENTITY_MISMATCH")
+    if selection.get("unresolved_items") != []:
+        raise IntakeViolation("PHOTO_SELECTION_UNRESOLVED")
+    decisions = selection.get("decisions")
+    if not isinstance(decisions, list) or not decisions:
+        raise IntakeViolation("PHOTO_SELECTION_DECISIONS_MISSING")
+
+    expected_media = {
+        path.relative_to(package_dir).as_posix(): path for path in _photo_media_paths(package)
+    }
+    if not expected_media:
+        raise IntakeViolation("PHOTO_MEDIA_MISSING")
+    decision_paths: set[str] = set()
+    selected_paths: set[str] = set()
+    for decision in decisions:
+        if not isinstance(decision, dict):
+            raise IntakeViolation("PHOTO_SELECTION_DECISION_INVALID")
+        relative_path = decision.get("relative_path")
+        action = decision.get("decision")
+        reason = decision.get("reason")
+        privacy_status = decision.get("privacy_status")
+        if (
+            not isinstance(relative_path, str)
+            or relative_path not in expected_media
+            or relative_path in decision_paths
+            or action not in {"use", "hold", "exclude"}
+            or not isinstance(reason, str)
+            or not reason.strip()
+            or privacy_status not in {"clear", "sanitized", "blocked"}
+        ):
+            raise IntakeViolation("PHOTO_SELECTION_DECISION_INVALID")
+        decision_paths.add(relative_path)
+        if action == "use":
+            if privacy_status == "blocked":
+                raise IntakeViolation("PHOTO_SELECTION_DECISION_INVALID")
+            selected_relative = decision.get("selected_relative_path", relative_path)
+            if (
+                not isinstance(selected_relative, str)
+                or not selected_relative.strip()
+                or Path(selected_relative).is_absolute()
+            ):
+                raise IntakeViolation("PHOTO_SELECTION_DECISION_INVALID")
+            selected_file = _inside(
+                package_dir,
+                package_dir / selected_relative,
+                code="PHOTO_SELECTION_SELECTED_ASSET_OUTSIDE_PACKAGE",
+            )
+            if not selected_file.is_file():
+                raise IntakeViolation("PHOTO_SELECTION_SELECTED_ASSET_MISSING")
+            selected_paths.add(selected_file.relative_to(package_dir).as_posix())
+    if decision_paths != set(expected_media):
+        raise IntakeViolation("PHOTO_SELECTION_INCOMPLETE")
+    if not selected_paths:
+        raise IntakeViolation("PHOTO_SELECTION_HAS_NO_USED_ASSETS")
+
+    if (
+        not isinstance(privacy.get("schema_version"), str)
+        or not privacy["schema_version"].strip()
+        or privacy.get("checked") is not True
+        or not isinstance(privacy.get("checked_at"), str)
+        or not privacy["checked_at"].strip()
+        or privacy.get("unresolved_risks") != []
+    ):
+        raise IntakeViolation("PRIVACY_MANIFEST_INVALID")
+    manifest_assets = privacy.get("selected_assets")
+    if not isinstance(manifest_assets, list) or not manifest_assets:
+        raise IntakeViolation("PRIVACY_MANIFEST_INVALID")
+    manifest_paths: set[str] = set()
+    manifest_evidence: dict[str, tuple[int, str]] = {}
+    for evidence in manifest_assets:
+        if not isinstance(evidence, dict):
+            raise IntakeViolation("PRIVACY_MANIFEST_INVALID")
+        relative_path = evidence.get("relative_path")
+        if (
+            not isinstance(relative_path, str)
+            or not relative_path.strip()
+            or Path(relative_path).is_absolute()
+            or relative_path in manifest_paths
+        ):
+            raise IntakeViolation("PRIVACY_MANIFEST_INVALID")
+        asset = _inside(
+            package_dir,
+            package_dir / relative_path,
+            code="PRIVACY_ASSET_OUTSIDE_PACKAGE",
+        )
+        if not asset.is_file():
+            raise IntakeViolation("PRIVACY_ASSET_MISSING")
+        actual = _file_evidence(asset, relative_to=package_dir)
+        if (
+            evidence.get("bytes") != actual["bytes"]
+            or evidence.get("sha256") != actual["sha256"]
+        ):
+            raise IntakeViolation("PRIVACY_ASSET_HASH_MISMATCH")
+        manifest_paths.add(actual["relative_path"])
+        manifest_evidence[actual["relative_path"]] = (actual["bytes"], actual["sha256"])
+    if manifest_paths != selected_paths:
+        raise IntakeViolation("PHOTO_SELECTION_PRIVACY_ASSET_MISMATCH")
+    report_value = privacy.get("sanitization_report")
+    if (
+        not isinstance(report_value, str)
+        or not report_value.strip()
+        or Path(report_value).is_absolute()
+    ):
+        raise IntakeViolation("PRIVACY_REPORT_INVALID")
+    report_file = _inside(
+        package_dir,
+        package_dir / report_value,
+        code="PRIVACY_REPORT_OUTSIDE_PACKAGE",
+    )
+    report = _read_json(
+        report_file,
+        missing="PRIVACY_REPORT_MISSING",
+        invalid="PRIVACY_REPORT_INVALID",
+    )
+    checked_assets = report.get("checked_assets")
+    categories = report.get("inspection_categories")
+    if (
+        report.get("checked") is not True
+        or not isinstance(report.get("checked_at"), str)
+        or not report["checked_at"].strip()
+        or report.get("unresolved_risks") != []
+        or not isinstance(categories, list)
+        or not {"face", "vehicle_plate", "address", "family_photo"}.issubset(set(categories))
+        or not isinstance(checked_assets, list)
+    ):
+        raise IntakeViolation("PRIVACY_REPORT_INVALID")
+    report_evidence: dict[str, tuple[int, str]] = {}
+    for evidence in checked_assets:
+        if not isinstance(evidence, dict):
+            raise IntakeViolation("PRIVACY_REPORT_INVALID")
+        relative_path = evidence.get("relative_path")
+        byte_count = evidence.get("bytes")
+        digest = evidence.get("sha256")
+        if (
+            not isinstance(relative_path, str)
+            or not isinstance(byte_count, int)
+            or not isinstance(digest, str)
+            or not _SHA256.fullmatch(digest)
+            or relative_path in report_evidence
+        ):
+            raise IntakeViolation("PRIVACY_REPORT_INVALID")
+        report_evidence[relative_path] = (byte_count, digest)
+    if report_evidence != manifest_evidence:
+        raise IntakeViolation("PRIVACY_REPORT_ASSET_MISMATCH")
+
+    clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    metadata = dict(package.metadata)
+    approvals = dict(metadata.get("approvals") or {})
+    approvals.update(
+        {
+            "photo_checked": True,
+            "pd_plan_approved": False,
+            "html_scope_authorized": False,
+            "mp4_scope_authorized": False,
+        }
+    )
+    metadata["approvals"] = approvals
+    metadata["lifecycle_state"] = "photo_reviewed"
+    metadata["photo_review"] = {
+        "checked_at": clock.isoformat(),
+        "selection": _file_evidence(selection_file, relative_to=package_dir),
+        "privacy_manifest": _file_evidence(privacy_file, relative_to=package_dir),
+        "source_media_count": len(expected_media),
+        "selected_asset_count": len(selected_paths),
+    }
+    _atomic_write_json(package_dir / METADATA_FILENAME, metadata)
+    _atomic_write_text(
+        package_dir / "STATUS.md",
+        "- photo_checked: true\n"
+        "- pd_plan_approved: false\n"
+        "- html_approved_by_user: false\n"
+        "- mp4_allowed: false\n",
+    )
+    _atomic_write_text(
+        package_dir / "APPROVAL_LOG.md",
+        "- approved: photo review recorded by official intake gate\n"
+        "- not_approved: PD planning pending\n"
+        "- not_approved: HTML user review pending\n"
+        "- not_approved: MP4 render pending\n",
+    )
+    reviewed = CanonicalPackage(package_dir, package.image_dir, metadata, reused_existing=True)
+    _set_active_package(root, reviewed, updated_at=clock.isoformat())
+    return reviewed
 
 
 def _assert_one_shot_contract(planning_path: Path) -> None:
