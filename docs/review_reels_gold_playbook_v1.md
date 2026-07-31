@@ -44,6 +44,7 @@
 
 - 표준 산출물은 `*_script.md`, `*.srt`, `*_voice.mp3`다.
 - 공식 음성은 Gemini TTS `Sulafat`이다. Windows SAPI나 임시 로컬 음성은 production 금지다.
+- one-shot HTML의 SRT/TTS는 반드시 `scripts/generate_one_shot_tts.py`로 생성한다.
 - 권장 속도는 공백 제외 6.5~7.5자/초, 허용 범위는 5.0~8.5자/초다.
 - `generate.py`가 TTS 생성 보고서를 자동으로 남긴다. 모델, voice, 대본 hash,
   원본/최종 길이, 최종 voice hash가 edit recipe와 일치해야 한다.
