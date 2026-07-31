@@ -84,8 +84,34 @@ def main(argv: list[str] | None = None) -> int:
             command = [sys.executable, str(ROOT / "build_html_preview_v2.py"), "--recipe", args.edit, "--gate-receipt", str(receipt_path)]
             if args.engine_font:
                 command.extend(["--engine-font", args.engine_font])
-            result = subprocess.run(command, cwd=ROOT)
-            return result.returncode
+            result = subprocess.run(
+                command,
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            if result.stdout:
+                print(result.stdout, end="")
+            if result.stderr:
+                print(result.stderr, end="", file=sys.stderr)
+            if result.returncode != 0:
+                return result.returncode
+            output_lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+            if not output_lines:
+                print("GATE_BLOCKED: HTML_OUTPUT_PATH_MISSING", file=sys.stderr)
+                return 2
+            html_path = Path(output_lines[-1]).resolve()
+            qa_command = [
+                "node",
+                str(ROOT / "scripts" / "html-preview-qa.mjs"),
+                "--html",
+                str(html_path),
+                "--edit",
+                str(Path(args.edit).resolve()),
+            ]
+            return subprocess.run(qa_command, cwd=ROOT).returncode
         receipt = validate_render_gate(
             package_dir=args.package,
             html_path=args.html,

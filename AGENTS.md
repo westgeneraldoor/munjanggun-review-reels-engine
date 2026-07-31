@@ -37,6 +37,9 @@ GitHub는 엔진 코드, 문서, 테스트만 관리합니다. 실제 고객 자
   `--one-shot-html`을 붙인다. 내부 builder나 renderer를 직접 실행하지 않는다.
 - planning recipe의 `workflow_contract.name`은 `review-reels-one-shot-v2`,
   `html_scope_authorized: true`, `mp4_scope_authorized: false`여야 한다.
+- `scripts/review_reel_intake.py photo-review`가 모든 사진의 use/hold/exclude 판단과
+  privacy evidence를 결속해 canonical metadata를 `photo_reviewed`로 전환해야 한다.
+  `STATUS.md` 수동 수정은 승인 증거가 아니다.
 - 사진 검수, privacy manifest, 리뷰 원문 근거, 실제 리뷰 캡처, TTS/sync 및
   one-shot 구조 QA를 모두 통과해야 한다. 하나라도 실패하면 HTML을 만들지 않는다.
 - 이 범위는 `generate.py`의 script/SRT/TTS 승인 게이트를 완화하지 않으며, MP4 권한도
@@ -104,17 +107,23 @@ production gate를 바꾸지 않습니다. 상세 기준은 `docs/reels_format_s
 2. 사진/영상 소스 확인
 3. 개인정보 위험 검수
 4. 사진 역할 매핑
-5. 리뷰 각색 작가 브리프 작성
+5. 리뷰 각색 작가 브리프와 `story_mode` 작성
 6. PD 기획안 작성
 7. 사용자 기획 승인
 8. script/SRT/TTS 생성
 9. planning_recipe/edit_recipe 생성
 10. `reels_qa` 통과
 11. HTML 프리뷰 생성
-12. 사용자 HTML 검수
-13. 사용자 MP4 렌더 승인
-14. 최종 MP4 렌더
-15. ffprobe/대표 프레임/개인정보/싱크 QA
+12. Playwright 대표 프레임 자동 QA와 작업자 직접 시각 검수
+13. 사용자 HTML 검수
+14. 사용자 MP4 렌더 승인
+15. 최종 MP4 렌더
+16. ffprobe/대표 프레임/개인정보/싱크 QA
+
+one-shot의 창작·편집 기준은 `docs/review_reels_gold_playbook_v1.md`를 따른다.
+`context`, `choice_turn`, 실측, 공정 설명은 고정 장면이 아니며 리뷰와 사진에 실제
+근거가 있을 때만 넣는다. 공식 음성은 Gemini TTS `Sulafat`이며 Windows SAPI 등
+임시 음성은 production HTML에 연결하지 않는다.
 
 `generate.py`를 사용하는 경우 `--approval-package`가 필수입니다. 승인 패키지의
 `.source`는 현재 리뷰와 일치해야 하고, `STATUS.md`의 `photo_checked`와
@@ -174,6 +183,13 @@ artifact evidence SHA-256을 모두 가져야 합니다. 따라서 approval은 H
 아니라 artifact evidence에 기록된 image/voice/font dependency hash 전체에 결속됩니다.
 legacy의
 `html_approved_by_user: true`만으로는 render를 승인하지 않습니다.
+
+공식 HTML 생성 직후 `scripts/html-preview-qa.mjs`가 모든 beat 대표 프레임과
+`html_internal_qa_report.json`을 생성해야 합니다. 자동 검사가 통과해도
+`manual_review.status: pending`입니다. 작업자는 `_qa_frames/`를 직접 확인한 뒤에만
+사용자에게 `HTML 검수 준비 완료`라고 보고할 수 있습니다. 브라우저 접근이 안 되거나
+대표 프레임을 보지 못했다면 `HTML 생성, 내부 시각 QA 대기`라고 보고하며 완료라고
+말하지 않습니다.
 
 HTML/render gate receipt는 일회용입니다. 내부 builder/renderer는 artifact 생성 직전
 receipt 파일 SHA-256에 결속된 consumed marker를

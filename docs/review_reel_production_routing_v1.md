@@ -133,8 +133,19 @@ python scripts/review_reel_intake.py create --output-root "output" --inventory "
 
 ## 사진 후 one-shot HTML 연결
 
-사진 검수와 privacy/원문/실제 리뷰 캡처/TTS·sync/one-shot 구조 QA의 준비가 된 뒤에만
-다음을 사용한다. 이 명령은 active package를 내부적으로 해석하고
+사진을 넣은 뒤에는 먼저 모든 사진의 use/hold/exclude 결정과 privacy manifest를
+공식 intake에 기록한다. `STATUS.md`를 직접 수정해서는 안 된다.
+
+```powershell
+python scripts/review_reel_intake.py photo-review --output-root "output" --selection "<package>/_work/photo_selection_private.json" --privacy-manifest "<package>/privacy_asset_manifest.json"
+```
+
+이 명령만 canonical metadata를 `photo_reviewed`로 전환하고 active pointer의 metadata
+hash를 갱신한다. 사진 하나라도 결정이 없거나, 실제 선택 asset과 privacy manifest의
+경로/bytes/SHA-256이 다르면 실패한다.
+
+그 뒤 원문/실제 리뷰 캡처/TTS·sync/one-shot 구조 QA의 준비가 된 경우에만 다음을
+사용한다. 이 명령은 active package를 내부적으로 해석하고
 `scripts/produce_review_v2.py`의 `preflight`와 `html` 두 단계에 모두
 `--one-shot-html`을 붙인다.
 

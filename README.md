@@ -130,6 +130,13 @@ The strict contract requires photo/privacy evidence, an actual review capture,
 the event-to-CTA narrative sequence, direct visual relevance, readable
 captions, voice-master timing, and source-grounded claims. See
 `docs/review_reels_one_shot_contract_v2.md` for the complete boundary.
+Creative decisions and the approved 004/005 pacing baseline are defined in
+`docs/review_reels_gold_playbook_v1.md`.
+
+Photo intake is not approved by editing `STATUS.md`. Run the official
+`scripts/review_reel_intake.py photo-review` transition with a complete
+use/hold/exclude decision file and hash-bound privacy manifest. Only then may a
+canonical package enter `photo_reviewed`.
 
 The privacy manifest is a binding evidence record: it must include a non-empty
 `checked_at`, a local sanitization report, no unresolved risks, and the exact
@@ -152,6 +159,10 @@ stale. Explicit user approval must be recorded separately in `HTML_APPROVAL.json
 with package identity, relative path, HTML SHA-256, approval timestamp, and an
 approval evidence reference; its artifact-evidence hash binds the full dependency
 list. A legacy boolean-only approval is not render authorization.
+It also runs `scripts/html-preview-qa.mjs`, captures every beat under
+`_qa_frames/`, and writes `html_internal_qa_report.json`. Automatic success
+still means `manual_review_required`; a task that did not inspect those frames
+must not report the preview as complete.
 
 Official HTML and render gate receipts are single-use. The builder/renderer
 atomically records a hash-bound marker under `_work/production_gates/consumed/`

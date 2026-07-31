@@ -16,6 +16,7 @@ from video_engine_v2.review_reel_intake import (  # noqa: E402
     IntakeViolation,
     create_canonical_package,
     create_canonical_package_from_material_bank,
+    record_photo_review,
     route_user_command,
     run_one_shot_html,
 )
@@ -46,6 +47,13 @@ def build_parser() -> argparse.ArgumentParser:
     material.add_argument("--material-bank", required=True, help="private candidate JSONL")
     material.add_argument("--candidate-id", required=True)
     material.add_argument("--content-slug", required=True)
+    photo_review = commands.add_parser(
+        "photo-review",
+        help="Bind complete photo decisions and privacy evidence to the active package",
+    )
+    photo_review.add_argument("--output-root", required=True)
+    photo_review.add_argument("--selection", required=True)
+    photo_review.add_argument("--privacy-manifest", required=True)
     one_shot = commands.add_parser("one-shot-html", help="Resolve the active package and run official one-shot HTML")
     one_shot.add_argument("--output-root", required=True)
     one_shot.add_argument("--planning", required=True)
@@ -84,6 +92,26 @@ def main(argv: list[str] | None = None) -> int:
                         "package": str(package.package_dir),
                         "image_directory": str(package.image_dir),
                         "reused_existing": package.reused_existing,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return 0
+        if args.command == "photo-review":
+            package = record_photo_review(
+                output_root=args.output_root,
+                selection_path=args.selection,
+                privacy_manifest_path=args.privacy_manifest,
+            )
+            print(
+                json.dumps(
+                    {
+                        "workflow": "review_reel_production",
+                        "state": package.metadata["lifecycle_state"],
+                        "package": str(package.package_dir),
+                        "photo_checked": package.metadata["approvals"]["photo_checked"],
+                        "html_scope_authorized": False,
+                        "mp4_scope_authorized": False,
                     },
                     ensure_ascii=False,
                 )

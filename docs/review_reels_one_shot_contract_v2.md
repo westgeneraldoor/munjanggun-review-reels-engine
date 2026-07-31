@@ -29,12 +29,16 @@ planning recipe는 다음 필드를 모두 가져야 한다.
 
 ## 필수 품질·개인정보 검증
 
-- package의 `photo_checked: true`, hash-bound privacy manifest 및 sanitization report
+- canonical metadata의 `lifecycle_state: photo_reviewed`, `photo_checked: true`,
+  모든 사진의 use/hold/exclude 결정, hash-bound privacy manifest 및 sanitization report
 - 원문 review quote, 공개되지 않은 위험 소재/감정/강한 claim 차단
-- 실제 고객 사진 첫 프레임, 실제 리뷰 캡처 증명, 이벤트부터 CTA까지의 8개 서사 역할
+- `writer_brief.story_mode`, 실제 고객 사진 첫 프레임, 실제 리뷰 캡처 증명,
+  사건부터 CTA까지의 핵심 서사 역할
 - planning/edit의 역할 연결, 직접 관련된 사진, 반복 filler 차단
 - 1~2줄·32px 이상·안전영역·피사체 비가림 자막 근거
-- 최종 TTS를 유일한 시간축으로 하는 raw/final duration, TTS hash, 화면 선행 차단
+- Gemini TTS `Sulafat` 생성 보고서, 5.0~8.5자/초, 최종 TTS를 유일한
+  시간축으로 하는 raw/final duration, TTS hash, 화면 선행 차단
+- 실제 리뷰 캡처 1회, 한 장면 최대 6초, opening beat 최대 4초
 
 자동 QA가 통과해도 미묘한 개인정보 맥락, 피사체 가림, TTS 발음과 자연스러움은 수동
 검토 대상이다.
@@ -56,11 +60,20 @@ sync manifest는 one-shot scope와 recipe/privacy/voice hashes를 함께 기록�
 
 one-shot recipe의 `audio_plan.tts_text_sha256`와 `audio_plan.final_voice_sha256`는 모두 정확히 64자의 소문자 hexadecimal SHA-256 값이어야 한다. 빈 값, 대문자, 길이가 다른 값은 실패한다.
 
-`tts_text_sha256`의 유일한 계산 기준은 edit recipe의 `beats` 순서이다. 각 beat의 `narration_ref`를 Unicode NFC로 정규화하고, 모든 공백 묶음을 ASCII 공백 하나로 바꾼 뒤 앞뒤 공백을 제거한다. 이 정규화된 beat들을 LF (`\n`) 하나로 순서대로 결합한 UTF-8 바이트열의 SHA-256이 `tts_text_sha256`이다. 임의의 script 파일, caption, planning text는 이 계산에 포함하지 않는다.
+`tts_text_sha256`의 유일한 계산 기준은 edit recipe의 `beats` 순서이다. 각 beat의
+`narration_ref`를 Unicode NFC로 정규화하고, 모든 공백 묶음을 ASCII 공백 하나로
+바꾼 뒤 앞뒤 공백을 제거한다. 이 정규화된 beat들을 ASCII 공백 하나로 순서대로
+결합한 UTF-8 바이트열의 SHA-256이 `tts_text_sha256`이다. 표준 `*_script.md`에서
+Gemini TTS에 전달한 실제 발화문도 동일한 정규화 결과여야 한다.
 
 `final_voice_sha256`은 `source.voice`가 가리키는 package 내부 최종 voice 파일의 현재 바이트 SHA-256이다. 공식 `scripts/produce_review_v2.py preflight --one-shot-html`는 두 선언값의 형식과 현재 값 일치를 모두 검사하며, stale text hash 또는 stale voice hash이면 sync manifest를 만들지 않고 실패한다.
 
 각 one-shot beat의 visual 시작은 `time[0]`, narration 시작은 `narration_start_sec`이다. visual은 narration보다 0.05초를 초과해 먼저 시작할 수 없으며, 이 허용오차를 넘는 visual pre-roll은 hard fail이다. caption은 기존과 같이 narration보다 먼저 시작하면 즉시 hard fail이다.
+
+HTML 생성 직후 공식 오케스트레이터는 `scripts/html-preview-qa.mjs`를 실행해 모든
+beat의 대표 프레임을 `_qa_frames/`에 저장하고 `html_internal_qa_report.json`을
+만든다. 자동 검사가 성공해도 수동 상태는 `pending`이다. 작업자가 대표 프레임을
+직접 확인하지 못하면 HTML을 완료로 보고할 수 없다.
 
 ## MP4의 별도 권한
 

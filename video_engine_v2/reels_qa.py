@@ -13,8 +13,18 @@ from typing import Any
 
 HARD_CPS_LIMIT = 9.0
 SOFT_CPS_LIMIT = 8.5
+MIN_ONE_SHOT_CPS = 5.0
+MAX_REVIEW_PROOF_DWELL_SEC = 6.0
 ONE_SHOT_CONTRACT_NAME = "review-reels-one-shot-v2"
 REQUIRED_NARRATIVE_ROLES = (
+    "event",
+    "problem",
+    "resolution",
+    "felt_result",
+    "review_proof",
+    "cta",
+)
+NARRATIVE_ROLE_ORDER = (
     "event",
     "problem",
     "context",
@@ -24,6 +34,15 @@ REQUIRED_NARRATIVE_ROLES = (
     "review_proof",
     "cta",
 )
+SUPPORTED_STORY_MODES = {
+    "problem_solution",
+    "difficult_site",
+    "time_lapse_review",
+    "human_service",
+    "seasonal_comfort",
+    "living_convenience",
+}
+MAX_OPENING_BEAT_SEC = 4.0
 MIN_CAPTION_FONT_PX = 32
 SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 CORRUPT_MARKERS = ("??", "\ufffd")
@@ -578,6 +597,9 @@ def validate_hook_formula(text: str) -> dict[str, Any]:
 def _review_capture_count(beats: list[dict[str, Any]]) -> int:
     count = 0
     for beat in beats:
+        if _is_actual_review_capture(beat):
+            count += 1
+            continue
         for key in ("asset", "background_asset"):
             if _as_text(beat.get(key)) == "review_capture":
                 count += 1
@@ -612,7 +634,13 @@ def _first_present(primary: dict[str, Any], secondary: dict[str, Any], *keys: st
     return None
 
 
-def _validate_audio_metadata(edit_recipe: dict[str, Any], *, require_raw_tts: bool = False) -> list[dict[str, Any]]:
+def _validate_audio_metadata(
+    edit_recipe: dict[str, Any],
+    *,
+    require_raw_tts: bool = False,
+    minimum_cps: float | None = None,
+    maximum_cps: float | None = None,
+) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     audio_plan = edit_recipe.get("audio_plan") or {}
     sync_policy = audio_plan.get("sync_policy") or {}
@@ -645,7 +673,21 @@ def _validate_audio_metadata(edit_recipe: dict[str, Any], *, require_raw_tts: bo
 
     total_chars = _total_narration_chars(edit_recipe.get("beats") or [])
     total_voice_cps = round(total_chars / final_value, 2)
-    if total_voice_cps >= HARD_CPS_LIMIT:
+    if minimum_cps is not None and total_voice_cps < minimum_cps:
+        issues.append(
+            _issue(
+                "TOTAL_VOICE_CPS_TOO_LOW",
+                f"최종 음성 기준 전체 CPS가 {total_voice_cps:.2f}자/초로 one-shot 허용 최저 {minimum_cps:.1f} 미만입니다.",
+            )
+        )
+    elif maximum_cps is not None and total_voice_cps > maximum_cps:
+        issues.append(
+            _issue(
+                "TOTAL_VOICE_CPS_TOO_HIGH",
+                f"최종 음성 기준 전체 CPS가 {total_voice_cps:.2f}자/초로 one-shot 허용 최고 {maximum_cps:.1f}를 넘습니다.",
+            )
+        )
+    elif total_voice_cps >= HARD_CPS_LIMIT:
         issues.append(_issue("TOTAL_VOICE_CPS_TOO_HIGH", f"최종 음성 기준 전체 CPS가 {total_voice_cps:.2f}자/초로 실패 기준 {HARD_CPS_LIMIT} 이상입니다."))
     elif total_voice_cps > SOFT_CPS_LIMIT:
         issues.append(
@@ -729,7 +771,7 @@ def _is_actual_review_capture(source: dict[str, Any]) -> bool:
 
 
 def canonical_tts_input_narration(edit_recipe: dict[str, Any]) -> str:
-    """Return the single normalized UTF-8 narration input represented by edit beats."""
+    """Return whitespace-insensitive spoken text represented by edit beats."""
     beats = edit_recipe.get("beats") or []
     if not isinstance(beats, list):
         return ""
@@ -738,7 +780,7 @@ def canonical_tts_input_narration(edit_recipe: dict[str, Any]) -> str:
         narration = beat.get("narration_ref") if isinstance(beat, dict) else ""
         normalized = unicodedata.normalize("NFC", _as_text(narration))
         normalized_beats.append(re.sub(r"\s+", " ", normalized).strip())
-    return "\n".join(normalized_beats)
+    return " ".join(part for part in normalized_beats if part)
 
 
 def canonical_tts_input_sha256(edit_recipe: dict[str, Any]) -> str:
@@ -758,10 +800,19 @@ def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edi
         issues.append(_issue("MP4_SCOPE_MUST_REMAIN_UNAUTHORIZED", "The one-shot contract must not authorize MP4 rendering."))
 
     writer_brief = planning_recipe.get("writer_brief") or {}
-    required_writer_fields = ("one_line_story", "hook_candidates", "recommended_hook", "review_quote_for_proof")
+    required_writer_fields = (
+        "story_mode",
+        "one_line_story",
+        "hook_candidates",
+        "recommended_hook",
+        "review_quote_for_proof",
+    )
     missing_writer = [field for field in required_writer_fields if not writer_brief.get(field)]
     if missing_writer:
         issues.append(_issue("WRITER_BRIEF_INCOMPLETE", "writer_brief is missing: " + ", ".join(missing_writer)))
+    story_mode = _as_text(writer_brief.get("story_mode")).strip()
+    if story_mode and story_mode not in SUPPORTED_STORY_MODES:
+        issues.append(_issue("STORY_MODE_INVALID", f"Unsupported one-shot story mode: {story_mode}"))
 
     photo_qa = planning_recipe.get("photo_qa") or {}
     if photo_qa.get("checked") is not True:
@@ -780,8 +831,8 @@ def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edi
     if scene_roles and scene_roles[0] != "event":
         issues.append(_issue("STORY_MUST_START_WITH_EVENT", "The first scene must be a customer event."))
 
-    role_index = {role: scene_roles.index(role) for role in REQUIRED_NARRATIVE_ROLES if role in scene_roles}
-    ordered_roles = [role_index[role] for role in REQUIRED_NARRATIVE_ROLES if role in role_index]
+    role_index = {role: scene_roles.index(role) for role in NARRATIVE_ROLE_ORDER if role in scene_roles}
+    ordered_roles = [role_index[role] for role in NARRATIVE_ROLE_ORDER if role in role_index]
     if len(ordered_roles) > 1 and ordered_roles != sorted(ordered_roles):
         issues.append(_issue("NARRATIVE_ROLE_ORDER_INVALID", "Narrative roles must stay in the one-shot order."))
 
@@ -807,6 +858,16 @@ def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edi
         issues.append(_issue("VOICE_MASTER_SYNC_UNVERIFIED", "Final TTS must remain the master timeline."))
 
     audio_plan = edit_recipe.get("audio_plan") or {}
+    source = edit_recipe.get("source") or {}
+    script_path = _as_text(source.get("script")).strip()
+    srt_path = _as_text(source.get("srt")).strip()
+    tts_report_path = _as_text(source.get("tts_generation_report")).strip()
+    if not script_path.lower().endswith("_script.md"):
+        issues.append(_issue("SCRIPT_ARTIFACT_INVALID", "One-shot production requires the standard *_script.md artifact."))
+    if not srt_path.lower().endswith(".srt"):
+        issues.append(_issue("SRT_ARTIFACT_INVALID", "One-shot production requires an SRT artifact."))
+    if not tts_report_path:
+        issues.append(_issue("TTS_PROVENANCE_MISSING", "One-shot production requires a hash-bound Gemini TTS generation report."))
     for field in ("final_voice_is_master", "tts_text_matches_narration"):
         if audio_plan.get(field) is not True:
             issues.append(_issue("TTS_MASTER_EVIDENCE_MISSING", f"audio_plan.{field} must be true."))
@@ -826,6 +887,14 @@ def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edi
         "review_proof" in beat_roles and "cta" in beat_roles and beat_roles.index("cta") <= beat_roles.index("review_proof")
     ):
         issues.append(_issue("CTA_AFTER_REVIEW_PROOF_MISSING", "A CTA must follow review proof."))
+    if beats and isinstance(beats[0], dict) and _beat_duration(beats[0]) > MAX_OPENING_BEAT_SEC:
+        issues.append(
+            _issue(
+                "OPENING_BEAT_TOO_LONG",
+                f"The opening hook must turn within {MAX_OPENING_BEAT_SEC:.1f} seconds.",
+                scene_id=_as_text(beats[0].get("id") or "scene_01"),
+            )
+        )
 
     scene_ids = {
         _as_text(scene.get("scene_id") or scene.get("id")).strip(): _role(scene)
@@ -888,6 +957,14 @@ def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edi
         if _role(beat) == "review_proof":
             if beat.get("generated_asset") or not _is_actual_review_capture(beat) or _as_text(beat.get("asset")).strip() != "review_capture":
                 issues.append(_issue("REVIEW_PROOF_NOT_ACTUAL_CAPTURE", "Review proof must not use a generated card.", scene_id=scene_id))
+            if _beat_duration(beat) > MAX_REVIEW_PROOF_DWELL_SEC:
+                issues.append(
+                    _issue(
+                        "REVIEW_PROOF_DWELL_TOO_LONG",
+                        f"Review proof must not hold one capture longer than {MAX_REVIEW_PROOF_DWELL_SEC:.1f} seconds.",
+                        scene_id=scene_id,
+                    )
+                )
 
     for asset_id, asset_beats in assets.items():
         total_duration = sum(_beat_duration(beat) for beat in asset_beats)
@@ -942,7 +1019,17 @@ def validate_html_preflight(
             issues.append(_issue("CORRUPT_TEXT_MARKER", "caption/narration에 깨진 문자 마커가 있습니다.", scene_id=scene_id))
 
     issues.extend(_validate_generated_asset_metadata(beats))
-    issues.extend(_validate_audio_metadata(edit_recipe, require_raw_tts=True))
+    is_one_shot = require_one_shot_contract or _as_text(
+        (planning_recipe.get("workflow_contract") or {}).get("name")
+    ).strip() == ONE_SHOT_CONTRACT_NAME
+    issues.extend(
+        _validate_audio_metadata(
+            edit_recipe,
+            require_raw_tts=True,
+            minimum_cps=MIN_ONE_SHOT_CPS if is_one_shot else None,
+            maximum_cps=SOFT_CPS_LIMIT if is_one_shot else None,
+        )
+    )
     issues.extend(_validate_privacy_metadata(edit_recipe))
     issues.extend(validate_review_source_integrity(planning_recipe)["issues"])
     if require_one_shot_contract or planning_recipe.get("workflow_contract"):
