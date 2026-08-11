@@ -63,24 +63,20 @@
 - [ ] `_batch_YYYYMMDD_리뷰묶음.md`를 생성하거나 갱신한다.
 - [ ] 파싱 수, 신규 수, 중복 수, 파일 범위, 상위 후보, 미해결 이슈를 기록한다.
 
-## 6. 대시보드 갱신
+## 6. 근거 장부 갱신
 
-`PROJECT_DASHBOARD.md`는 반드시 같은 턴에 갱신한다.
+수기 전체 대시보드나 완료 목록을 만들지 않습니다.
 
-- [ ] 총 리뷰 수
-- [ ] 정식 등록 리뷰 수
-- [ ] 채점 완료 수
-- [ ] 미채점 수
-- [ ] A/B/C 등급 집계
-- [ ] A권 비율
-- [ ] 최근 배치 요약
-- [ ] 상위 후보
-- [ ] 다음 작업
+- [ ] `_batch_YYYYMMDD_리뷰묶음.md`에 총수·신규·중복·등급·상위 후보를 기록한다.
+- [ ] material-bank 원본과 local-only source registry의 identity가 일치하는지 확인한다.
+- [ ] production 연결은 `scripts/review_reel_intake.py create-from-material-bank`만 사용한다.
+- [ ] production package가 바뀌었으면 `python -m video_engine_v2.package_state`를 다시 실행한다.
+- [ ] 게시·성과 증거가 없으면 `unknown`으로 두고 추정 숫자를 기록하지 않는다.
 
-## 7. 프로젝트 상태 갱신
+## 7. 다음 작업 기록
 
-- [ ] `PROJECT_DASHBOARD.md`에 최근 리뷰 추가/채점 결과를 요약한다.
-- [ ] `PROJECT_TASKS.md`에 해당 리뷰 intake 작업을 완료 처리한다.
+- [ ] 최신 batch evidence에 미해결 이슈와 다음 후보를 남긴다.
+- [ ] package 상태는 `STATUS.md` 수기 수정이 아니라 공식 intake 전이와 package state scan으로 확인한다.
 
 ## 8. 무결성 검증
 

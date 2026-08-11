@@ -22,20 +22,11 @@ C:\Users\hjh\안티그래비티\문장군_브랜드
 | 4 | `C:\Users\hjh\안티그래비티\문장군_브랜드\PROJECT_ADAPTERS.md` | 중앙 원본과 프로젝트별 어댑터를 분리하는 운영 원칙 |
 | 5 | `C:\Users\hjh\안티그래비티\문장군_브랜드\CHANGELOG.md` | 중앙 원본 변경 이력과 최신 기준일 |
 
-## 2. 프로젝트 문서 우선순위
+## 2. 프로젝트 문서 경계
 
-중앙 문서를 읽은 뒤, 이 프로젝트에서는 아래 순서로 보조 문서를 읽는다.
-
-| 우선순위 | 프로젝트 문서 | 역할 |
-|---|---|---|
-| 1 | `docs/brand/PROJECT_BRAND_ADAPTER.md` | 리뷰 릴스 엔진이 중앙 브랜드를 어떻게 적용하는지 |
-| 2 | `AGENTS.md` | 신규 Codex 세션 운영 헌법, 승인 게이트, GitHub 금지 항목 |
-| 3 | `GEMINI.md` | 기존 리뷰 콘텐츠 엔진 운영 규칙과 캐릭터/TTS 기준 |
-| 4 | `docs/review_video_publish_workflow_v2.md` | 리뷰 릴스 제작 순서, 사진검수, 작가 브리프, HTML/MP4 승인 흐름 |
-| 5 | `docs/reels_writer_persona_v1.md` | 리뷰 각색 작가 역할과 산출물 |
-| 6 | `docs/reels_hook_formula_v1.md` | 리뷰 릴스 후킹 공식과 훅 QA |
-| 7 | `docs/reels_privacy_asset_qa_rules_v1.md` | 실제 고객 사진/리뷰캡처 개인정보 검수 |
-| 8 | `docs/render_qa_rules_v2.md` | HTML-to-MP4 렌더 품질과 업로드 스펙 |
+프로젝트의 일반 읽기 목록은 `AGENTS.md`의 `핵심 문서`가 유일합니다. 브랜드 판단이
+필요한 작업에서만 `docs/brand/PROJECT_BRAND_ADAPTER.md`를 추가로 읽습니다. 이 문서에
+별도의 운영 우선순위 표를 복제하지 않습니다.
 
 ## 3. 충돌 처리 기준
 
@@ -53,7 +44,9 @@ C:\Users\hjh\안티그래비티\문장군_브랜드
 중앙 브랜드 폴더에 접근할 수 없으면 아래 순서로 fallback한다.
 
 1. `docs/brand/PROJECT_BRAND_ADAPTER.md`의 요약 기준을 따른다.
-2. 기존 루트 `BRAND_CONTEXT.md`는 legacy 참고로만 본다.
+2. 중앙 원본에 접근할 수 없으면 `docs/brand/PROJECT_BRAND_ADAPTER.md`의 비식별 요약만
+   사용합니다. 2026-05-08 로컬 스냅샷은 `docs/archive/brand/`에 보존되어 있지만 현재
+   운영 권한이 없습니다.
 3. 중앙 원본과 충돌 가능성이 있는 숫자, 가격, 지역, 이벤트, 리뷰 수는 발행 문구에 확정적으로 쓰지 않는다.
 4. 확인이 필요한 항목은 사용자에게 확인 요청하거나 `확인 필요`로 감사 문서에 남긴다.
 

@@ -132,12 +132,13 @@ HTML 생성 전 planning recipe에는 아래가 있어야 한다.
 | 단계 | 기준 문서/명령 |
 |---|---|
 | 브랜드/현장 기준 | 중앙 `BRAND_CONTEXT.md`, `FIELD_JUDGMENT_RULES.md`, `DESIGN.md` |
-| 작가 브리프 | `docs/reels_writer_persona_v1.md` |
-| 훅 공식 | `docs/reels_hook_formula_v1.md` |
+| 콘텐츠·작가·훅 | `docs/review_reels_content_standard_v1.md` |
+| 화면·모션·오디오 | `docs/review_reels_visual_edit_standard_v1.md` |
+| recipe 계약 | `docs/review_recipe_contract_v2.md` |
 | 사진/얼굴/개인정보 | `docs/reels_privacy_asset_qa_rules_v1.md` |
 | HTML 전 preflight | `python scripts/produce_review_v2.py preflight --package ... --planning ... --edit ... --privacy-manifest ... --sync-manifest ...` |
 | 렌더 QA | `docs/render_qa_rules_v2.md` |
-| 캡션/해시태그 | `POSTING_COPY_STANDARD.md` |
+| 캡션/해시태그 | `docs/reels_posting_copy_standard_v2.md` |
 
 ## 8. 디자인 적용과 영상 예외
 

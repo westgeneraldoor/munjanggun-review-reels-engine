@@ -167,7 +167,9 @@ Codex:
 | 편집 설계자 | beat 구성, 화면/자막/음성 의미 일치 설계 | planning/edit recipe |
 | QA 감시자 | 싱크, 과장표현, 줄바꿈, 렌더 차이 검수 | QA report, sync manifest |
 
-작가는 선택 사항이 아닙니다. 신규 릴스는 `docs/reels_writer_persona_v1.md` 기준으로 writer brief를 먼저 만들고, 총괄 PD가 승인 가능한 훅과 방향인지 판단합니다.
+작가는 선택 사항이 아닙니다. 신규 릴스는
+`docs/review_reels_content_standard_v1.md` 기준으로 writer brief를 먼저 만들고,
+총괄 PD가 승인 가능한 훅과 방향인지 판단합니다.
 
 ## 사진 폴더 규칙
 
@@ -235,10 +237,11 @@ python -m video_engine_v2.privacy_face_blur `
 4. 얼굴 자동 블러 proposal/contact sheet 생성
 5. 사용자 또는 사진 큐레이터 승인
 6. 승인된 sanitized asset 생성 후 edit_recipe.source.image_dir 교체
-7. privacy_review 또는 privacy_sanitization_report 기록
+7. `docs/review_recipe_contract_v2.md`에 따라 privacy metadata와 report 결속 기록
 ```
 
-`edit_recipe`에 아래 중 하나가 없으면 HTML 생성 전 QA를 통과할 수 없습니다.
+일반 QA에서는 아래 중 하나가 없으면 통과할 수 없습니다. 공식 production preflight는
+두 번째 report와 privacy manifest의 동일 파일 결속을 추가로 요구합니다.
 
 ```text
 source.privacy_review.checked: true
@@ -289,6 +292,7 @@ source.privacy_sanitization_report: "<report.json>"
 ```
 
 생성 인서트 사용 시 planning/edit recipe에는 반드시 아래를 남깁니다.
+정확한 필드 위치와 조건은 `docs/review_recipe_contract_v2.md`를 따릅니다.
 
 ```text
 generated_asset: true
@@ -315,11 +319,9 @@ literal_qa_result: 화면에 문턱/턱/레일/단차 없음. 통과.
 - 영상 목적을 먼저 정합니다: 광고형, 전환형, 신뢰형, 생활불편 해결형.
 - 나레이션, 자막, 화면은 같은 시간에 같은 말을 해야 합니다.
 - 각 scene은 caption, narration, asset이 같은 의미를 말해야 합니다. 자막은 `브론즈 유리`인데 내레이션은 `댐퍼`를 말하거나, 화면은 `시공전`인데 내레이션은 `시공후 분위기`를 말하면 실패입니다.
-- planning recipe의 `analysis.customer_problem`, `before_pain`, `after_change`, `customer_emotion`, `hooks`가 비어 있으면 HTML을 만들지 않습니다. 분석이 비어 있는데 결과물이 나온 것은 실패입니다.
+- planning recipe의 필수 analysis와 top-level hooks는 `docs/review_recipe_contract_v2.md`를 따릅니다. 하나라도 비어 있으면 HTML을 만들지 않습니다.
 - 작가 브리프 없이 HTML을 만들지 않습니다. `writer_brief.one_line_story`, `hook_candidates`, `recommended_hook`, `review_quote_for_proof`가 비어 있으면 실패입니다.
-- TTS는 반드시 D-017 레퍼런스 속도를 확인합니다. 공백 제외 글자수 / 음성 길이가 초당 `6.97자` 기준에서 크게 벗어나면 실패입니다.
-- 숏폼 리듬상 허용 상한은 초당 `8.5자`입니다. `9.0자` 이상은 사용자 승인 전 HTML이라도 실패로 보고, 내레이션을 줄이거나 음성을 다시 생성합니다.
-- 장면별 내레이션도 초당 `8.5자`를 넘기지 않습니다. 한 장면이 `10자/초`를 넘으면 그 장면은 싱크 불량 위험으로 재작성합니다.
+- D-024의 계산식과 현재 속도 경계는 `docs/review_reels_content_standard_v1.md`를 따릅니다. one-shot은 5.0~8.5자/초 밖이면 실패하고, 일반 v2는 전체 또는 scene CPS가 9.0자/초 이상이면 하드 실패입니다.
 - 자막은 사진의 핵심 피사체를 가리면 안 됩니다.
 - 자막은 의미 단위 1~2줄을 원칙으로 합니다. 긴 리뷰 문장을 단어 단위로 쪼개거나, 강조 span 때문에 `성능 / 과 / 마감`처럼 조사만 한 줄로 떨어지면 실패입니다.
 - 좌상단 라벨, 의미 없는 칩, 작은 설명 박스는 기본 금지입니다.
@@ -544,7 +546,7 @@ HTML 첫 화면에 실제로 들어가는 최종 훅을 별도로 검수합니�
 3. 첫 화면 이미지와 같은 말을 한다.
 4. 이전 제작물과 다른 관점이 있다.
 5. 너무 추상적인 결론어만 남지 않는다.
-6. docs/reels_hook_formula_v1.md 기준 후킹 트리거가 최소 1개 이상 있다.
+6. `docs/review_reels_content_standard_v1.md`의 후킹 트리거가 최소 1개 이상 있다.
 ```
 
 권장 트리거:
@@ -646,19 +648,8 @@ contact sheet, rejected intermediate는 `scripts/cleanup_dry_run.py`가 후보�
 
 ## 신규 세션 체크리스트
 
-새 세션에서 먼저 읽을 문서:
-
-```text
-GEMINI.md
-REVIEW_CONTENT_COMMAND.md
-docs/review_video_publish_workflow_v2.md
-docs/reels_writer_persona_v1.md
-docs/reels_operations_dashboard_v1.md
-docs/render_qa_rules_v2.md
-docs/instagram_caption_hashtag_rules_v2.md
-docs/video_pd_standard_v2.md
-docs/video_engine_v2_design.md
-```
+새 세션에서 먼저 읽을 문서 목록은 `AGENTS.md`의 `핵심 문서` 절 하나만 따릅니다.
+이 문서는 별도 읽기 목록을 유지하지 않습니다.
 
 과거 세션 인수인계는 `docs/archive/README.md`에서 찾을 수 있지만 신규 세션의
 운영 권한 문서로 사용하지 않습니다.

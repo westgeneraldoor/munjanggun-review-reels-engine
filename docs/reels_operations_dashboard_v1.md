@@ -6,8 +6,9 @@
 
 마지막 운영 원칙 갱신: 2026-07-28
 
-이 문서는 신규 세션에서 `리뷰 릴스 만들자`라고 했을 때 가장 먼저 보는 릴스 운영 현황판입니다.
-`PROJECT_DASHBOARD.md`가 전체 프로젝트 현황판이라면, 이 문서는 **인스타 릴스 제작/발행 관제판**입니다.
+이 문서는 신규 세션에서 `리뷰 릴스 만들자`라고 했을 때 보는 관측용 릴스 운영
+현황판입니다. 전체 프로젝트 수기 현황판은 운영하지 않으며 package state와 공식
+source registry를 현재 상태의 근거로 사용합니다.
 
 ## 현재 운영 상태
 
@@ -15,10 +16,12 @@
 |------|------|
 | 운영 명령 | `리뷰 릴스 만들자` |
 | 기준 워크플로 | `docs/review_video_publish_workflow_v2.md` |
+| 콘텐츠 기준 | `docs/review_reels_content_standard_v1.md` |
+| 화면·편집 기준 | `docs/review_reels_visual_edit_standard_v1.md` |
+| recipe 계약 | `docs/review_recipe_contract_v2.md` |
 | 최종 렌더 기준 | `docs/render_qa_rules_v2.md` |
-| 캡션/해시태그 기준 | `docs/instagram_caption_hashtag_rules_v2.md` |
+| 캡션/해시태그 기준 | `docs/reels_posting_copy_standard_v2.md` |
 | 소재 개인정보 기준 | `docs/reels_privacy_asset_qa_rules_v1.md` |
-| 작가 페르소나 | `docs/reels_writer_persona_v1.md` |
 | HTML 전 공식 preflight | `python scripts/produce_review_v2.py preflight --package ... --planning ... --edit ... --privacy-manifest ... --sync-manifest ...` |
 | 정식 리뷰 원본 | `reviews/inbox_20260609/` |
 | live package state 원본 | `python -m video_engine_v2.package_state --output-root "<output root>" --report "<outside-output>/package-state.json"` |
@@ -94,7 +97,7 @@ package state scan으로 package를 확인한 뒤 사진/승인/QA 증거에 따
 6. 리뷰 패키지 폴더와 이미지 폴더를 먼저 만들고, 사용자가 사진을 넣을 경로를 안내합니다.
 7. 사진이 들어오기 전에는 HTML/MP4 제작을 시작하지 않습니다.
 8. 사진이 들어오면 사진검수/역할매핑/부족 컷/개인정보 위험 분석을 합니다.
-9. `docs/reels_writer_persona_v1.md` 기준으로 작가 브리프를 작성합니다.
+9. `docs/review_reels_content_standard_v1.md` 기준으로 작가 브리프를 작성합니다.
 10. 훅 후보/PD 기획안/scene 의미 일치 계획표까지만 먼저 작성합니다.
 11. 사용자 기획 승인 전에는 script/SRT/TTS/HTML을 생성하지 않습니다.
 12. HTML 생성 전 `scripts/produce_review_v2.py preflight`를 통과해야 합니다. privacy report/manifest/asset hash 결속이 없으면 실패입니다.
@@ -151,7 +154,8 @@ package state scan으로 package를 확인한 뒤 사진/승인/QA 증거에 따
 
 1. 수동 완료 표나 수동 발행·성과 숫자를 이 문서에 추가하지 않습니다.
 2. package의 approval/privacy/sync/post-render evidence를 보존하고 다음 세션에서 package state scan으로 다시 확인합니다.
-3. 후보가 3개 미만이면 `PROJECT_DASHBOARD.md`와 점수표에서 미제작 A/B권 후보를 보충합니다.
+3. 후보가 3개 미만이면 최신 batch evidence와 material-bank 원본에서 미제작 A/B권
+   후보를 찾고, 공식 `create-from-material-bank` 명령으로만 production에 연결합니다.
 4. 새 후보군이 확정되면 사용자가 바로 사진을 넣을 수 있도록 output 패키지 폴더와 `*_이미지` 폴더를 준비합니다.
 5. 새 사진 폴더 안내 문서를 만들거나 기존 `docs/reels_photo_intake_YYYYMMDD.md`를 갱신합니다.
 6. 완료·발행·성과 상태는 `_context.md` 같은 수기 세션 기록에 쓰지 않고 live package state를 다시 스캔합니다.
