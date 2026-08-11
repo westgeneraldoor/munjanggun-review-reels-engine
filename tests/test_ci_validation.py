@@ -13,6 +13,8 @@ class CiValidationTest(unittest.TestCase):
         self.assertNotIn("python -m unittest discover -s tests", workflow)
         self.assertIn('PYTHONUTF8: "1"', workflow)
         self.assertIn("PYTHONIOENCODING: utf-8", workflow)
+        self.assertIn("run: npm ci", workflow)
+        self.assertNotIn("run: npm install", workflow)
 
 
 if __name__ == "__main__":
