@@ -1,0 +1,141 @@
+# 리뷰 릴스 콘텐츠 표준 v1
+
+이 문서는 리뷰 원문을 릴스의 사건·대본·훅으로 바꾸는 단일 기준입니다.
+브랜드 철학은 `docs/munjanggun_content_operating_principles_v1.md`, 제작 순서와
+승인 게이트는 `docs/review_video_publish_workflow_v2.md`가 우선합니다.
+
+## 1. 출발점은 제품이 아니라 고객의 사건
+
+먼저 리뷰와 사진에서 아래 순서로 근거를 찾습니다.
+
+1. 시간 순서가 있는 행동·상태 변화
+2. 하나의 구체적인 불편 또는 갈등
+3. 리뷰가 직접 말한 해결·반전
+4. 첫 사진과 함께 설명할 수 있는 훅
+5. 증거 화면에 그대로 쓸 수 있는 원문 인용
+
+칭찬만 나열하거나 `불편했다`처럼 추상화하지 않습니다. 반전, 감정, 수치,
+공사 난이도는 원문이나 승인된 현장 근거가 없으면 만들지 않습니다.
+
+## 2. 원문 결속
+
+HTML 전 planning recipe에는 다음 값이 있어야 합니다.
+
+```json
+{
+  "review_source": {
+    "text": "원문 전체",
+    "review_quote_for_proof": "원문에 실제 포함된 인용",
+    "inferred_fields": [],
+    "unsupported_story_elements": []
+  }
+}
+```
+
+다음은 하드 실패입니다.
+
+- 증거 인용이 원문에 없음
+- 원문에 없는 소음·냄새·먼지·반려동물·아이·공사 난이도를 실제 사건처럼 사용
+- 원문에 없는 감정, 가격, 기간, 추가 비용, 성능 수치 사용
+- `90%`, `100%`, `완벽`, `보장`, `무조건`, `완벽 차단` 같은 강한 주장을 근거 없이 사용
+- 추론을 `inferred_fields`에 표시하지 않음
+- `unsupported_story_elements`가 비어 있지 않음
+
+## 3. 이야기 모드와 구조
+
+리뷰 근거에 가장 잘 맞는 `story_mode` 하나를 고릅니다.
+
+- `problem_solution`: 생활 불편과 해결
+- `difficult_site`: 실제 근거가 있는 어려운 현장과 해결
+- `time_lapse_review`: 시간에 따른 변화와 후기
+- `human_service`: 상담·실측·시공 과정에서 확인된 사람의 대응
+- `seasonal_comfort`: 계절 불편과 체감 변화
+- `living_convenience`: 동선·사용 편의의 변화
+
+기본 의미 흐름은 `event -> problem -> resolution -> felt_result -> review_proof -> cta`입니다.
+`context`, `choice_turn`, 실측, 공정 설명은 고정 장면이 아니며 원문과 사진 근거가
+있을 때만 넣습니다. 장면 수를 맞추기 위한 filler는 금지합니다.
+
+기본 길이는 20~28초, 7~8개 major beat 또는 9~12개 micro moment입니다. 첫 훅은
+완결된 문장으로 만들고 첫 4초 안에 문제나 반전이 이해되어야 합니다. 실제 음성
+길이와 사건 밀도가 다르면 총괄 PD가 근거를 남기고 조정합니다.
+
+## 4. 작가 브리프
+
+script 전에 writer brief를 만듭니다.
+
+- `one_line_story`
+- `problem`, `before_pain`, `after_change`, `emotion`
+- 훅 후보 3개 이상과 각 후보의 근거·트리거
+- 추천 훅과 폐기 훅 사유
+- narration outline
+- caption keywords
+- 원문 proof quote
+- 과장·개인정보·근거 부족 위험어
+
+훅 후보는 아래 트리거를 하나 이상 분명하게 사용합니다.
+
+- 호기심 결핍
+- 근거 있는 숫자
+- 타깃 호명
+- 통념 반박
+- 손실 회피
+- 근거 있는 결과 약속
+
+최종 훅은 1초 안에 주제와 대상이 보이고, 첫 화면 사진과 같은 말을 하며, 원문이
+지지해야 합니다. 글자 수만 줄여 주어·상황·변화를 잃지 않습니다.
+
+### D-025 훅 압축 하드 게이트
+
+기획안의 훅 후보와 HTML 첫 화면의 최종 훅을 별도로 검수합니다. 짧게 줄이는 과정에서
+`대상`, `상황`, `변화` 중 핵심 의미가 하나라도 사라지면 실패입니다.
+
+- 실패: `중문은 설치 당일보다, 한 달 뒤가 더 진짜입니다`를 `한 달 뒤, 진짜입니다`로 축약
+- 실패: `좋아졌습니다`, `달라졌습니다`, `만족했습니다`처럼 무엇이 왜 달라졌는지 없는 문장
+- 통과: `중문 설치 한 달 뒤, 집 분위기가 달라졌습니다`
+- 통과: `에어컨 풀가동해도 거실이 덥다면?`
+
+검수 기록에는 훅 후보, 최종 훅, 첫 화면 asset, 1초 안에 이해되는 대상, 폐기 훅 사유를
+남깁니다. 자동 훅 패턴 검사를 통과해도 이 의미 보존 검수를 대신하지 않습니다.
+
+## 5. 사진과 증거
+
+- 모든 사진을 보고 `use`, `hold`, `exclude`와 이유를 기록합니다.
+- 첫 화면은 원문 사건과 직접 맞는 실제 고객 사진을 우선합니다.
+- 사진을 모두 억지로 쓰지 않습니다.
+- 리뷰 원본 캡처는 한 번만 명확한 증거로 쓰고, 읽을 문장은 별도 큰 자막으로 보강합니다.
+- 얼굴·주소·전화번호·주문정보 등은 `docs/reels_privacy_asset_qa_rules_v1.md`에 따라 처리합니다.
+- 생성 이미지는 설명용 보조만 가능하며 실제 시공·마감·실측·제품·리뷰 증거를 대체하지 않습니다.
+
+## 6. 음성·자막·완료 정의
+
+공식 one-shot 음성은 `scripts/generate_one_shot_tts.py`가 생성한 Gemini TTS
+`Sulafat`입니다. Windows SAPI, 임의 음성, 수동 SRT는 production 증거가 아닙니다.
+
+### D-024 TTS 속도 하드 게이트
+
+HTML 또는 MP4 전에 아래 값을 실제 최종 voice 길이로 계산합니다.
+
+```text
+total_voice_cps = 전체 narration_ref 공백 제외 글자수 / final_voice_duration_sec
+scene_cps = 해당 beat narration_ref 공백 제외 글자수 / beat duration
+```
+
+- 권장: 6.5~7.5자/초
+- one-shot 허용: 5.0~8.5자/초. 이 범위를 벗어나면 실패
+- 일반 v2 주의: 8.5자/초 초과
+- 일반 v2 하드 실패: 전체 또는 scene CPS가 9.0자/초 이상
+
+음원 파일의 총 길이만 확인하거나 planning 예상 길이로 대신하지 않습니다. 뜻을 훼손해
+속도를 맞추지 않으며 실패하면 내레이션을 다시 쓰거나 공식 음성을 다시 생성합니다.
+자막은 한 화면 1~2줄, 한 의미 단위로 씁니다.
+
+콘텐츠가 준비됐다는 말은 원문·privacy·recipe·sync QA가 모두 통과했다는 뜻입니다.
+production HTML은 `scripts/produce_review_v2.py`의 공식 preflight와 HTML 단계로만
+만듭니다. `HTML 검수 준비 완료`는 공식 preflight와 HTML 생성, 대표 프레임 자동 QA, 작업자의
+직접 시각 검수까지 끝난 뒤에만 사용합니다. 브라우저나 프레임을 보지 못했다면
+`HTML 생성, 내부 시각 QA 대기`라고 보고합니다.
+
+캡션과 해시태그는 `docs/reels_posting_copy_standard_v2.md`, 화면·모션·오디오는
+`docs/review_reels_visual_edit_standard_v1.md`, recipe 필드는
+`docs/review_recipe_contract_v2.md`를 따릅니다.

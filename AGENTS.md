@@ -124,7 +124,8 @@ production gate를 바꾸지 않습니다. 상세 기준은 `docs/reels_format_s
 15. 최종 MP4 렌더
 16. ffprobe/대표 프레임/개인정보/싱크 QA
 
-one-shot의 창작·편집 기준은 `docs/review_reels_gold_playbook_v1.md`를 따른다.
+one-shot의 창작 기준은 `docs/review_reels_content_standard_v1.md`, 화면·모션 기준은
+`docs/review_reels_visual_edit_standard_v1.md`를 따른다.
 `context`, `choice_turn`, 실측, 공정 설명은 고정 장면이 아니며 리뷰와 사진에 실제
 근거가 있을 때만 넣는다. 공식 음성은 Gemini TTS `Sulafat`이며 Windows SAPI 등
 임시 음성은 production HTML에 연결하지 않는다.
@@ -296,12 +297,17 @@ npm run validate
 - `docs/munjanggun_content_operating_principles_v1.md`
 - `docs/review_video_publish_workflow_v2.md`
 - `docs/reels_operations_dashboard_v1.md`
-- `docs/reels_writer_persona_v1.md`
-- `docs/reels_hook_formula_v1.md`
-- `docs/hyperframes_official_adoption_plan_v1.md`
+- `docs/review_reels_content_standard_v1.md`
+- `docs/review_reels_visual_edit_standard_v1.md`
+- `docs/review_recipe_contract_v2.md`
+- `docs/reels_posting_copy_standard_v2.md`
 - `docs/reels_privacy_asset_qa_rules_v1.md`
 - `docs/render_qa_rules_v2.md`
 - `docs/github_pr_workflow.md`
+
+HyperFrames 작업을 할 때만 `docs/hyperframes_official_adoption_plan_v1.md`를 추가로
+읽습니다. 명령별 추가 입력은 해당 명령 문서가 안내하되, 일반 읽기 목록을 따로
+만들지 않습니다.
 
 과거 감사, 인수인계, 사진 투입 기록, 완료된 로드맵은
 `docs/archive/README.md`에서 찾습니다. archive 문서는 현재 운영 권한을 갖지 않습니다.

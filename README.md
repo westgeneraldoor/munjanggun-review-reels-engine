@@ -130,8 +130,9 @@ The strict contract requires photo/privacy evidence, an actual review capture,
 the event-to-CTA narrative sequence, direct visual relevance, readable
 captions, voice-master timing, and source-grounded claims. See
 `docs/review_reels_one_shot_contract_v2.md` for the complete boundary.
-Creative decisions and the approved 004/005 pacing baseline are defined in
-`docs/review_reels_gold_playbook_v1.md`.
+Creative decisions are defined in `docs/review_reels_content_standard_v1.md`;
+visual pacing and motion are defined in
+`docs/review_reels_visual_edit_standard_v1.md`.
 
 Photo intake is not approved by editing `STATUS.md`. Run the official
 `scripts/review_reel_intake.py photo-review` transition with a complete

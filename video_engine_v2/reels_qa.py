@@ -14,6 +14,7 @@ from typing import Any
 HARD_CPS_LIMIT = 9.0
 SOFT_CPS_LIMIT = 8.5
 MIN_ONE_SHOT_CPS = 5.0
+MAX_VISUAL_LEAD_SEC = 0.05
 MAX_REVIEW_PROOF_DWELL_SEC = 6.0
 ONE_SHOT_CONTRACT_NAME = "review-reels-one-shot-v2"
 REQUIRED_NARRATIVE_ROLES = (
@@ -948,8 +949,18 @@ def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edi
             visual_start = float(time_range[0]) if isinstance(time_range, list) else None
         except (IndexError, TypeError, ValueError):
             visual_start = None
-        if visual_start is not None and narration_start is not None and visual_start < narration_start - 0.05:
-            issues.append(_issue("VISUAL_AHEAD_OF_VOICE", "Visuals must not start more than 0.05 seconds before their narration.", scene_id=scene_id))
+        if (
+            visual_start is not None
+            and narration_start is not None
+            and visual_start < narration_start - MAX_VISUAL_LEAD_SEC
+        ):
+            issues.append(
+                _issue(
+                    "VISUAL_AHEAD_OF_VOICE",
+                    f"Visuals must not start more than {MAX_VISUAL_LEAD_SEC:.2f} seconds before their narration.",
+                    scene_id=scene_id,
+                )
+            )
 
         asset_id = _as_text(beat.get("asset_id") or beat.get("asset")).strip()
         if asset_id:

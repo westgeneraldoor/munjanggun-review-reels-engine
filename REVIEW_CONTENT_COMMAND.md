@@ -50,14 +50,12 @@ package로 사용하지 않으며, 선택된 material-bank record는 반드시 �
 
 ## 반드시 먼저 읽을 파일
 
-1. `GEMINI.md`
-2. `docs/reels_operations_dashboard_v1.md`
-3. `PROJECT_DASHBOARD.md`
-4. `REVIEW_INTAKE_CHECKLIST.md`
-5. `CONTENT_QUALITY_STANDARD.md`
-6. `POSTING_COPY_STANDARD.md`
-7. `reviews/pilot/README.md`
-8. 최신 운영 리뷰 묶음의 `README.md`
+공통 운영 문서는 `AGENTS.md`의 `핵심 문서` 절을 따른다. 이 명령에만 추가로 필요한 것은 아래뿐이다.
+
+1. `REVIEW_INTAKE_CHECKLIST.md`
+2. `docs/review_reels_content_standard_v1.md`
+3. `docs/reels_posting_copy_standard_v2.md`
+4. 최신 운영 리뷰 묶음의 `README.md`
    - 예: `reviews/inbox_20260609/README.md`
 
 ## 리뷰 추가 요청을 받았을 때
@@ -74,9 +72,8 @@ package로 사용하지 않으며, 선택된 material-bank record는 반드시 �
 1차 채점
 상위 후보 선별
 배치 기록
-PROJECT_DASHBOARD.md 갱신
-live package state 재스캔
-PROJECT_TASKS.md 갱신
+공식 source registry와 배치 evidence 확인
+production package가 바뀐 경우 live package state 재스캔
 무결성 검증
 ```
 
@@ -201,7 +198,7 @@ output/inbox_YYYYMMDD/010_구축소음_YYYYMMDD_HHMMSS
 ## 절대 금지
 
 - 후보 제안 없이 바로 생성 금지
-- 품질 기준 충족용으로 얕게 생성 금지. `CONTENT_QUALITY_STANDARD.md` 기준으로 실제 발행 가능한 수준이어야 함
+- 품질 기준 충족용으로 얕게 생성 금지. `docs/review_reels_content_standard_v1.md` 기준으로 실제 발행 가능한 수준이어야 함
 - 음원 길이에 맞추려고 내레이션 내용 삭제 금지
 - `caption.txt`, `hashtag.txt` 별도 생성 금지
 - 캡션/해시태그 누락 금지. 반드시 `*_script.md` 안에 `## 캡션`, `## 해시태그` 섹션으로 포함
