@@ -9,6 +9,22 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RepoContractTest(unittest.TestCase):
+    def test_python_direct_dependencies_are_exactly_pinned(self):
+        requirements = [
+            line.strip()
+            for line in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+
+        self.assertTrue(requirements, "requirements.txt needs direct dependencies.")
+        for requirement in requirements:
+            with self.subTest(requirement=requirement):
+                self.assertRegex(
+                    requirement,
+                    r"^[A-Za-z0-9_.-]+==[A-Za-z0-9_.+!-]+$",
+                    "direct Python dependencies must use an exact == pin",
+                )
+
     def test_tracked_test_subprocess_text_mode_declares_utf8_encoding(self):
         tracked = subprocess.run(
             ["git", "ls-files", "-z", "--", "tests"],

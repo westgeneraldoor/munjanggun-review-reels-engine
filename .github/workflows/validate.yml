@@ -33,7 +33,7 @@ jobs:
           if (Test-Path requirements.txt) { pip install -r requirements.txt }
 
       - name: Install Node dependencies
-        run: npm install
+        run: npm ci
 
       - name: Install Playwright Chromium
         run: npx playwright install chromium
