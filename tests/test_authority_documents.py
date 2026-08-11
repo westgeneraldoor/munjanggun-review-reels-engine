@@ -3,7 +3,12 @@ import subprocess
 import unittest
 from pathlib import Path
 
-from video_engine_v2.reels_qa import HARD_CPS_LIMIT, MIN_ONE_SHOT_CPS, SOFT_CPS_LIMIT
+from video_engine_v2.reels_qa import (
+    HARD_CPS_LIMIT,
+    MAX_VISUAL_LEAD_SEC,
+    MIN_ONE_SHOT_CPS,
+    SOFT_CPS_LIMIT,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,7 +53,6 @@ COMPACT_STANDARDS = {
         "meaning_match: true",
         "meaning_match_source",
         "meaning_match_evidence",
-        "0.05초",
     ],
     "docs/review_recipe_contract_v2.md": [
         "planning recipe",
@@ -206,6 +210,7 @@ class AuthorityDocumentsTest(unittest.TestCase):
         )
         self.assertIn("D-025 훅 압축 하드 게이트", content)
         self.assertIn("D-026 장면 의미 일치 하드 게이트", visual)
+        self.assertIn(f"{MAX_VISUAL_LEAD_SEC:.2f}초를 초과", visual)
 
         for field in (
             "customer_problem",
