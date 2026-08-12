@@ -8,12 +8,16 @@ from video_engine_v2.reels_qa import (
     CALM_HORIZONTAL_TRAVEL_PX,
     CALM_SCALE_DELTA,
     CALM_VERTICAL_TRAVEL_PX,
+    CAPTION_SAFE_BOTTOM_PX,
+    CAPTION_SAFE_TOP_PX,
     HARD_CPS_LIMIT,
     MAX_ONE_SHOT_TOTAL_SHOTS,
     MAX_VISUAL_LEAD_SEC,
     MIN_ONE_SHOT_FINAL_RESULT_SEC,
     MIN_ONE_SHOT_HOOK_SHOT_SEC,
     MIN_ONE_SHOT_CPS,
+    MAX_CONTEXTUAL_CAPTION_CHUNKS,
+    MIN_CONTEXTUAL_CAPTION_CHARS,
     ONE_SHOT_CALM_MOTIONS,
     ONE_SHOT_CALM_TRANSITIONS,
     SOFT_CPS_LIMIT,
@@ -313,6 +317,25 @@ class AuthorityDocumentsTest(unittest.TestCase):
         for value in sorted(ONE_SHOT_CALM_MOTIONS | ONE_SHOT_CALM_TRANSITIONS):
             with self.subTest(value=value):
                 self.assertIn(f"`{value}`", combined)
+
+    def test_caption_dead_zone_and_context_density_are_locked_to_live_standards(self):
+        visual = (ROOT / "docs/review_reels_visual_edit_standard_v1.md").read_text(encoding="utf-8")
+        recipe = (ROOT / "docs/review_recipe_contract_v2.md").read_text(encoding="utf-8")
+        render = (ROOT / "docs/render_qa_rules_v2.md").read_text(encoding="utf-8")
+        combined = visual + "\n" + recipe + "\n" + render
+
+        self.assertIn(f"y={CAPTION_SAFE_TOP_PX}~{CAPTION_SAFE_BOTTOM_PX}", combined)
+        self.assertIn(f"최대 {MAX_CONTEXTUAL_CAPTION_CHUNKS}개", combined)
+        self.assertIn(f"최소 {MIN_CONTEXTUAL_CAPTION_CHARS}자", combined)
+        self.assertIn("음성 전문", combined)
+        self.assertIn("실제 DOM", combined)
+        self.assertIn("3줄 이상", combined)
+        self.assertIn("한 방향", combined)
+        self.assertIn("일정 속도", combined)
+        self.assertIn("투명도만", combined)
+        self.assertIn("520~650ms", combined)
+        self.assertIn("420ms", combined)
+        self.assertIn("영상 시간", combined)
 
     def test_legacy_documents_are_archived_and_cannot_be_live_authority(self):
         for old_path, archive_path in ARCHIVED_DOCUMENT_MOVES.items():

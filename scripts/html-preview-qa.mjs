@@ -5,6 +5,8 @@ import { pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 
 const FRAME_SETTLE_WAIT_MS = 500;
+const SAFE_AREA_1080X1920 = { top: 220, bottom: 1470 };
+const CAPTION_ACCENT_TIMING = { min_delay_ms: 520, max_delay_ms: 650, pop_duration_ms: 420 };
 
 function parseArgs(argv) {
   const result = {};
@@ -62,6 +64,59 @@ try {
     const start = Number(beat?.time?.[0] ?? 0);
     const end = Number(beat?.time?.[1] ?? start);
     const sampleTime = Math.max(start + 0.12, Math.min((start + end) / 2, end - 0.08));
+    const chunks = Array.isArray(beat.caption_chunks) && beat.caption_chunks.length > 0
+      ? beat.caption_chunks
+      : [{ text: beat.caption || "", start_sec: start, end_sec: end }];
+    const captionSamples = [];
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
+      const chunk = chunks[chunkIndex];
+      const chunkStart = Number(chunk.start_sec ?? start);
+      const chunkEnd = Number(chunk.end_sec ?? end);
+      const chunkTime = Math.max(chunkStart + 0.04, Math.min((chunkStart + chunkEnd) / 2, chunkEnd - 0.04));
+      await page.evaluate((time) => {
+        const scrubber = document.querySelector("#scrubber");
+        scrubber.value = String(time);
+        scrubber.dispatchEvent(new Event("input", { bubbles: true }));
+      }, chunkTime);
+      await page.waitForTimeout(FRAME_SETTLE_WAIT_MS);
+      captionSamples.push(await page.evaluate(({ chunkIndex, chunkTime, safeArea }) => {
+        const stage = document.querySelector("#stage").getBoundingClientRect();
+        const captionNode = document.querySelector("#caption");
+        const caption = captionNode.getBoundingClientRect();
+        const captionStyle = getComputedStyle(captionNode);
+        const scaleX = 1080 / stage.width;
+        const scaleY = 1920 / stage.height;
+        const top = (caption.top - stage.top) * scaleY;
+        const bottom = (caption.bottom - stage.top) * scaleY;
+        const lineHeight = Number.parseFloat(captionStyle.lineHeight);
+        const captionLines = [...captionNode.querySelectorAll(".caption-line")];
+        const lineCount = lineHeight > 0
+          ? (captionLines.length > 0
+              ? captionLines.reduce(
+                  (sum, line) => sum + Math.max(1, Math.round(line.getBoundingClientRect().height / lineHeight)),
+                  0,
+                )
+              : Math.max(1, Math.round(caption.height / lineHeight)))
+          : null;
+        return {
+          chunk_index: chunkIndex,
+          sample_time_sec: Number(chunkTime.toFixed(3)),
+          text: document.querySelector("#caption").innerText,
+          left_1080x1920: Math.round((caption.left - stage.left) * scaleX),
+          right_1080x1920: Math.round((caption.right - stage.left) * scaleX),
+          top_1080x1920: Math.round(top),
+          bottom_1080x1920: Math.round(bottom),
+          line_count: lineCount,
+          safe: top >= safeArea.top - 0.5 && bottom <= safeArea.bottom + 0.5,
+          accent_delay_ms: captionNode.querySelector('.em')
+            ? Number(captionNode.dataset.accentDelayMs)
+            : null,
+          accent_pop_duration_ms: captionNode.querySelector('.em')
+            ? Number(captionNode.dataset.accentPopDurationMs)
+            : null,
+        };
+      }, { chunkIndex, chunkTime, safeArea: SAFE_AREA_1080X1920 }));
+    }
     await page.evaluate((time) => {
       const scrubber = document.querySelector("#scrubber");
       scrubber.value = String(time);
@@ -111,6 +166,17 @@ try {
     const issues = [];
     if (!state.captionVisible || !state.caption.trim()) issues.push("CAPTION_NOT_VISIBLE");
     if (!state.captionInside) issues.push("CAPTION_OUTSIDE_STAGE");
+    if (captionSamples.some((sample) => !sample.safe)) issues.push("CAPTION_DEAD_ZONE");
+    if (captionSamples.some((sample) => sample.line_count === null || sample.line_count > 2)) {
+      issues.push("CAPTION_LINE_COUNT_EXCESSIVE");
+    }
+    if (captionSamples.some((sample) => sample.accent_delay_ms !== null && (
+      sample.accent_delay_ms < CAPTION_ACCENT_TIMING.min_delay_ms
+      || sample.accent_delay_ms > CAPTION_ACCENT_TIMING.max_delay_ms
+      || sample.accent_pop_duration_ms !== CAPTION_ACCENT_TIMING.pop_duration_ms
+    ))) {
+      issues.push("CAPTION_ACCENT_TIMING_INVALID");
+    }
     if (state.caption.includes("\\n") || state.caption.includes("/n")) issues.push("CAPTION_LITERAL_NEWLINE");
     if (state.visibleImages.length === 0 || state.visibleImages.some((image) => !image.loaded)) {
       issues.push("VISIBLE_IMAGE_NOT_LOADED");
@@ -125,6 +191,7 @@ try {
       sample_time_sec: Number(sampleTime.toFixed(3)),
       expected_caption: beat.caption || "",
       actual_caption: state.caption,
+      caption_samples: captionSamples,
       frame_relative_path: `_qa_frames/${frameName}`,
       visible_images: state.visibleImages,
       issues,
@@ -139,6 +206,8 @@ const failedChecks = checks.filter((check) => check.automatic_status !== "pass")
 const report = {
   schema_version: "review-reel-html-internal-qa-v1",
   frame_settle_wait_ms: FRAME_SETTLE_WAIT_MS,
+  caption_safe_area_1080x1920: SAFE_AREA_1080X1920,
+  caption_accent_timing_ms: CAPTION_ACCENT_TIMING,
   html_path: path.basename(htmlPath),
   edit_recipe_path: path.relative(previewDir, editPath).replaceAll("\\", "/"),
   automatic_status: failedChecks.length === 0 && consoleErrors.length === 0 ? "pass" : "fail",

@@ -20,7 +20,7 @@ def load_fixture():
 class ReviewReelsOneShotContractTest(unittest.TestCase):
     def apply_calm_c_visual_language(self, fixture):
         motion_rows = (
-            ("calm_push_in", "calm_pull_out", "calm_push_in"),
+            ("calm_push_in", "calm_push_in", "calm_push_in"),
             ("calm_glide_up",),
             ("calm_glide_left",),
             ("calm_push_in",),
@@ -47,7 +47,7 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
         }
         fixture["edit"]["beats"][0]["shots"] = [
             {"asset_id": "after_result", "motion": "calm_push_in", "motion_reason": "Show the result first.", "transition_in": "cut", "start_sec": 0.0, "end_sec": 1.3},
-            {"asset_id": "before_entry", "motion": "calm_pull_out", "motion_reason": "Show the before state calmly.", "transition_in": "calm_dissolve", "start_sec": 1.3, "end_sec": 2.6},
+            {"asset_id": "before_entry", "motion": "calm_push_in", "motion_reason": "Show the before state without reversing the camera.", "transition_in": "calm_dissolve", "start_sec": 1.3, "end_sec": 2.6},
             {"asset_id": "after_result", "motion": "calm_push_in", "motion_reason": "Return to the result.", "transition_in": "calm_dissolve", "start_sec": 2.6, "end_sec": 4.0},
         ]
 
@@ -78,6 +78,16 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
         result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
 
         self.assertTrue(result["ok"], result["issues"])
+
+    def test_contract_rejects_camera_direction_changes_inside_one_beat(self):
+        fixture = load_fixture()
+        fixture["edit"]["beats"][0]["shots"][0]["motion"] = "calm_push_in"
+        fixture["edit"]["beats"][0]["shots"][1]["motion"] = "calm_pull_out"
+        fixture["edit"]["beats"][0]["shots"][2]["motion"] = "calm_push_in"
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("SHOT_MOTION_PATH_DISCONTINUITY", {issue["code"] for issue in result["issues"]})
 
     def test_contract_rejects_the_superseded_micro_motion_and_soft_dissolve_language(self):
         fixture = load_fixture()
@@ -143,6 +153,14 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
         result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
 
         self.assertIn("ONE_SHOT_SHOTS_REQUIRED", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_requires_contextual_caption_chunks_for_every_one_shot_beat(self):
+        fixture = load_fixture()
+        fixture["edit"]["beats"][1].pop("caption_chunks")
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("ONE_SHOT_CAPTION_CHUNKS_REQUIRED", {issue["code"] for issue in result["issues"]})
 
     def test_contract_rejects_aggressive_one_shot_photo_motion(self):
         fixture = load_fixture()

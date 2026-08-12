@@ -172,8 +172,7 @@
         0 9px 24px rgba(0, 0, 0, 0.62),
         0 0 18px rgba(255, 231, 100, 0.28);
       transform-origin: center 70%;
-      animation: keywordAccentIn 420ms cubic-bezier(.2, 1.22, .28, 1) both;
-      animation-delay: calc(var(--accent-delay-ms, 90ms) + (var(--accent-index, 0) * 65ms));
+      will-change: opacity, transform;
     }
 
     .caption.accent-keyword.accent-soft .em {
@@ -200,21 +199,6 @@
     .caption.theme-white.accent-keyword .em {
       color: #79e5d0;
       text-shadow: 0 3px 0 rgba(7, 31, 27, 0.82), 0 8px 22px rgba(0, 0, 0, 0.58);
-    }
-
-    @keyframes keywordAccentIn {
-      0% {
-        opacity: 0.72;
-        transform: translateY(5px) scale(0.96);
-      }
-      55% {
-        opacity: 1;
-        transform: translateY(-1px) scale(1.035);
-      }
-      100% {
-        opacity: 1;
-        transform: translateY(0) scale(1);
-      }
     }
 
     .caption-line {
@@ -309,7 +293,7 @@
     }
 
     .caption.pos-bottom {
-      bottom: 120px;
+      bottom: 180px;
     }
 
     .paper {
@@ -422,18 +406,6 @@
       animation: crossDissolveOut 380ms ease-out;
     }
 
-    .stage.calm_glide_left.transition-hit.t-calm_dissolve .asset.main {
-      animation-name: calmGlideLeftIn;
-    }
-
-    .stage.calm_glide_right.transition-hit.t-calm_dissolve .asset.main {
-      animation-name: calmGlideRightIn;
-    }
-
-    .stage.calm_glide_up.transition-hit.t-calm_dissolve .asset.main {
-      animation-name: calmGlideUpIn;
-    }
-
     @keyframes flashBang {
       0% { opacity: 0.95; }
       100% { opacity: 0; }
@@ -446,23 +418,8 @@
     }
 
     @keyframes calmDissolveIn {
-      from { opacity: 0; transform: scale(1.065); }
-      to { opacity: 1; transform: scale(1.02); }
-    }
-
-    @keyframes calmGlideLeftIn {
-      from { opacity: 0; transform: scale(1.055) translateX(24px); }
-      to { opacity: 1; transform: scale(1.045) translateX(10px); }
-    }
-
-    @keyframes calmGlideRightIn {
-      from { opacity: 0; transform: scale(1.055) translateX(-24px); }
-      to { opacity: 1; transform: scale(1.045) translateX(-10px); }
-    }
-
-    @keyframes calmGlideUpIn {
-      from { opacity: 0; transform: scale(1.055) translateY(22px); }
-      to { opacity: 1; transform: scale(1.045) translateY(8px); }
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
 
     @keyframes crossDissolveIn {
@@ -882,6 +839,9 @@
     const assetUrls = __ASSET_URLS_JSON__;
     const beats = recipe.beats;
     const totalDuration = Math.max(...beats.map(b => b.time[1]));
+    const CAPTION_ACCENT_MIN_DELAY_MS = 520;
+    const CAPTION_ACCENT_MAX_DELAY_MS = 650;
+    const CAPTION_ACCENT_POP_MS = 420;
 
     const stage = document.getElementById('stage');
     const mainAsset = document.getElementById('mainAsset');
@@ -988,8 +948,10 @@
       if (url) {
         if (['cross_dissolve', 'soft_cut', 'soft_dissolve', 'calm_dissolve'].includes(transitionIn) && mainAsset.src && mainAsset.src !== url) {
           previousAsset.src = mainAsset.src;
+          previousAsset.style.transform = mainAsset.style.transform || getComputedStyle(mainAsset).transform;
         } else {
           previousAsset.removeAttribute('src');
+          previousAsset.style.removeProperty('transform');
         }
         mainAsset.src = url;
         mainAsset.style.opacity = 1;
@@ -1076,10 +1038,48 @@
       caption.className = `caption pos-${position} size-${size} theme-${theme}${accentEnabled ? ` accent-keyword accent-${accentStyle}` : ''}`;
       caption.style.textAlign = align;
       if (accentEnabled) {
-        const delay = Math.max(0, Math.min(Number(accent.delay_ms || 90), 150));
+        const requestedDelay = Number(accent.delay_ms || CAPTION_ACCENT_MIN_DELAY_MS);
+        const delay = Math.max(
+          CAPTION_ACCENT_MIN_DELAY_MS,
+          Math.min(Number.isFinite(requestedDelay) ? requestedDelay : CAPTION_ACCENT_MIN_DELAY_MS, CAPTION_ACCENT_MAX_DELAY_MS),
+        );
         caption.style.setProperty('--accent-delay-ms', `${delay}ms`);
+        caption.dataset.accentDelayMs = String(delay);
+        caption.dataset.accentPopDurationMs = String(CAPTION_ACCENT_POP_MS);
       } else {
         caption.style.removeProperty('--accent-delay-ms');
+        delete caption.dataset.accentDelayMs;
+        delete caption.dataset.accentPopDurationMs;
+      }
+    }
+
+    function applyKeywordAccentMotion(beat, time, chunk) {
+      const keywords = caption.querySelectorAll('.em');
+      if (keywords.length === 0) return;
+      const delayMs = Number(caption.dataset.accentDelayMs || CAPTION_ACCENT_MIN_DELAY_MS);
+      const startSec = Number(chunk?.start_sec ?? beat.time[0]);
+      const progress = clamp(
+        ((time - startSec) * 1000 - delayMs) / CAPTION_ACCENT_POP_MS,
+        0,
+        1,
+      );
+      let opacity;
+      let translateY;
+      let scale;
+      if (progress <= 0.55) {
+        const rise = progress / 0.55;
+        opacity = 0.78 + rise * 0.22;
+        translateY = 4 - rise * 9;
+        scale = 0.94 + rise * 0.16;
+      } else {
+        const settle = (progress - 0.55) / 0.45;
+        opacity = 1;
+        translateY = -5 + settle * 5;
+        scale = 1.1 - settle * 0.1;
+      }
+      for (const keyword of keywords) {
+        keyword.style.opacity = String(Number(opacity.toFixed(3)));
+        keyword.style.transform = `translateY(${Number(translateY.toFixed(3))}px) scale(${Number(scale.toFixed(3))})`;
       }
     }
 
@@ -1175,17 +1175,20 @@
       }
 
       const chunks = captionChunks(beat);
+      let activeCaptionChunk = null;
       if (chunks) {
         const index = activeChunkIndex(beat, time);
+        activeCaptionChunk = chunks[index] || null;
         if (index !== activeChunk) {
           activeChunk = index;
-          const chunk = chunks[index] || {};
+          const chunk = activeCaptionChunk || {};
           caption.innerHTML = highlightCaption(chunk.text, beat.caption_emphasis, beat.caption_accent);
           caption.classList.remove('chunk-pop');
           void caption.offsetWidth;
           caption.classList.add('chunk-pop');
         }
       }
+      applyKeywordAccentMotion(beat, time, activeCaptionChunk);
 
       timeNow.textContent = time.toFixed(1);
       scrubber.value = String(time);
@@ -1392,7 +1395,7 @@
       }
 
       if (motion === 'calm_push_in') {
-        const scale = Number((1.01 + s * 0.05).toFixed(4));
+        const scale = Number((1.01 + p * 0.05).toFixed(4));
         mainAsset.style.filter = 'none';
         mainAsset.style.opacity = 1;
         mainAsset.style.transform = `scale(${scale})`;
@@ -1400,7 +1403,7 @@
       }
 
       if (motion === 'calm_pull_out') {
-        const scale = Number((1.06 - s * 0.05).toFixed(4));
+        const scale = Number((1.06 - p * 0.05).toFixed(4));
         mainAsset.style.filter = 'none';
         mainAsset.style.opacity = 1;
         mainAsset.style.transform = `scale(${scale})`;
@@ -1410,21 +1413,21 @@
       if (motion === 'calm_glide_left') {
         mainAsset.style.filter = 'none';
         mainAsset.style.opacity = 1;
-        mainAsset.style.transform = `scale(1.045) translateX(${12 - s * 24}px)`;
+        mainAsset.style.transform = `scale(1.045) translateX(${12 - p * 24}px)`;
         caption.style.transform = 'none';
       }
 
       if (motion === 'calm_glide_right') {
         mainAsset.style.filter = 'none';
         mainAsset.style.opacity = 1;
-        mainAsset.style.transform = `scale(1.045) translateX(${-12 + s * 24}px)`;
+        mainAsset.style.transform = `scale(1.045) translateX(${-12 + p * 24}px)`;
         caption.style.transform = 'none';
       }
 
       if (motion === 'calm_glide_up') {
         mainAsset.style.filter = 'none';
         mainAsset.style.opacity = 1;
-        mainAsset.style.transform = `scale(1.045) translateY(${10 - s * 20}px)`;
+        mainAsset.style.transform = `scale(1.045) translateY(${10 - p * 20}px)`;
         caption.style.transform = 'none';
       }
 
