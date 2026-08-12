@@ -654,6 +654,119 @@ const { chromium } = require('playwright');
             )
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
+    def test_calm_motion_uses_constant_progress_instead_of_stopping_at_each_shot_edge(self):
+        recipe = {
+            "title": "constant calm motion",
+            "audio_plan": {"sync_policy": {"final_voice_duration_sec": 4.0}},
+            "asset_roles": {"hero": "hero.jpg"},
+            "beats": [{
+                "id": "b01", "phase": "result", "time": [0.0, 4.0], "asset": "hero",
+                "motion": "calm_push_in", "transition_in": "cut", "caption": "finished door",
+            }],
+        }
+        hero = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E%23hero"
+        html = render_preview_html(
+            recipe=recipe,
+            asset_urls={"hero": hero, "voice": "data:audio/mp3;base64,", "font_body": "data:font/woff2;base64,"},
+            preview_title="constant calm motion",
+            preview_description="browser behavior test",
+        )
+        browser_check = r"""
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({viewport: {width: 1200, height: 2100}});
+  await page.goto(process.argv[1]);
+  const scales = await page.evaluate(() => [0, 1, 2, 3, 4].map(time => {
+    activeBeatId = null;
+    renderAt(time);
+    return Number(new DOMMatrixReadOnly(mainAsset.style.transform).a.toFixed(4));
+  }));
+  await browser.close();
+  const expected = [1.01, 1.0225, 1.035, 1.0475, 1.06];
+  if (JSON.stringify(scales) !== JSON.stringify(expected)) {
+    console.error(JSON.stringify({scales, expected}));
+    process.exit(2);
+  }
+})().catch(error => { console.error(error); process.exit(1); });
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / "preview.html"
+            html_path.write_text(html, encoding="utf-8")
+            result = subprocess.run(
+                ["node", "-e", browser_check, html_path.as_uri()],
+                cwd=TEMPLATE_PATH.parent.parent.parent,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+    def test_calm_dissolve_preserves_the_outgoing_camera_position_without_transform_override(self):
+        recipe = {
+            "title": "continuous dissolve",
+            "audio_plan": {"sync_policy": {"final_voice_duration_sec": 4.0}},
+            "asset_roles": {"first": "first.jpg", "second": "second.jpg"},
+            "beats": [{
+                "id": "b01", "phase": "result", "time": [0.0, 4.0], "asset": "first",
+                "motion": "calm_push_in", "transition_in": "cut", "caption": "finished door",
+                "shots": [
+                    {"asset_id": "first", "motion": "calm_push_in", "transition_in": "cut", "start_sec": 0.0, "end_sec": 2.0},
+                    {"asset_id": "second", "motion": "calm_push_in", "transition_in": "calm_dissolve", "start_sec": 2.0, "end_sec": 4.0},
+                ],
+            }],
+        }
+        first = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E%23first"
+        second = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E%23second"
+        html = render_preview_html(
+            recipe=recipe,
+            asset_urls={"first": first, "second": second, "voice": "data:audio/mp3;base64,", "font_body": "data:font/woff2;base64,"},
+            preview_title="continuous dissolve",
+            preview_description="browser behavior test",
+        )
+        browser_check = r"""
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({viewport: {width: 1200, height: 2100}});
+  await page.goto(process.argv[1]);
+  const state = await page.evaluate(async () => {
+    renderAt(1.99);
+    const outgoingTransform = mainAsset.style.transform;
+    renderAt(2.01);
+    const incomingTransform = mainAsset.style.transform;
+    await new Promise(resolve => setTimeout(resolve, 70));
+    const computedIncomingScale = Number(new DOMMatrixReadOnly(getComputedStyle(mainAsset).transform).a.toFixed(4));
+    return {
+      outgoingTransform,
+      incomingTransform,
+      previousTransform: previousAsset.style.transform,
+      computedIncomingScale,
+    };
+  });
+  await browser.close();
+  const expectedIncomingScale = Number(state.incomingTransform.match(/scale\(([^)]+)/)[1]);
+  if (state.previousTransform !== state.outgoingTransform) process.exit(2);
+  if (Math.abs(state.computedIncomingScale - expectedIncomingScale) > 0.002) {
+    console.error(JSON.stringify({state, expectedIncomingScale}));
+    process.exit(3);
+  }
+})().catch(error => { console.error(error); process.exit(1); });
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / "preview.html"
+            html_path.write_text(html, encoding="utf-8")
+            result = subprocess.run(
+                ["node", "-e", browser_check, html_path.as_uri()],
+                cwd=TEMPLATE_PATH.parent.parent.parent,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -129,10 +129,17 @@ one-shot의 모든 beat는 `shots`로 실제 사진 순서와 시간을 기록�
 `calm_dissolve`입니다. 비정지 motion에는 `motion_reason`이 필요하고 리뷰 증거는 한 장의
 `review_capture_hold`여야 합니다. renderer 확정값은 `calm_dissolve 380ms`, 확대·축소
 scale 차이 0.05, 좌우 총 24px, 상하 총 20px입니다.
+한 beat에 shot이 여러 개면 모두 같은 motion을 써 카메라 방향을 유지합니다. calm 모션은
+일정 속도이고 `calm_dissolve`는 이전 사진의 마지막 위치를 보존한 채 투명도만 바꿉니다.
 
 각 beat의 `caption_emphasis`는 정확히 한 단어/구절이고 `caption_accent.enabled: true`,
 `caption_layout.theme: white`를 사용합니다. 키워드 크기는 본문과 동일합니다. 첫 훅은
 `hero-calm 58px`, 이후에는 `small 36px`, `medium 46px`, `large 62px` 중 하나를 씁니다.
+모든 one-shot beat는 내레이션 음성 전문을 연속으로 덮는 `caption_chunks` 1~3개를
+가집니다. 최대 3개이며, 여러 chunk를 쓸 때 각 문구는 공백·문장부호 제외 최소 8자이고
+합친 문구는 narration과 같아야 합니다. 시간은 beat를 빈틈·겹침 없이 덮고 최종 음성의
+실제 문장 경계에 맞춥니다. 자막 DOM은 1080x1920 기준 `y=220~1470` 안에 있어야 하며
+명시·자동 줄바꿈을 합친 실제 화면 줄 수가 3줄 이상이면 실패합니다.
 
 ```json
 {
@@ -150,6 +157,11 @@ scale 차이 0.05, 좌우 총 24px, 상하 총 20px입니다.
       "end_sec": 1.3
     }],
     "caption_layout": {"size": "hero-calm", "theme": "white"},
+    "caption_chunks": [{
+      "text": "완성 결과를 먼저 보여드립니다.",
+      "start_sec": 0.0,
+      "end_sec": 1.3
+    }],
     "caption_emphasis": ["완성 결과"],
     "caption_accent": {"enabled": true}
   }]

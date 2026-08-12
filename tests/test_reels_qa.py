@@ -1203,8 +1203,8 @@ class CaptionChunkContractTest(unittest.TestCase):
         self.assertEqual(
             self.codes(
                 [
-                    {"text": "가격이 아니라", "start_sec": 0.0, "end_sec": 2.0},
-                    {"text": "우리 집에 맞는 걸\n권했습니다.", "start_sec": 2.0, "end_sec": 4.0},
+                    {"text": "가격이 아니라 우리 집에", "start_sec": 0.0, "end_sec": 2.0},
+                    {"text": "맞는 걸\n권했습니다.", "start_sec": 2.0, "end_sec": 4.0},
                 ]
             ),
             [],
@@ -1244,6 +1244,29 @@ class CaptionChunkContractTest(unittest.TestCase):
 
     def test_beats_without_chunks_stay_valid(self):
         self.assertEqual(reels_qa._validate_caption_chunks({"narration_ref": "x", "time": [0.0, 1.0]}, "b01"), [])
+
+    def test_more_than_three_fragments_are_rejected_as_context_thinning(self):
+        chunks = [
+            {"text": "가격이 아니라", "start_sec": 0.0, "end_sec": 1.0},
+            {"text": "우리 집에", "start_sec": 1.0, "end_sec": 2.0},
+            {"text": "맞는 걸", "start_sec": 2.0, "end_sec": 3.0},
+            {"text": "권했습니다.", "start_sec": 3.0, "end_sec": 4.0},
+        ]
+        self.assertIn("CAPTION_CHUNK_DENSITY_EXCESSIVE", self.codes(chunks))
+
+    def test_tiny_caption_fragment_is_rejected(self):
+        chunks = [
+            {"text": "가격이 아니라 우리 집에 맞는 걸", "start_sec": 0.0, "end_sec": 2.5},
+            {"text": "권했습니다.", "start_sec": 2.5, "end_sec": 4.0},
+        ]
+        self.assertIn("CAPTION_CHUNK_CONTEXT_TOO_THIN", self.codes(chunks))
+
+    def test_chunks_must_cover_the_beat_without_timeline_gaps(self):
+        chunks = [
+            {"text": "가격이 아니라", "start_sec": 0.0, "end_sec": 1.5},
+            {"text": "우리 집에 맞는 걸 권했습니다.", "start_sec": 2.0, "end_sec": 4.0},
+        ]
+        self.assertIn("CAPTION_CHUNK_TIME_INVALID", self.codes(chunks))
 
 
 class BeatShotContractTest(unittest.TestCase):

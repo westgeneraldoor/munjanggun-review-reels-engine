@@ -812,6 +812,10 @@ CALM_DISSOLVE_MS = 380
 CALM_SCALE_DELTA = 0.05
 CALM_HORIZONTAL_TRAVEL_PX = 24
 CALM_VERTICAL_TRAVEL_PX = 20
+CAPTION_SAFE_TOP_PX = 220
+CAPTION_SAFE_BOTTOM_PX = 1470
+MAX_CONTEXTUAL_CAPTION_CHUNKS = 3
+MIN_CONTEXTUAL_CAPTION_CHARS = 8
 MIN_ONE_SHOT_HOOK_SHOT_SEC = 1.0
 MIN_ONE_SHOT_FINAL_RESULT_SEC = 2.5
 
@@ -943,6 +947,16 @@ def _validate_one_shot_visual_edit_contract(edit_recipe: dict[str, Any]) -> list
             )
             shots = []
 
+        caption_chunks = beat.get("caption_chunks")
+        if not isinstance(caption_chunks, list) or not caption_chunks:
+            issues.append(
+                _issue(
+                    "ONE_SHOT_CAPTION_CHUNKS_REQUIRED",
+                    "Every production one-shot beat must provide contextual caption chunks bound to the narration.",
+                    scene_id=scene_id,
+                )
+            )
+
         layout = beat.get("caption_layout") or {}
         size = _as_text(layout.get("size")).strip()
         theme = _as_text(layout.get("theme")).strip()
@@ -1013,6 +1027,20 @@ def _validate_one_shot_visual_edit_contract(edit_recipe: dict[str, Any]) -> list
                         scene_id=scene_id,
                     )
                 )
+
+        shot_motion_paths = {
+            _as_text(shot.get("motion") or beat.get("motion")).strip()
+            for shot in shots
+            if isinstance(shot, dict)
+        }
+        if len(shot_motion_paths) > 1:
+            issues.append(
+                _issue(
+                    "SHOT_MOTION_PATH_DISCONTINUITY",
+                    "All photo shots inside one production beat must keep one camera direction.",
+                    scene_id=scene_id,
+                )
+            )
 
         if beat_index == 0 and shots:
             transitions = [_as_text(shot.get("transition_in")).strip() for shot in shots if isinstance(shot, dict)]
@@ -1134,6 +1162,14 @@ def _validate_caption_chunks(beat: dict[str, Any], scene_id: str) -> list[dict[s
     issues: list[dict[str, Any]] = []
     if not isinstance(chunks, list):
         return [_issue("CAPTION_CHUNKS_INVALID", "caption_chunks must be a list.", scene_id=scene_id)]
+    if len(chunks) > MAX_CONTEXTUAL_CAPTION_CHUNKS:
+        issues.append(
+            _issue(
+                "CAPTION_CHUNK_DENSITY_EXCESSIVE",
+                "A beat may use at most three contextual caption phrases.",
+                scene_id=scene_id,
+            )
+        )
 
     narration = _compact_text(_as_text(beat.get("narration_ref")))
     joined = _compact_text(" ".join(_as_text(chunk.get("text")) for chunk in chunks if isinstance(chunk, dict)))
@@ -1156,6 +1192,15 @@ def _validate_caption_chunks(beat: dict[str, Any], scene_id: str) -> list[dict[s
         if not isinstance(chunk, dict) or not _as_text(chunk.get("text")).strip():
             issues.append(_issue("CAPTION_CHUNKS_INVALID", f"caption_chunks[{index}] needs text.", scene_id=scene_id))
             continue
+        readable_chars = len(re.sub(r"[^0-9A-Za-z가-힣]", "", _as_text(chunk.get("text"))))
+        if len(chunks) > 1 and readable_chars < MIN_CONTEXTUAL_CAPTION_CHARS:
+            issues.append(
+                _issue(
+                    "CAPTION_CHUNK_CONTEXT_TOO_THIN",
+                    f"caption_chunks[{index}] is too short to carry understandable context.",
+                    scene_id=scene_id,
+                )
+            )
         lines = _as_text(chunk.get("text")).split("\n")
         if not 1 <= len(lines) <= 2:
             issues.append(
@@ -1166,7 +1211,12 @@ def _validate_caption_chunks(beat: dict[str, Any], scene_id: str) -> list[dict[s
         except (KeyError, TypeError, ValueError):
             issues.append(_issue("CAPTION_CHUNK_TIME_INVALID", f"caption_chunks[{index}] needs start_sec and end_sec.", scene_id=scene_id))
             continue
-        if end <= start or start < beat_start - 0.001 or end > beat_end + 0.001 or start < previous_end - 0.001:
+        if (
+            end <= start
+            or start < beat_start - 0.001
+            or end > beat_end + 0.001
+            or abs(start - previous_end) > 0.001
+        ):
             issues.append(
                 _issue(
                     "CAPTION_CHUNK_TIME_INVALID",
@@ -1175,6 +1225,14 @@ def _validate_caption_chunks(beat: dict[str, Any], scene_id: str) -> list[dict[s
                 )
             )
         previous_end = end
+    if abs(previous_end - beat_end) > 0.001:
+        issues.append(
+            _issue(
+                "CAPTION_CHUNK_TIME_INVALID",
+                "Caption chunks must cover the entire beat without gaps.",
+                scene_id=scene_id,
+            )
+        )
     return issues
 
 

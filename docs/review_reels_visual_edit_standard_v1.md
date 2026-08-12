@@ -44,6 +44,15 @@ visual은 narration보다 0.05초를 초과해 먼저 시작하지 않습니다.
 ## 3. 자막과 강조
 
 - 한 화면 1~2줄, 줄마다 하나의 의미를 둡니다.
+- 1080x1920 기준 자막 안전 영역은 `y=220~1470`입니다. 상단 220px과 하단
+  450px은 플랫폼 UI 데드존으로 보고 훅·본문·CTA 자막을 넣지 않습니다.
+- production one-shot의 각 beat는 음성 전문을 빠짐없이 덮는 1~3개의
+  `caption_chunks`를 사용합니다. 최대 3개이며, 둘 이상으로 나눌 때 각 chunk는
+  공백·문장부호를 제외하고 최소 8자를 가져 문맥이 보이게 합니다.
+- chunk 시간은 beat 전체를 빈틈·겹침 없이 연속으로 덮고, 최종 음성의 실제 문장
+  경계에 맞춥니다. 글자 수 비례 추정만으로 자막을 쪼개지 않습니다.
+- 명시한 줄바꿈과 자동 줄바꿈을 합쳐 실제 화면이 3줄 이상이면 실패합니다. 문맥을
+  다시 잘게 쪼개기보다 본문 자막 크기를 낮추고 한 화면 1~2줄을 유지합니다.
 - 핵심 피사체, 얼굴, 제품 디테일, 리뷰 인용을 가리지 않습니다.
 - production one-shot의 키워드 강조는 beat당 정확히 1개입니다. 키워드 크기는 본문과 동일하며 색으로만 위계를 줍니다.
 - `white` 테마의 renderer 상한은 `small 36px`, `medium 46px`, `large 62px`, `hero-calm 58px`입니다. 첫 훅은 `hero-calm`, 이후 장면은 small/medium/large만 사용합니다.
@@ -56,6 +65,10 @@ visual은 narration보다 0.05초를 초과해 먼저 시작하지 않습니다.
 
 - production one-shot의 모든 beat는 실제 렌더 순서를 `shots`로 기록합니다. 허용 모션은 `static_hold`, `calm_push_in`, `calm_pull_out`, `calm_glide_left`, `calm_glide_right`, `calm_glide_up`, `review_capture_hold`뿐이며 비정지 모션은 `motion_reason`이 필요합니다.
 - `calm_push_in`·`calm_pull_out`의 시작과 끝 scale 차이 0.05, 좌우 glide는 좌우 총 24px, 상하 glide는 상하 총 20px입니다. 회전·흔들림·플래시·blur·glow를 함께 넣지 않습니다.
+- 한 beat 안의 여러 shot은 모두 같은 모션을 사용해 카메라를 한 방향으로 유지합니다.
+  calm 모션은 shot 안에서 일정 속도로 진행하고 시작·끝에서 멈췄다가 급가속하지 않습니다.
+- `calm_dissolve`는 380ms 동안 투명도만 전환합니다. 이전 사진은 마지막 카메라 위치를
+  유지하며 dissolve가 별도의 확대·축소·이동 transform을 덮어쓰지 않습니다.
 - 과도한 확대, 얼굴·문틀·제품을 잘라내는 crop, 이유 없는 좌우 흔들림을 금지합니다.
 - 20~28초 one-shot은 전체 12컷을 넘기지 않지만 최소 컷 수는 없습니다. 컷 수보다 완성 결과와 증거의 체류 시간을 우선합니다.
 - 허용 전환은 `cut`, `calm_dissolve`뿐입니다. 첫 3컷 전환은 `cut → calm_dissolve → calm_dissolve`이고 첫 컷 이후 모든 사진 경계는 `calm_dissolve 380ms`를 사용합니다.
@@ -85,12 +98,14 @@ visual은 narration보다 0.05초를 초과해 먼저 시작하지 않습니다.
 
 HTML은 1080x1920, 30fps production 설정과 동일한 레이아웃을 사용합니다. 공식 HTML
 생성 후 모든 beat의 대표 프레임을 자동 캡처하고 작업자가 직접 확인합니다.
+공식 HTML QA는 각 자막 chunk의 중간 시점에서 실제 DOM 위치와 실제 줄 수를 측정하고
+`y=220~1470`을 벗어나거나 3줄 이상이면 실패합니다.
 
 검수 항목:
 
 1. 첫 화면이 완성 결과를 먼저 보여주고 이전 상태와의 차이를 즉시 증명하는가
 2. 모든 beat가 D-026의 `meaning_match: true`와 근거를 가지며 사진·자막·음성이 같은 의미인가
-3. 자막이 피사체와 리뷰 증거를 가리지 않고 밑줄이 실제 원문 인용에만 결속되는가
+3. 자막이 `y=220~1470` 안에 있고, 문맥을 유지하며, 피사체와 리뷰 증거를 가리지 않는가
 4. 개인정보와 생성 이미지 표시가 안전한가
 5. 자막 줄바꿈, 대비, crop, 전환이 모바일에서 읽히는가
 6. 최종 MP4가 `docs/render_qa_rules_v2.md`의 codec·해상도·오디오·대표 프레임 QA를 통과하는가
