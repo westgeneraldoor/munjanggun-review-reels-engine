@@ -115,6 +115,61 @@ production preflight는 `privacy_sanitization_report`를 요구하며 privacy ma
 
 각 beat는 최소한 시작/끝, 내레이션, 자막, 시각 asset 역할을 서로 연결해야 합니다.
 planning scene과 다른 의미를 말하거나 package 밖 asset을 암묵적으로 참조하면 안 됩니다.
+`caption_layout.theme`은 `white`, `warning`, `proof`, `clear`, `cta`, `stamp` 중 하나만
+사용합니다. 기본 production 팔레트인 `white`는 아이보리 본문과 민트 핵심어입니다.
+
+one-shot의 모든 beat는 `shots`로 실제 사진 순서와 시간을 기록합니다. 첫 세 shot은
+`result_asset_id → before_asset_id → result_asset_id`, 전환은
+`cut → calm_dissolve → calm_dissolve`, 체류는 각각 1.0초 이상이어야 합니다. 이후 shot도
+`calm_dissolve`를 사용하고 마지막 shot은 `result_asset_id`를 최소 2.5초 유지합니다.
+전체 12컷이 상한이며 최소 컷 수는 없습니다.
+
+허용 모션은 `static_hold`, `calm_push_in`, `calm_pull_out`, `calm_glide_left`,
+`calm_glide_right`, `calm_glide_up`, `review_capture_hold`, 허용 전환은 `cut`,
+`calm_dissolve`입니다. 비정지 motion에는 `motion_reason`이 필요하고 리뷰 증거는 한 장의
+`review_capture_hold`여야 합니다. renderer 확정값은 `calm_dissolve 380ms`, 확대·축소
+scale 차이 0.05, 좌우 총 24px, 상하 총 20px입니다.
+
+각 beat의 `caption_emphasis`는 정확히 한 단어/구절이고 `caption_accent.enabled: true`,
+`caption_layout.theme: white`를 사용합니다. 키워드 크기는 본문과 동일합니다. 첫 훅은
+`hero-calm 58px`, 이후에는 `small 36px`, `medium 46px`, `large 62px` 중 하나를 씁니다.
+
+```json
+{
+  "hook_visual_contract": {
+    "result_asset_id": "after_result",
+    "before_asset_id": "before_entry"
+  },
+  "beats": [{
+    "shots": [{
+      "asset_id": "after_result",
+      "motion": "calm_push_in",
+      "motion_reason": "완성 결과를 먼저 차분하게 보여줌",
+      "transition_in": "cut",
+      "start_sec": 0.0,
+      "end_sec": 1.3
+    }],
+    "caption_layout": {"size": "hero-calm", "theme": "white"},
+    "caption_emphasis": ["완성 결과"],
+    "caption_accent": {"enabled": true}
+  }]
+}
+```
+
+`review_proof` beat의 밑줄은 원본 이미지를 바꾸지 않는 overlay입니다. `quote`는
+planning의 `review_source.text`에 실제 포함되어야 하고 시간은 해당 beat 안에, 최대
+3개의 `segments` 좌표는 캡처 내부에 있어야 합니다.
+
+```json
+{
+  "review_emphasis": {
+    "quote": "원문에 실제 있는 인용",
+    "start_sec": 18.3,
+    "end_sec": 20.3,
+    "segments": [{"left_pct": 12, "top_pct": 54, "width_pct": 70}]
+  }
+}
+```
 
 one-shot edit의 audio plan에는 공식 TTS 입력과 최종 voice hash, 실제 측정 길이가
 결속되어야 합니다. 임의 MP3나 Windows SAPI는 production provenance가 아닙니다.

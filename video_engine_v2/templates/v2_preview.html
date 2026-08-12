@@ -88,8 +88,14 @@
       transform: scale(1.08);
     }
 
+    .asset.previous {
+      opacity: 0;
+      pointer-events: none;
+    }
+
     .stage.product_card_flash .asset.backdrop,
-    .stage.review_capture_scroll .asset.backdrop {
+    .stage.review_capture_scroll .asset.backdrop,
+    .stage.review_capture_hold .asset.backdrop {
       opacity: 1;
     }
 
@@ -159,7 +165,7 @@
 
     .caption.accent-keyword .em {
       color: #fff5a9;
-      font-size: 1.06em;
+      font-size: 1em;
       margin: 0 0.015em;
       text-shadow:
         0 3px 0 rgba(0, 0, 0, 0.78),
@@ -171,17 +177,29 @@
     }
 
     .caption.accent-keyword.accent-soft .em {
-      font-size: 1.045em;
+      font-size: 1em;
     }
 
     .caption.accent-keyword.accent-proof .em {
       color: #fff7ba;
-      font-size: 1.06em;
+      font-size: 1em;
     }
 
     .caption.accent-keyword.accent-result .em {
       color: #ffffff;
-      font-size: 1.075em;
+      font-size: 1em;
+    }
+
+    .caption.theme-white {
+      color: #f7f4ec;
+      text-shadow: 0 3px 0 rgba(9, 25, 23, 0.78), 0 8px 22px rgba(0, 0, 0, 0.58);
+      -webkit-text-stroke: 1.15px rgba(15, 34, 31, 0.9);
+    }
+
+    .caption.theme-white .em,
+    .caption.theme-white.accent-keyword .em {
+      color: #79e5d0;
+      text-shadow: 0 3px 0 rgba(7, 31, 27, 0.82), 0 8px 22px rgba(0, 0, 0, 0.58);
     }
 
     @keyframes keywordAccentIn {
@@ -260,16 +278,20 @@
     }
 
     .caption.size-small {
-      font-size: clamp(25px, 3.7vh, 40px);
+      font-size: clamp(22px, 3.3vh, 36px);
       line-height: 1.08;
     }
 
     .caption.size-medium {
-      font-size: clamp(32px, 4.8vh, 52px);
+      font-size: clamp(28px, 4.25vh, 46px);
     }
 
     .caption.size-large {
-      font-size: clamp(42px, 6.2vh, 70px);
+      font-size: clamp(37px, 5.5vh, 62px);
+    }
+
+    .caption.size-hero-calm {
+      font-size: clamp(34px, 5.1vh, 58px);
     }
 
     .caption.pos-upper {
@@ -368,6 +390,50 @@
       animation: wipeAcross 620ms cubic-bezier(.2,.8,.2,1) both;
     }
 
+    .transition-hit.t-cross_dissolve .asset.main {
+      animation: crossDissolveIn 520ms ease-out both;
+    }
+
+    .transition-hit.t-cross_dissolve .asset.previous {
+      animation: crossDissolveOut 520ms ease-out both;
+    }
+
+    .transition-hit.t-soft_cut .asset.main {
+      animation: crossDissolveIn 160ms linear;
+    }
+
+    .transition-hit.t-soft_cut .asset.previous {
+      animation: crossDissolveOut 160ms linear;
+    }
+
+    .transition-hit.t-soft_dissolve .asset.main {
+      animation: crossDissolveIn 260ms ease-out;
+    }
+
+    .transition-hit.t-soft_dissolve .asset.previous {
+      animation: crossDissolveOut 260ms ease-out;
+    }
+
+    .transition-hit.t-calm_dissolve .asset.main {
+      animation: calmDissolveIn 380ms cubic-bezier(.22,.7,.28,1);
+    }
+
+    .transition-hit.t-calm_dissolve .asset.previous {
+      animation: crossDissolveOut 380ms ease-out;
+    }
+
+    .stage.calm_glide_left.transition-hit.t-calm_dissolve .asset.main {
+      animation-name: calmGlideLeftIn;
+    }
+
+    .stage.calm_glide_right.transition-hit.t-calm_dissolve .asset.main {
+      animation-name: calmGlideRightIn;
+    }
+
+    .stage.calm_glide_up.transition-hit.t-calm_dissolve .asset.main {
+      animation-name: calmGlideUpIn;
+    }
+
     @keyframes flashBang {
       0% { opacity: 0.95; }
       100% { opacity: 0; }
@@ -379,10 +445,52 @@
       100% { opacity: 0; transform: translateX(115%); }
     }
 
+    @keyframes calmDissolveIn {
+      from { opacity: 0; transform: scale(1.065); }
+      to { opacity: 1; transform: scale(1.02); }
+    }
+
+    @keyframes calmGlideLeftIn {
+      from { opacity: 0; transform: scale(1.055) translateX(24px); }
+      to { opacity: 1; transform: scale(1.045) translateX(10px); }
+    }
+
+    @keyframes calmGlideRightIn {
+      from { opacity: 0; transform: scale(1.055) translateX(-24px); }
+      to { opacity: 1; transform: scale(1.045) translateX(-10px); }
+    }
+
+    @keyframes calmGlideUpIn {
+      from { opacity: 0; transform: scale(1.055) translateY(22px); }
+      to { opacity: 1; transform: scale(1.045) translateY(8px); }
+    }
+
+    @keyframes crossDissolveIn {
+      0% { opacity: 0; }
+      100% { opacity: 1; }
+    }
+
+    @keyframes crossDissolveOut {
+      0% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+
     @keyframes captionPop {
       0% { opacity: 0.45; transform: translateY(16px) scale(0.92); filter: blur(1px); }
       68% { opacity: 1; transform: translateY(-5px) scale(1.05); filter: blur(0); }
       100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+    }
+
+    /* 구절 자막은 말하는 순간마다 통통 튀어 올라온다. */
+    .caption.chunk-pop {
+      animation: captionChunkPop 260ms cubic-bezier(.18, 1.3, .32, 1) both;
+    }
+
+    @keyframes captionChunkPop {
+      0% { opacity: 0; transform: translateY(22px) scale(0.86); }
+      55% { opacity: 1; transform: translateY(-7px) scale(1.07); }
+      78% { transform: translateY(2px) scale(0.985); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
     }
 
     @keyframes imageSnap {
@@ -429,9 +537,27 @@
       border-radius: 18px;
       overflow: hidden;
       opacity: 0;
+      transition: opacity 260ms ease-out;
       z-index: 4;
       background: #fff;
       box-shadow: 0 28px 70px rgba(0,0,0,0.58);
+    }
+
+    .review-underline-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .review-underline {
+      position: absolute;
+      height: 2px;
+      border-radius: 999px;
+      background: #2faf97;
+      box-shadow: none;
+      transform: scaleX(0);
+      transform-origin: left center;
     }
 
     .semantic-overlay {
@@ -711,12 +837,16 @@
       <section class="stage" id="stage">
         <img class="asset backdrop" id="backdrop" alt="" />
         <img class="asset main" id="mainAsset" alt="" />
+        <img class="asset previous" id="previousAsset" alt="" />
         <div class="flash-layer" id="flashLayer"></div>
         <div class="wipe-layer" id="wipeLayer"></div>
         <div class="sparkle" id="sparkle"></div>
         <div class="paper" id="paper"><div class="paper-ball" id="paperBall">문장군</div></div>
         <div class="product-card" id="productCard"><img id="productImg" alt="" /></div>
-        <div class="review-card" id="reviewCard"><img id="reviewImg" alt="" /></div>
+        <div class="review-card" id="reviewCard">
+          <img id="reviewImg" alt="" />
+          <div class="review-underline-layer" id="reviewUnderlineLayer"></div>
+        </div>
         <div class="semantic-overlay" id="semanticOverlay"></div>
         <div class="caption" id="caption"></div>
         <div class="motion-note" id="motionNote"></div>
@@ -755,6 +885,7 @@
 
     const stage = document.getElementById('stage');
     const mainAsset = document.getElementById('mainAsset');
+    const previousAsset = document.getElementById('previousAsset');
     const backdrop = document.getElementById('backdrop');
     const caption = document.getElementById('caption');
     const flashLayer = document.getElementById('flashLayer');
@@ -766,6 +897,7 @@
     const productImg = document.getElementById('productImg');
     const reviewCard = document.getElementById('reviewCard');
     const reviewImg = document.getElementById('reviewImg');
+    const reviewUnderlineLayer = document.getElementById('reviewUnderlineLayer');
     const semanticOverlay = document.getElementById('semanticOverlay');
     const audio = document.getElementById('audio');
     const playBtn = document.getElementById('playBtn');
@@ -778,6 +910,8 @@
     const motionNote = document.getElementById('motionNote');
 
     let activeBeatId = null;
+    let activeChunk = -1;
+    let activeShot = -1;
     let manualTime = 0;
     let isScrubbing = false;
 
@@ -831,6 +965,60 @@
       return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
+    // 한 beat 안에서도 사진이 바뀐다. shot마다 제 모션과 전환을 갖는다.
+    function beatShots(beat) {
+      const shots = beat.shots;
+      return Array.isArray(shots) && shots.length > 0 ? shots : null;
+    }
+
+    function activeShotIndex(beat, time) {
+      const shots = beatShots(beat);
+      if (!shots) return -1;
+      for (let index = 0; index < shots.length; index += 1) {
+        if (time >= Number(shots[index].start_sec) && time < Number(shots[index].end_sec)) return index;
+      }
+      return time >= Number(shots[shots.length - 1].end_sec) ? shots.length - 1 : 0;
+    }
+
+    function applyShot(beat, shot) {
+      const motion = shot.motion || beat.motion;
+      const transitionIn = shot.transition_in || beat.transition_in;
+      stage.className = `stage ${motion} t-${classSafe(transitionIn)} out-${classSafe(beat.transition_out)}`;
+      const url = assetUrls[shot.asset_id] || '';
+      if (url) {
+        if (['cross_dissolve', 'soft_cut', 'soft_dissolve', 'calm_dissolve'].includes(transitionIn) && mainAsset.src && mainAsset.src !== url) {
+          previousAsset.src = mainAsset.src;
+        } else {
+          previousAsset.removeAttribute('src');
+        }
+        mainAsset.src = url;
+        mainAsset.style.opacity = 1;
+      }
+      if (assetUrls[shot.background_asset || beat.background_asset]) {
+        backdrop.src = assetUrls[shot.background_asset || beat.background_asset];
+      }
+      motionNote.textContent = `${motion} · ${transitionIn} → ${beat.transition_out}`;
+      stage.classList.remove('transition-hit');
+      void stage.offsetWidth;
+      stage.classList.add('transition-hit');
+    }
+
+    // 자막은 음성 전문을 그대로 쓰되, 말하는 순간의 구절만 화면에 남긴다.
+    function captionChunks(beat) {
+      const chunks = beat.caption_chunks;
+      return Array.isArray(chunks) && chunks.length > 0 ? chunks : null;
+    }
+
+    function activeChunkIndex(beat, time) {
+      const chunks = captionChunks(beat);
+      if (!chunks) return -1;
+      for (let index = 0; index < chunks.length; index += 1) {
+        const chunk = chunks[index];
+        if (time >= Number(chunk.start_sec) && time < Number(chunk.end_sec)) return index;
+      }
+      return time >= Number(chunks[chunks.length - 1].end_sec) ? chunks.length - 1 : 0;
+    }
+
     function semanticMarkup(overlay) {
       if (!overlay || !overlay.kind) return '';
       const label = esc(overlay.label);
@@ -857,6 +1045,22 @@
           return `<div class="overlay-chip first">${label}</div><div class="overlay-chip second">${accent}</div>`;
         default:
           return `<div class="overlay-chip">${label || accent}</div>`;
+      }
+    }
+
+    function configureReviewEmphasis(beat) {
+      const emphasis = beat.review_emphasis;
+      reviewUnderlineLayer.replaceChildren();
+      reviewUnderlineLayer.removeAttribute('aria-label');
+      if (!emphasis || !Array.isArray(emphasis.segments)) return;
+      reviewUnderlineLayer.setAttribute('aria-label', String(emphasis.quote || ''));
+      for (const segment of emphasis.segments) {
+        const line = document.createElement('span');
+        line.className = 'review-underline';
+        line.style.left = `${Number(segment.left_pct)}%`;
+        line.style.top = `${Number(segment.top_pct)}%`;
+        line.style.width = `${Number(segment.width_pct)}%`;
+        reviewUnderlineLayer.appendChild(line);
       }
     }
 
@@ -897,10 +1101,15 @@
       });
     }
 
-    function enterBeat(beat) {
+    function enterBeat(beat, time) {
+      const isInitialEntry = activeBeatId === null;
       activeBeatId = beat.id;
       stage.className = `stage ${beat.motion} t-${classSafe(beat.transition_in)} out-${classSafe(beat.transition_out)}`;
-      caption.innerHTML = highlightCaption(beat.caption, beat.caption_emphasis, beat.caption_accent);
+      activeChunk = -1;
+      activeShot = -1;
+      if (!captionChunks(beat)) {
+        caption.innerHTML = highlightCaption(beat.caption, beat.caption_emphasis, beat.caption_accent);
+      }
       applyCaptionLayout(beat);
       const overlay = beat.semantic_overlay || {};
       semanticOverlay.className = `semantic-overlay kind-${classSafe(overlay.kind || 'none')}`;
@@ -911,13 +1120,23 @@
 
       const mainUrl = assetFor(beat);
       const bgUrl = backgroundFor(beat);
-      mainAsset.style.opacity = mainUrl ? 1 : 0;
-      if (mainUrl) mainAsset.src = mainUrl;
+      const initialShots = beatShots(beat);
+      if (initialShots && isInitialEntry) {
+        const initialShotIndex = activeShotIndex(beat, time);
+        if (initialShotIndex > 0) {
+          const outgoingUrl = assetUrls[initialShots[initialShotIndex - 1].asset_id] || '';
+          if (outgoingUrl) mainAsset.src = outgoingUrl;
+        }
+      } else if (!initialShots) {
+        mainAsset.style.opacity = mainUrl ? 1 : 0;
+        if (mainUrl) mainAsset.src = mainUrl;
+      }
       if (bgUrl) backdrop.src = bgUrl;
 
       paperBall.textContent = splitCaption(beat.caption)[0] || '문장군';
       productImg.src = assetUrls.product_thumbnail || '';
       reviewImg.src = assetUrls.review_capture || '';
+      configureReviewEmphasis(beat);
 
       flashLayer.style.transition = 'none';
       flashLayer.style.opacity = 0;
@@ -931,14 +1150,42 @@
 
     function renderAt(time) {
       const beat = findBeat(time);
-      const p = progressFor(beat, time);
+      const shotList = beatShots(beat);
+      const shotNow = shotList ? shotList[activeShotIndex(beat, time)] : null;
+      // shot이 있으면 모션은 shot 단위로 갈리고 진행도도 shot 안에서 다시 흐른다.
+      const motion = (shotNow && shotNow.motion) || beat.motion;
+      const p = shotNow
+        ? clamp((time - Number(shotNow.start_sec)) / Math.max(Number(shotNow.end_sec) - Number(shotNow.start_sec), 0.001), 0, 1)
+        : progressFor(beat, time);
       const e = easeOutCubic(p);
       const s = easeInOut(p);
       const wave = Math.sin(p * Math.PI);
       const beatNumber = Number(String(beat.id).replace('b', '')) || 1;
       const direction = beatNumber % 2 === 0 ? 1 : -1;
 
-      if (beat.id !== activeBeatId) enterBeat(beat);
+      if (beat.id !== activeBeatId) enterBeat(beat, time);
+
+      const shots = beatShots(beat);
+      if (shots) {
+        const shotIndex = activeShotIndex(beat, time);
+        if (shotIndex !== activeShot) {
+          activeShot = shotIndex;
+          applyShot(beat, shots[shotIndex] || {});
+        }
+      }
+
+      const chunks = captionChunks(beat);
+      if (chunks) {
+        const index = activeChunkIndex(beat, time);
+        if (index !== activeChunk) {
+          activeChunk = index;
+          const chunk = chunks[index] || {};
+          caption.innerHTML = highlightCaption(chunk.text, beat.caption_emphasis, beat.caption_accent);
+          caption.classList.remove('chunk-pop');
+          void caption.offsetWidth;
+          caption.classList.add('chunk-pop');
+        }
+      }
 
       timeNow.textContent = time.toFixed(1);
       scrubber.value = String(time);
@@ -946,6 +1193,7 @@
       mainAsset.style.filter = 'none';
       mainAsset.style.opacity = 1;
       mainAsset.style.transform = `scale(${1.035 + s * 0.05}) translate(${direction * (0.5 - s) * 16}px, ${(0.5 - s) * 10}px)`;
+      previousAsset.style.removeProperty('opacity');
       backdrop.style.opacity = 0;
       paper.style.opacity = 0;
       productCard.style.opacity = 0;
@@ -956,7 +1204,12 @@
       semanticOverlay.style.setProperty('--wave', wave.toFixed(4));
       sparkle.style.opacity = 0;
       caption.style.opacity = 1;
-      caption.style.transform = `translateY(${(1 - e) * 24}px) scale(${0.9 + e * 0.1})`;
+      if (chunks) {
+        // 구절 자막은 CSS pop 애니메이션이 위치를 잡는다.
+        caption.style.removeProperty('transform');
+      } else {
+        caption.style.transform = `translateY(${(1 - e) * 24}px) scale(${0.9 + e * 0.1})`;
+      }
       applyCaptionLayout(beat);
 
       if (beat.semantic_overlay && beat.semantic_overlay.kind) {
@@ -964,34 +1217,34 @@
         semanticOverlay.style.transform = `translateY(${(1 - e) * 12}px) scale(${0.98 + e * 0.02})`;
       }
 
-      if (beat.motion === 'paper_crumple_pop') {
+      if (motion === 'paper_crumple_pop') {
         mainAsset.style.opacity = 0;
         paper.style.opacity = 1;
         paperBall.style.transform = `rotate(${-18 + e * 16}deg) scale(${0.58 + e * 0.56})`;
         caption.style.opacity = 0;
       }
 
-      if (beat.motion === 'keyword_pop') {
+      if (motion === 'keyword_pop') {
         mainAsset.style.transform = `scale(${1.05 + s * 0.035 + wave * 0.018}) translate(${direction * (0.5 - s) * 18}px, ${Math.sin(p * 10) * 2}px)`;
         if (beat.phase.includes('problem')) mainAsset.style.filter = 'brightness(0.82) contrast(1.05)';
         caption.style.transform = `scale(${0.88 + e * 0.16 + wave * 0.035}) rotate(${Math.sin(p * Math.PI * 2) * 0.6}deg)`;
       }
 
-      if (beat.motion === 'before_after_flash') {
+      if (motion === 'before_after_flash') {
         mainAsset.style.transform = `scale(${1.02 + s * 0.075}) translateY(${(0.5 - s) * 12}px)`;
         sparkle.style.opacity = 0.75 * wave;
         flashLayer.style.opacity = p < 0.2 ? 1 - p / 0.2 : 0;
         caption.style.transform = `translateY(${(1 - e) * 18}px) scale(${0.9 + e * 0.12})`;
       }
 
-      if (beat.motion === 'heat_haze_problem') {
+      if (motion === 'heat_haze_problem') {
         mainAsset.style.filter = `brightness(${0.84 + wave * 0.05}) contrast(1.08) saturate(0.92)`;
         mainAsset.style.transform = `scale(${1.08 + s * 0.035}) translate(${Math.sin(p * 34) * 4}px, ${Math.cos(p * 23) * 5}px) skewX(${Math.sin(p * 18) * 0.7}deg)`;
         flashLayer.style.opacity = p < 0.18 ? 0.28 * (1 - p / 0.18) : 0;
         caption.style.transform = `scale(${0.94 + wave * 0.09}) translateY(${Math.sin(p * 18) * 3}px)`;
       }
 
-      if (beat.motion === 'cool_air_reveal') {
+      if (motion === 'cool_air_reveal') {
         mainAsset.style.filter = `brightness(${1.02 + wave * 0.1}) contrast(1.02) saturate(1.04)`;
         mainAsset.style.transform = `scale(${1.045 + s * 0.055}) translateY(${(0.5 - s) * 20}px)`;
         sparkle.style.opacity = 0.36 * wave;
@@ -1000,13 +1253,13 @@
         caption.style.transform = `translateY(${(1 - e) * 20}px) scale(${0.92 + e * 0.12})`;
       }
 
-      if (beat.motion === 'space_anxiety_pull') {
+      if (motion === 'space_anxiety_pull') {
         mainAsset.style.filter = 'brightness(0.9) contrast(1.04)';
         mainAsset.style.transform = `scale(${1.12 - s * 0.035}) translate(${direction * (0.5 - s) * 24}px, ${(0.5 - s) * 32}px)`;
         caption.style.transform = `scale(${0.9 + e * 0.1}) translateY(${(1 - e) * 24}px)`;
       }
 
-      if (beat.motion === 'air_leak_wipe') {
+      if (motion === 'air_leak_wipe') {
         mainAsset.style.filter = `brightness(${0.92 + wave * 0.05}) contrast(1.05)`;
         mainAsset.style.transform = `scale(${1.07 + s * 0.03}) translate(${direction * (0.5 - s) * 28}px, ${(0.5 - s) * 16}px)`;
         wipeLayer.style.opacity = 0.45 * wave;
@@ -1014,31 +1267,31 @@
         caption.style.transform = `scale(${0.95 + wave * 0.06})`;
       }
 
-      if (beat.motion === 'clean_room_pan') {
+      if (motion === 'clean_room_pan') {
         mainAsset.style.filter = `brightness(${1.01 + wave * 0.06}) contrast(1.01)`;
         mainAsset.style.transform = `scale(${1.03 + s * 0.06}) translate(${direction * (0.5 - s) * 18}px, ${(0.5 - s) * 22}px)`;
         caption.style.transform = `translateY(${(1 - e) * 22}px) scale(${0.93 + e * 0.09})`;
       }
 
-      if (beat.motion === 'entry_path_pan') {
+      if (motion === 'entry_path_pan') {
         mainAsset.style.transform = `scale(${1.09 + s * 0.025}) translate(${direction * 10}px, ${(0.5 - s) * 70}px)`;
         caption.style.transform = `translateY(${(1 - e) * 26}px) scale(${0.94 + e * 0.06})`;
       }
 
-      if (beat.motion === 'problem_shake') {
+      if (motion === 'problem_shake') {
         mainAsset.style.filter = 'brightness(0.86) contrast(1.08)';
         mainAsset.style.transform = `scale(${1.08 + s * 0.025}) translate(${Math.sin(p * 38) * 5}px, ${Math.cos(p * 31) * 4}px)`;
         caption.style.transform = `scale(${0.96 + wave * 0.08}) translateX(${Math.sin(p * 26) * 3}px)`;
       }
 
-      if (beat.motion === 'rejection_stamp') {
+      if (motion === 'rejection_stamp') {
         mainAsset.style.filter = `brightness(${0.74 + wave * 0.06}) contrast(1.18) saturate(0.76)`;
         mainAsset.style.transform = `scale(${1.08 + s * 0.035}) translate(${Math.sin(p * 26) * 7}px, ${Math.cos(p * 18) * 4}px)`;
         flashLayer.style.opacity = p < 0.16 ? 0.55 * (1 - p / 0.16) : 0;
         caption.style.transform = `rotate(${-5 + Math.sin(p * 18) * 1.2}deg) scale(${0.9 + e * 0.13 + wave * 0.03})`;
       }
 
-      if (beat.motion === 'obstacle_route_pan') {
+      if (motion === 'obstacle_route_pan') {
         mainAsset.style.filter = `brightness(${0.82 + wave * 0.05}) contrast(1.12) saturate(0.9)`;
         mainAsset.style.transform = `scale(${1.13 + s * 0.035}) translate(${direction * (0.5 - s) * 34}px, ${(0.5 - s) * 90}px)`;
         wipeLayer.style.opacity = 0.34 * wave;
@@ -1046,7 +1299,7 @@
         caption.style.transform = `translateY(${(1 - e) * 22}px) scale(${0.93 + e * 0.08})`;
       }
 
-      if (beat.motion === 'precision_scan') {
+      if (motion === 'precision_scan') {
         mainAsset.style.filter = `brightness(${0.96 + wave * 0.06}) contrast(1.09)`;
         mainAsset.style.transform = `scale(${1.08 + s * 0.06}) translate(${direction * (0.5 - s) * 26}px, ${(0.5 - s) * 34}px)`;
         wipeLayer.style.opacity = 0.48 * wave;
@@ -1054,31 +1307,31 @@
         caption.style.transform = `translateY(${(1 - e) * 18}px) scale(${0.94 + e * 0.08})`;
       }
 
-      if (beat.motion === 'construction_focus') {
+      if (motion === 'construction_focus') {
         mainAsset.style.filter = `brightness(${0.9 + wave * 0.06}) contrast(1.14) saturate(0.95)`;
         mainAsset.style.transform = `scale(${1.06 + s * 0.055}) translate(${Math.sin(p * 12) * 5}px, ${(0.5 - s) * 22}px)`;
         caption.style.transform = `scale(${0.93 + e * 0.1}) translateY(${(1 - e) * 20}px)`;
       }
 
-      if (beat.motion === 'mission_clear_reveal') {
+      if (motion === 'mission_clear_reveal') {
         mainAsset.style.filter = `brightness(${1.0 + wave * 0.08}) contrast(1.04) saturate(1.03)`;
         mainAsset.style.transform = `scale(${1.03 + s * 0.06}) translate(${direction * (0.5 - s) * 18}px, ${(0.5 - s) * 20}px)`;
         sparkle.style.opacity = 0.28 * wave;
         caption.style.transform = `rotate(${-2 + e * 2}deg) scale(${0.9 + e * 0.12})`;
       }
 
-      if (beat.motion === 'detail_probe') {
+      if (motion === 'detail_probe') {
         mainAsset.style.filter = `brightness(${0.98 + wave * 0.05}) contrast(1.06)`;
         mainAsset.style.transform = `scale(${1.12 + s * 0.04}) translate(${direction * (0.5 - s) * 48}px, ${(0.5 - s) * 48}px)`;
         caption.style.transform = `translateY(${(1 - e) * 18}px) scale(${0.94 + e * 0.07})`;
       }
 
-      if (beat.motion === 'measure_scan') {
+      if (motion === 'measure_scan') {
         mainAsset.style.transform = `scale(${1.045 + s * 0.085}) translate(${direction * (0.5 - s) * 22}px, ${(0.5 - s) * 28}px)`;
         caption.style.transform = `translateY(${(1 - e) * 18}px) scale(${0.94 + e * 0.08})`;
       }
 
-      if (beat.motion === 'product_card_flash') {
+      if (motion === 'product_card_flash') {
         backdrop.style.opacity = 1;
         mainAsset.style.opacity = 0;
         productCard.style.opacity = e;
@@ -1088,14 +1341,14 @@
         caption.style.transform = `translateY(${(1 - e) * 18}px) scale(${0.94 + e * 0.06})`;
       }
 
-      if (beat.motion === 'clean_glow_reveal') {
+      if (motion === 'clean_glow_reveal') {
         mainAsset.style.filter = `brightness(${1.02 + wave * 0.12}) contrast(1.02)`;
         mainAsset.style.transform = `scale(${1.02 + s * 0.07}) translate(${direction * (0.5 - s) * 14}px, ${(0.5 - s) * 12}px)`;
         sparkle.style.opacity = 0.46 * wave;
         caption.style.transform = `scale(${0.9 + e * 0.13})`;
       }
 
-      if (beat.motion === 'review_capture_scroll') {
+      if (motion === 'review_capture_scroll') {
         backdrop.style.opacity = 1;
         mainAsset.style.opacity = 0;
         reviewCard.style.opacity = e;
@@ -1103,6 +1356,86 @@
         backdrop.style.transform = `scale(${1.1 + s * 0.025}) translateY(${(0.5 - s) * 18}px)`;
         caption.style.opacity = easeOutCubic((p - 0.32) / 0.45);
         caption.style.transform = `translateY(${(1 - e) * 26}px) scale(${0.92 + e * 0.08})`;
+      }
+
+      if (motion === 'review_capture_hold') {
+        backdrop.style.opacity = 1;
+        mainAsset.style.opacity = 0;
+        reviewCard.style.opacity = 1;
+        reviewCard.style.transform = 'translate(-50%, -50%) scale(1)';
+        backdrop.style.transform = 'scale(1.1)';
+        caption.style.opacity = 1;
+        caption.style.transform = 'none';
+      }
+
+      if (motion === 'static_hold') {
+        mainAsset.style.filter = 'none';
+        mainAsset.style.opacity = 1;
+        mainAsset.style.transform = 'scale(1.02)';
+        caption.style.transform = 'none';
+      }
+
+      if (motion === 'micro_push_in') {
+        const scale = Number((1.015 + s * 0.02).toFixed(4));
+        mainAsset.style.filter = 'none';
+        mainAsset.style.opacity = 1;
+        mainAsset.style.transform = `scale(${scale})`;
+        caption.style.transform = 'none';
+      }
+
+      if (motion === 'micro_pull_out') {
+        const scale = Number((1.035 - s * 0.02).toFixed(4));
+        mainAsset.style.filter = 'none';
+        mainAsset.style.opacity = 1;
+        mainAsset.style.transform = `scale(${scale})`;
+        caption.style.transform = 'none';
+      }
+
+      if (motion === 'calm_push_in') {
+        const scale = Number((1.01 + s * 0.05).toFixed(4));
+        mainAsset.style.filter = 'none';
+        mainAsset.style.opacity = 1;
+        mainAsset.style.transform = `scale(${scale})`;
+        caption.style.transform = 'none';
+      }
+
+      if (motion === 'calm_pull_out') {
+        const scale = Number((1.06 - s * 0.05).toFixed(4));
+        mainAsset.style.filter = 'none';
+        mainAsset.style.opacity = 1;
+        mainAsset.style.transform = `scale(${scale})`;
+        caption.style.transform = 'none';
+      }
+
+      if (motion === 'calm_glide_left') {
+        mainAsset.style.filter = 'none';
+        mainAsset.style.opacity = 1;
+        mainAsset.style.transform = `scale(1.045) translateX(${12 - s * 24}px)`;
+        caption.style.transform = 'none';
+      }
+
+      if (motion === 'calm_glide_right') {
+        mainAsset.style.filter = 'none';
+        mainAsset.style.opacity = 1;
+        mainAsset.style.transform = `scale(1.045) translateX(${-12 + s * 24}px)`;
+        caption.style.transform = 'none';
+      }
+
+      if (motion === 'calm_glide_up') {
+        mainAsset.style.filter = 'none';
+        mainAsset.style.opacity = 1;
+        mainAsset.style.transform = `scale(1.045) translateY(${10 - s * 20}px)`;
+        caption.style.transform = 'none';
+      }
+
+      const reviewEmphasis = beat.review_emphasis;
+      if (reviewEmphasis && reviewUnderlineLayer.children.length > 0) {
+        const start = Number(reviewEmphasis.start_sec);
+        const end = Number(reviewEmphasis.end_sec);
+        const underlineProgress = clamp((time - start) / Math.max(end - start, 0.001), 0, 1);
+        for (const line of reviewUnderlineLayer.querySelectorAll('.review-underline')) {
+          line.style.transform = `scaleX(${Number(underlineProgress.toFixed(4))})`;
+        }
       }
 
       const captionDelay = Number(beat.caption_delay_sec || 0);

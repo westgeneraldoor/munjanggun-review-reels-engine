@@ -4,6 +4,8 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 
+const FRAME_SETTLE_WAIT_MS = 500;
+
 function parseArgs(argv) {
   const result = {};
   for (let index = 0; index < argv.length; index += 2) {
@@ -65,7 +67,7 @@ try {
       scrubber.value = String(time);
       scrubber.dispatchEvent(new Event("input", { bubbles: true }));
     }, sampleTime);
-    await page.waitForTimeout(120);
+    await page.waitForTimeout(FRAME_SETTLE_WAIT_MS);
 
     const state = await page.evaluate(() => {
       const stage = document.querySelector("#stage");
@@ -136,6 +138,7 @@ try {
 const failedChecks = checks.filter((check) => check.automatic_status !== "pass");
 const report = {
   schema_version: "review-reel-html-internal-qa-v1",
+  frame_settle_wait_ms: FRAME_SETTLE_WAIT_MS,
   html_path: path.basename(htmlPath),
   edit_recipe_path: path.relative(previewDir, editPath).replaceAll("\\", "/"),
   automatic_status: failedChecks.length === 0 && consoleErrors.length === 0 ? "pass" : "fail",

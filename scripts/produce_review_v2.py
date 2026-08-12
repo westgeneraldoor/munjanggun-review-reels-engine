@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -27,6 +28,21 @@ def configure_utf8_output() -> None:
         reconfigure = getattr(stream, "reconfigure", None)
         if callable(reconfigure):
             reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
+def run_utf8_capture(command: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Run a Python child with a UTF-8 stdout contract on every Windows locale."""
+    environment = os.environ.copy()
+    environment.update({"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"})
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        env=environment,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="strict",
+    )
 
 
 def _common_arguments(parser: argparse.ArgumentParser, *, include_recipes: bool) -> None:
@@ -84,14 +100,7 @@ def main(argv: list[str] | None = None) -> int:
             command = [sys.executable, str(ROOT / "build_html_preview_v2.py"), "--recipe", args.edit, "--gate-receipt", str(receipt_path)]
             if args.engine_font:
                 command.extend(["--engine-font", args.engine_font])
-            result = subprocess.run(
-                command,
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-            )
+            result = run_utf8_capture(command, cwd=ROOT)
             if result.stdout:
                 print(result.stdout, end="")
             if result.stderr:

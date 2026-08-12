@@ -4,9 +4,18 @@ import unittest
 from pathlib import Path
 
 from video_engine_v2.reels_qa import (
+    CALM_DISSOLVE_MS,
+    CALM_HORIZONTAL_TRAVEL_PX,
+    CALM_SCALE_DELTA,
+    CALM_VERTICAL_TRAVEL_PX,
     HARD_CPS_LIMIT,
+    MAX_ONE_SHOT_TOTAL_SHOTS,
     MAX_VISUAL_LEAD_SEC,
+    MIN_ONE_SHOT_FINAL_RESULT_SEC,
+    MIN_ONE_SHOT_HOOK_SHOT_SEC,
     MIN_ONE_SHOT_CPS,
+    ONE_SHOT_CALM_MOTIONS,
+    ONE_SHOT_CALM_TRANSITIONS,
     SOFT_CPS_LIMIT,
 )
 
@@ -45,8 +54,8 @@ COMPACT_STANDARDS = {
     ],
     "docs/review_reels_visual_edit_standard_v1.md": [
         "같은 순간에",
-        "1.03~1.08",
-        "1.03~1.10",
+        "키워드 크기는 본문과 동일",
+        "calm_dissolve",
         "-16 LUFS",
         "1080x1920",
         "D-026 장면 의미 일치 하드 게이트",
@@ -186,6 +195,31 @@ class AuthorityDocumentsTest(unittest.TestCase):
 
         self.assertEqual(offenders, [], f"GEMINI.md는 삭제된 문서다: {offenders}")
 
+    def test_privacy_standard_allows_building_number_and_requires_masking_first(self):
+        privacy = (ROOT / "docs/reels_privacy_asset_qa_rules_v1.md").read_text(encoding="utf-8")
+        workflow = (ROOT / "docs/review_video_publish_workflow_v2.md").read_text(encoding="utf-8")
+        render = (ROOT / "docs/render_qa_rules_v2.md").read_text(encoding="utf-8")
+
+        # 아파트 동 번호는 허용, 개인 세대를 특정하는 호수만 차단이라는 사용자 확정 기준.
+        self.assertIn("동 번호는 차단 대상이 아니다", privacy)
+        self.assertIn("아파트 동 번호는 기본 허용", workflow)
+        self.assertNotIn("주소/건물명/가족사진/얼굴/차량번호가 보이면 렌더 금지", render)
+        self.assertIn("개인 세대를 특정하는 호수", render)
+        for text in (privacy, workflow, render):
+            self.assertNotIn("동호수", text)
+            self.assertNotIn("동/호수", text)
+
+        # 위험 요소가 있어도 컷 제외가 아니라 마스킹이 기본이다.
+        self.assertIn("마스킹 우선 원칙", privacy)
+        self.assertIn("컷 제외는 마지막 수단", privacy)
+        self.assertIn("리뷰 캡처는", privacy)
+        self.assertIn("반드시 사용", privacy)
+        self.assertIn("번호판만 가리고 사진은 사용", privacy)
+
+        # 불투명 유리 너머 실루엣처럼 식별 불가한 형체는 차단 대상이 아니다.
+        for text in (privacy, workflow):
+            self.assertIn("실루엣", text)
+
     def test_compact_standards_preserve_unique_operating_rules(self):
         for relative_path, anchors in COMPACT_STANDARDS.items():
             with self.subTest(relative_path=relative_path):
@@ -211,6 +245,21 @@ class AuthorityDocumentsTest(unittest.TestCase):
         self.assertIn("D-025 훅 압축 하드 게이트", content)
         self.assertIn("D-026 장면 의미 일치 하드 게이트", visual)
         self.assertIn(f"{MAX_VISUAL_LEAD_SEC:.2f}초를 초과", visual)
+        self.assertIn("완성 결과 → 이전 상태 → 완성 결과", visual)
+        self.assertIn("전체 12컷", visual)
+        self.assertIn("정지 화면", visual)
+        self.assertIn("실제 원문 인용", visual)
+        self.assertIn("2px 이하", visual)
+        self.assertIn("아이보리 화이트", visual)
+        self.assertIn("민트", visual)
+        self.assertIn(f"calm_dissolve {CALM_DISSOLVE_MS}ms", visual)
+        self.assertIn(f"scale 차이 {CALM_SCALE_DELTA:.2f}", visual)
+        self.assertIn(f"좌우 총 {CALM_HORIZONTAL_TRAVEL_PX}px", visual)
+        self.assertIn(f"상하 총 {CALM_VERTICAL_TRAVEL_PX}px", visual)
+        for motion in sorted(ONE_SHOT_CALM_MOTIONS):
+            self.assertIn(f"`{motion}`", visual)
+        for transition in sorted(ONE_SHOT_CALM_TRANSITIONS):
+            self.assertIn(f"`{transition}`", visual)
 
         for field in (
             "customer_problem",
@@ -226,6 +275,13 @@ class AuthorityDocumentsTest(unittest.TestCase):
             "not_real_proof",
             "visual_claim",
             "literal_qa_result",
+            "hook_visual_contract",
+            "result_asset_id",
+            "before_asset_id",
+            "motion_reason",
+            "review_emphasis",
+            "segments",
+            "caption_layout.theme",
         ):
             with self.subTest(field=field):
                 self.assertIn(field, recipe)
@@ -235,6 +291,28 @@ class AuthorityDocumentsTest(unittest.TestCase):
             recipe,
             r"공식\s+production preflight는\s+`privacy_sanitization_report`를 요구",
         )
+
+    def test_approved_calm_photo_contract_is_aligned_across_authority_documents(self):
+        visual = (ROOT / "docs/review_reels_visual_edit_standard_v1.md").read_text(encoding="utf-8")
+        recipe = (ROOT / "docs/review_recipe_contract_v2.md").read_text(encoding="utf-8")
+        combined = visual + "\n" + recipe
+
+        self.assertIn(f"전체 {MAX_ONE_SHOT_TOTAL_SHOTS}컷", combined)
+        self.assertIn(f"각각 {MIN_ONE_SHOT_HOOK_SHOT_SEC:.1f}초 이상", combined)
+        self.assertIn(f"최소 {MIN_ONE_SHOT_FINAL_RESULT_SEC:.1f}초", combined)
+        self.assertIn("cut → calm_dissolve → calm_dissolve", combined)
+        self.assertIn(f"calm_dissolve {CALM_DISSOLVE_MS}ms", combined)
+        self.assertIn("small 36px", combined)
+        self.assertIn("medium 46px", combined)
+        self.assertIn("large 62px", combined)
+        self.assertIn("hero-calm 58px", combined)
+        self.assertIn(f"scale 차이 {CALM_SCALE_DELTA:.2f}", combined)
+        self.assertIn(f"좌우 총 {CALM_HORIZONTAL_TRAVEL_PX}px", combined)
+        self.assertIn(f"상하 총 {CALM_VERTICAL_TRAVEL_PX}px", combined)
+        self.assertIn("키워드 크기는 본문과 동일", combined)
+        for value in sorted(ONE_SHOT_CALM_MOTIONS | ONE_SHOT_CALM_TRANSITIONS):
+            with self.subTest(value=value):
+                self.assertIn(f"`{value}`", combined)
 
     def test_legacy_documents_are_archived_and_cannot_be_live_authority(self):
         for old_path, archive_path in ARCHIVED_DOCUMENT_MOVES.items():

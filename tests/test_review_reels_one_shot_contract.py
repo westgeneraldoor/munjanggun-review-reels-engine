@@ -18,6 +18,48 @@ def load_fixture():
 
 
 class ReviewReelsOneShotContractTest(unittest.TestCase):
+    def apply_calm_c_visual_language(self, fixture):
+        motion_rows = (
+            ("calm_push_in", "calm_pull_out", "calm_push_in"),
+            ("calm_glide_up",),
+            ("calm_glide_left",),
+            ("calm_push_in",),
+            ("review_capture_hold",),
+            ("calm_glide_up",),
+            ("review_capture_hold",),
+            ("calm_push_in",),
+        )
+        for beat_index, beat in enumerate(fixture["edit"]["beats"]):
+            row = motion_rows[beat_index]
+            beat["motion"] = row[0]
+            for shot_index, shot in enumerate(beat["shots"]):
+                shot["motion"] = row[min(shot_index, len(row) - 1)]
+                shot["transition_in"] = "cut" if beat_index == 0 and shot_index == 0 else "calm_dissolve"
+
+    def add_result_first_hook(self, fixture):
+        fixture["edit"]["asset_roles"].update({
+            "after_result": "after.jpg",
+            "before_entry": "before.jpg",
+        })
+        fixture["edit"]["hook_visual_contract"] = {
+            "result_asset_id": "after_result",
+            "before_asset_id": "before_entry",
+        }
+        fixture["edit"]["beats"][0]["shots"] = [
+            {"asset_id": "after_result", "motion": "calm_push_in", "motion_reason": "Show the result first.", "transition_in": "cut", "start_sec": 0.0, "end_sec": 1.3},
+            {"asset_id": "before_entry", "motion": "calm_pull_out", "motion_reason": "Show the before state calmly.", "transition_in": "calm_dissolve", "start_sec": 1.3, "end_sec": 2.6},
+            {"asset_id": "after_result", "motion": "calm_push_in", "motion_reason": "Return to the result.", "transition_in": "calm_dissolve", "start_sec": 2.6, "end_sec": 4.0},
+        ]
+
+    def add_review_emphasis(self, fixture, *, quote=None):
+        review_beat = fixture["edit"]["beats"][6]
+        review_beat["review_emphasis"] = {
+            "quote": quote or fixture["planning"]["review_source"]["review_quote_for_proof"],
+            "start_sec": 25.0,
+            "end_sec": 26.2,
+            "segments": [{"left_pct": 12.0, "top_pct": 54.0, "width_pct": 70.0}],
+        }
+
     def test_anonymized_contract_passes_the_strict_html_preflight(self):
         fixture = load_fixture()
 
@@ -29,6 +71,26 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
 
         self.assertTrue(result["ok"], result["issues"])
 
+    def test_contract_accepts_the_user_selected_calm_c_visual_language(self):
+        fixture = load_fixture()
+        self.apply_calm_c_visual_language(fixture)
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertTrue(result["ok"], result["issues"])
+
+    def test_contract_rejects_the_superseded_micro_motion_and_soft_dissolve_language(self):
+        fixture = load_fixture()
+        fixture["edit"]["beats"][1]["motion"] = "micro_push_in"
+        fixture["edit"]["beats"][1]["shots"][0]["motion"] = "micro_push_in"
+        fixture["edit"]["beats"][1]["shots"][0]["transition_in"] = "soft_dissolve"
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        codes = {issue["code"] for issue in result["issues"]}
+        self.assertIn("ONE_SHOT_MOTION_NOT_CALM", codes)
+        self.assertIn("ONE_SHOT_TRANSITION_NOT_CALM", codes)
+
     def test_contract_never_grants_mp4_scope(self):
         fixture = load_fixture()
         fixture["planning"]["workflow_contract"]["mp4_scope_authorized"] = True
@@ -37,6 +99,172 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertIn("MP4_SCOPE_MUST_REMAIN_UNAUTHORIZED", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_requires_result_first_hook_metadata(self):
+        fixture = load_fixture()
+        fixture["edit"].pop("hook_visual_contract")
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("RESULT_FIRST_HOOK_MISSING", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_rejects_a_hook_that_does_not_return_to_the_result(self):
+        fixture = load_fixture()
+        self.add_result_first_hook(fixture)
+        fixture["edit"]["beats"][0]["shots"][2]["asset_id"] = "before_entry"
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("RESULT_FIRST_HOOK_SEQUENCE_INVALID", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_rejects_more_than_twelve_shots(self):
+        fixture = load_fixture()
+        self.add_result_first_hook(fixture)
+        beat = fixture["edit"]["beats"][1]
+        beat["shots"] = [
+            {
+                "asset_id": "before_entry",
+                "motion": "static_hold",
+                "transition_in": "cut",
+                "start_sec": 4.0 + index * 0.25,
+                "end_sec": 4.0 + (index + 1) * 0.25,
+            }
+            for index in range(10)
+        ]
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("SHOT_DENSITY_EXCESSIVE", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_requires_explicit_shots_for_every_one_shot_beat(self):
+        fixture = load_fixture()
+        fixture["edit"]["beats"][1].pop("shots")
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("ONE_SHOT_SHOTS_REQUIRED", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_rejects_aggressive_one_shot_photo_motion(self):
+        fixture = load_fixture()
+        fixture["edit"]["beats"][1]["shots"][0].update(
+            {"motion": "problem_shake", "motion_reason": "Make the problem feel urgent."}
+        )
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("ONE_SHOT_MOTION_NOT_CALM", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_rejects_abrupt_or_effect_transitions_after_the_first_frame(self):
+        for transition in ("cut", "flash_glow"):
+            with self.subTest(transition=transition):
+                fixture = load_fixture()
+                fixture["edit"]["beats"][1]["shots"][0]["transition_in"] = transition
+
+                result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+                self.assertIn("ONE_SHOT_TRANSITION_NOT_CALM", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_locks_the_result_before_result_hook_timing_and_transitions(self):
+        fixture = load_fixture()
+        fixture["edit"]["beats"][0]["shots"][0]["end_sec"] = 0.8
+        fixture["edit"]["beats"][0]["shots"][1]["start_sec"] = 0.8
+        fixture["edit"]["beats"][0]["shots"][2]["transition_in"] = "soft_dissolve"
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+        codes = {issue["code"] for issue in result["issues"]}
+
+        self.assertIn("HOOK_SHOT_TOO_SHORT", codes)
+        self.assertIn("HOOK_TRANSITION_SEQUENCE_INVALID", codes)
+
+    def test_contract_keeps_review_proof_still(self):
+        fixture = load_fixture()
+        review = fixture["edit"]["beats"][6]
+        review["motion"] = "review_capture_scroll"
+        review["shots"][0].update(
+            {"motion": "review_capture_scroll", "motion_reason": "Scroll the review."}
+        )
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("REVIEW_PROOF_MUST_HOLD_STILL", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_locks_the_calm_caption_hierarchy_and_single_keyword(self):
+        cases = (
+            (0, "caption_layout", "size", "large", "HOOK_CAPTION_SIZE_INVALID"),
+            (1, "caption_layout", "theme", "proof", "ONE_SHOT_CAPTION_THEME_INVALID"),
+            (1, "caption_accent", "enabled", False, "CAPTION_ACCENT_REQUIRED"),
+        )
+        for beat_index, container, field, value, expected_code in cases:
+            with self.subTest(expected_code=expected_code):
+                fixture = load_fixture()
+                fixture["edit"]["beats"][beat_index][container][field] = value
+
+                result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+                self.assertIn(expected_code, {issue["code"] for issue in result["issues"]})
+
+        fixture = load_fixture()
+        fixture["edit"]["beats"][1]["caption_emphasis"] = ["Daily", "obstruction"]
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("CAPTION_EMPHASIS_DENSITY_INVALID", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_keeps_the_completed_result_visible_at_the_end(self):
+        fixture = load_fixture()
+        final_shot = fixture["edit"]["beats"][-1]["shots"][-1]
+        final_shot["asset_id"] = "after_wide"
+        final_shot["start_sec"] = 30.0
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("FINAL_RESULT_DWELL_INVALID", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_requires_review_emphasis_evidence(self):
+        fixture = load_fixture()
+        self.add_result_first_hook(fixture)
+        fixture["edit"]["beats"][6].pop("review_emphasis")
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("REVIEW_EMPHASIS_MISSING", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_rejects_review_emphasis_quote_missing_from_source(self):
+        fixture = load_fixture()
+        self.add_result_first_hook(fixture)
+        self.add_review_emphasis(fixture, quote="A recommendation the customer never wrote")
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("REVIEW_EMPHASIS_QUOTE_NOT_IN_SOURCE", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_rejects_review_emphasis_outside_the_review_beat(self):
+        fixture = load_fixture()
+        self.add_result_first_hook(fixture)
+        self.add_review_emphasis(fixture)
+        fixture["edit"]["beats"][6]["review_emphasis"]["end_sec"] = 40.0
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("REVIEW_EMPHASIS_TIME_INVALID", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_rejects_review_emphasis_outside_the_capture(self):
+        fixture = load_fixture()
+        self.add_result_first_hook(fixture)
+        self.add_review_emphasis(fixture)
+        fixture["edit"]["beats"][6]["review_emphasis"]["segments"][0]["width_pct"] = 120.0
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("REVIEW_EMPHASIS_SEGMENT_INVALID", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_rejects_an_unknown_caption_theme(self):
+        fixture = load_fixture()
+        fixture["edit"]["beats"][0]["caption_layout"]["theme"] = "banana"
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("CAPTION_THEME_UNSUPPORTED", {issue["code"] for issue in result["issues"]})
 
     def test_fixture_tts_hash_matches_canonical_narration(self):
         fixture = load_fixture()
