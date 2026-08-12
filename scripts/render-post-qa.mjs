@@ -294,7 +294,7 @@ ensureInsidePackage(reportDir, packageDir, "Report directory");
 if (renderJobPath) {
   ensureInsideOutput(renderJobPath, "render_job");
   ensureInsidePackage(renderJobPath, packageDir, "render_job");
-  const relativeJobPath = path.relative(packageDir, renderJobPath).split(path.sep).join("/");
+  const relativeJobPath = path.relative(canonicalPath(packageDir), canonicalPath(renderJobPath)).split(path.sep).join("/");
   if (!/^_work\/render_jobs\/[0-9]{8}T[0-9]{12}Z-[0-9a-f]{8}\/render_job\.json$/.test(relativeJobPath)) {
     die("render_job must use the package _work/render_jobs/<job-id>/render_job.json path.");
   }
