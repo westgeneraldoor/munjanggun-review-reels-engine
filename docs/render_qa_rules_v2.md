@@ -42,7 +42,7 @@ HTML/render gate receipt는 한 번만 사용할 수 있습니다. artifact 생�
 작업을 시작하며, 즉시 작업 ID와 상태 파일 경로를 반환합니다. `render-status`는 같은
 작업의 상태와 `rendered_frames / expected_frames` 진행률을 읽습니다.
 
-작업 상태는 `queued -> running -> succeeded | failed`만 허용합니다. 상태 기록은 package
+작업 상태는 `queued -> running -> succeeded|failed`만 허용합니다. 상태 기록은 package
 아래 `_work/render_jobs/<job-id>/render_job.json`에 두며 package identity, HTML·artifact
 evidence·HTML approval·sync·privacy SHA-256, 출력 상대경로, preset, PID, 시작·종료 시각,
 로그 경로와 실패 사유를 결속합니다. 상태 파일과 로그는 production evidence이므로
@@ -52,11 +52,18 @@ cleanup 대상이 아닙니다.
 프로세스 종료 또는 non-zero exit는 `failed`로 기록하고 성공으로 보고하지 않습니다.
 부분 frame directory와 단회용 receipt는 자동 삭제·재사용하지 않으며, 재시도는 새
 작업 ID·새 receipt·새 출력 파일명으로만 허용합니다. 첫 버전은 중단 프레임 resume를
-지원하지 않습니다.
+지원하지 않습니다. 같은 출력명의 부분 frame이 남아 있으면
+`RETRY_REQUIRES_NEW_OUTPUT`으로 시작 단계에서 차단합니다.
 
 `render-status`가 `succeeded`이고 현재 MP4의 bytes/SHA-256을 기록한 뒤에만
-`render-post-qa.mjs`로 넘어갑니다. 기존 동기식 `render`는 호환성과 로컬 진단을 위해
+`render-post-qa.mjs`로 넘어갑니다. 기존 동기식 `render`는 compatibility-only 로컬
+진단 경로로
 남기되, 에이전트 production 운영의 표준 진입점으로 사용하지 않습니다.
+
+```powershell
+python scripts/produce_review_v2.py render-start --package "<output review package>" --html "<html_preview>/index.html" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --out "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4"
+python scripts/produce_review_v2.py render-status --package "<output review package>" --job-id "<job-id>"
+```
 
 ```text
 검수용: 720x1280 / 12fps 또는 30fps / 2~3 Mbps
@@ -188,8 +195,13 @@ total_voice_cps = 전체 narration_ref 공백 제외 글자수 / final_voice_dur
 node scripts/render-post-qa.mjs `
   --mp4 "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4" `
   --package "<output review package>" `
-  --sync-manifest "<output review package>/sync_manifest.json"
+  --sync-manifest "<output review package>/sync_manifest.json" `
+  --render-job "<output review package>/_work/render_jobs/<job-id>/render_job.json"
 ```
+
+일반 HTML 렌더는 `--render-job`이 없거나 job 상태가 `succeeded`가 아니거나 현재 MP4
+bytes/SHA-256이 다르면 post-render QA를 시작하지 않습니다. `_hyperframes_` 출력은
+별도의 `hyperframes-render-gate.mjs` 승인 경로를 사용하므로 이 인자를 요구하지 않습니다.
 
 이 스크립트는 아래를 자동으로 검사하고 기록합니다.
 

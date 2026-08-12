@@ -173,14 +173,22 @@ python scripts/produce_review_v2.py preflight --package "<output review package>
 # 2. preflight 통과 후 HTML preview 생성
 python scripts/produce_review_v2.py html --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json"
 
-# 3. 기록된 HTML 승인과 명시적 MP4 렌더 승인 후 final render
-python scripts/produce_review_v2.py render --package "<output review package>" --html "<html_preview>/index.html" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --out "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4"
+# 3. 기록된 HTML 승인과 명시적 MP4 렌더 승인 후 독립 렌더 작업 시작
+python scripts/produce_review_v2.py render-start --package "<output review package>" --html "<html_preview>/index.html" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --out "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4"
+
+# 4. 시작 명령이 반환한 job_id로 진행률/완료 증거 조회
+python scripts/produce_review_v2.py render-status --package "<output review package>" --job-id "<job-id>"
 ```
 
 preflight는 planning/edit/review_source/privacy/PD 승인/asset을 검증해
 `sync_manifest.json`을 생성합니다. HTML과 MP4는 1080x1920, 30fps,
 H.264/yuv420p, AAC 44.1kHz stereo, approved bitrate 외 설정으로 생성할 수
 없고, 기존 MP4/frames를 덮어쓰지 않습니다.
+
+에이전트 production 렌더는 호출 제한시간과 분리된 `render-start`만 사용합니다.
+`render-status`의 상태가 `succeeded`이고 MP4 bytes/SHA-256이 기록되기 전에는 렌더
+완료나 후속 QA 준비 완료로 보고하지 않습니다. `failed` 작업의 frame, receipt, log는
+삭제하지 않으며 새 job ID와 새 출력 파일명으로만 다시 시작합니다.
 
 HTML 생성이 끝나면 `*_html_preview_v2/html_artifact_evidence.json`이 자동으로
 생기며, 정확한 `index.html` 경로와 SHA-256, HTML gate receipt hash, 그리고 실제

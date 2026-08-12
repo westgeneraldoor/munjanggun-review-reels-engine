@@ -156,4 +156,6 @@ python scripts/review_reel_intake.py one-shot-html --output-root "output" --plan
 planning contract는 반드시 `review-reels-one-shot-v2`, `html_scope_authorized: true`,
 `mp4_scope_authorized: false`여야 한다. 이 CLI는 render/`--out` 옵션이 없으며,
 MP4는 HTML approval과 별도 사용자 렌더 승인이 기록된 뒤에만 기존
-`scripts/produce_review_v2.py render` gate로 진행한다.
+`scripts/produce_review_v2.py render-start` gate로 진행하고, 반환된 job ID는
+`scripts/produce_review_v2.py render-status`로 조회한다. 호출 세션이 끝나도 작업은
+계속되며 `succeeded`와 MP4 hash가 기록되기 전에는 완료가 아니다.

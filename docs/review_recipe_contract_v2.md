@@ -227,8 +227,11 @@ bytes, SHA-256을 기록합니다. hash 없는 legacy QA pass는 `unknown`으로
 ```powershell
 python scripts/produce_review_v2.py preflight --package "<package>" --planning "<planning.json>" --edit "<edit.json>" --privacy-manifest "<privacy.json>" --sync-manifest "<package>/sync_manifest.json"
 python scripts/produce_review_v2.py html --package "<package>" --planning "<planning.json>" --edit "<edit.json>" --privacy-manifest "<privacy.json>" --sync-manifest "<package>/sync_manifest.json"
-python scripts/produce_review_v2.py render --package "<package>" --html "<preview>/index.html" --privacy-manifest "<privacy.json>" --sync-manifest "<package>/sync_manifest.json" --out "<package>/<id>_final_render_YYYYMMDD_upload_10mbps.mp4"
+python scripts/produce_review_v2.py render-start --package "<package>" --html "<preview>/index.html" --privacy-manifest "<privacy.json>" --sync-manifest "<package>/sync_manifest.json" --out "<package>/<id>_final_render_YYYYMMDD_upload_10mbps.mp4"
+python scripts/produce_review_v2.py render-status --package "<package>" --job-id "<job-id>"
 ```
 
 내부 `reels_qa`, HTML builder, renderer 직접 호출은 production 증거가 아닙니다.
 기존 recipe, MP4, frame은 덮어쓰지 않습니다.
+렌더 작업은 `_work/render_jobs/<job-id>/render_job.json`에 결속되며 `succeeded`와
+MP4 bytes/SHA-256이 함께 있어야 후속 post-render QA로 넘어갑니다.

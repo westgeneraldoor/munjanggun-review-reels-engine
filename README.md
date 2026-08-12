@@ -85,13 +85,17 @@ python scripts/produce_review_v2.py preflight --package "<output review package>
 # 2. Build the HTML preview after the preflight gate succeeds.
 python scripts/produce_review_v2.py html --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json"
 
-# 3. Only after recorded HTML and explicit MP4 approval, render the final preset.
-python scripts/produce_review_v2.py render --package "<output review package>" --html "<html_preview>/index.html" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --out "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4"
+# 3. Only after recorded HTML and explicit MP4 approval, start a durable render job.
+python scripts/produce_review_v2.py render-start --package "<output review package>" --html "<html_preview>/index.html" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --out "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4"
+
+# 4. Poll the returned job_id without keeping the start command open.
+python scripts/produce_review_v2.py render-status --package "<output review package>" --job-id "<job-id>"
 ```
 
-The final v2 command enforces 1080x1920, 30fps, H.264/yuv420p, AAC 44.1kHz
-stereo, and the approved 11 Mbps video preset. It refuses pre-existing MP4 or
-frame directories rather than overwriting them.
+The final v2 job enforces 1080x1920, 30fps, H.264/yuv420p, AAC 44.1kHz stereo,
+and the approved 11 Mbps video preset. It continues independently of the
+calling terminal and refuses pre-existing MP4 or frame directories rather than
+overwriting them. A retry always uses a new job ID, receipt, and output name.
 
 ### HTML-only one-shot review reels
 
