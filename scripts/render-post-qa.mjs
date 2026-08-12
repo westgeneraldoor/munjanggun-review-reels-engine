@@ -34,7 +34,7 @@ function readBoundJson(filePath, packageDir) {
   try {
     return {
       evidence: {
-        relative_path: path.relative(packageDir, filePath).split(path.sep).join("/"),
+        relative_path: path.relative(canonicalPath(packageDir), canonicalPath(filePath)).split(path.sep).join("/"),
         bytes: bytes.length,
         sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
       },
@@ -74,7 +74,7 @@ function canonicalJson(value) {
 
 function boundFileEvidence(filePath, packageDir) {
   return {
-    relative_path: path.relative(packageDir, filePath).split(path.sep).join("/"),
+    relative_path: path.relative(canonicalPath(packageDir), canonicalPath(filePath)).split(path.sep).join("/"),
     bytes: fs.statSync(filePath).size,
     sha256: sha256(filePath),
   };
@@ -326,16 +326,16 @@ if (renderJobPath) {
   if (renderJob.state !== "succeeded") {
     die("render_job state must be succeeded before post-render QA.");
   }
-  if (path.resolve(bindings.package_path || "") !== packageDir) {
+  if (canonicalPath(bindings.package_path || ".") !== canonicalPath(packageDir)) {
     die("render_job package binding does not match --package.");
   }
-  if (path.resolve(bindings.output_path || "") !== mp4Path || path.resolve(outputEvidence?.path || "") !== mp4Path) {
+  if (canonicalPath(bindings.output_path || ".") !== canonicalPath(mp4Path) || canonicalPath(outputEvidence?.path || ".") !== canonicalPath(mp4Path)) {
     die("render_job output binding does not match --mp4.");
   }
   if (Number(outputEvidence?.bytes) !== mp4Input.bytes || outputEvidence?.sha256 !== mp4Input.sha256) {
     die("render_job output bytes/SHA-256 do not match the current MP4.");
   }
-  if (path.resolve(bindings.sync_manifest_path || "") !== syncManifestPath || bindings.sync_manifest_sha256 !== syncManifestInput.sha256) {
+  if (canonicalPath(bindings.sync_manifest_path || ".") !== canonicalPath(syncManifestPath) || bindings.sync_manifest_sha256 !== syncManifestInput.sha256) {
     die("render_job sync manifest binding does not match the current sync manifest.");
   }
   renderJobReport = {
