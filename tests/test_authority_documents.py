@@ -333,6 +333,9 @@ class AuthorityDocumentsTest(unittest.TestCase):
         self.assertIn("한 방향", combined)
         self.assertIn("일정 속도", combined)
         self.assertIn("투명도만", combined)
+        self.assertIn("520~650ms", combined)
+        self.assertIn("420ms", combined)
+        self.assertIn("영상 시간", combined)
 
     def test_legacy_documents_are_archived_and_cannot_be_live_authority(self):
         for old_path, archive_path in ARCHIVED_DOCUMENT_MOVES.items():

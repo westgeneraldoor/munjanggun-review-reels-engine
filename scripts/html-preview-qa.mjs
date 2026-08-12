@@ -6,6 +6,7 @@ import { chromium } from "playwright";
 
 const FRAME_SETTLE_WAIT_MS = 500;
 const SAFE_AREA_1080X1920 = { top: 220, bottom: 1470 };
+const CAPTION_ACCENT_TIMING = { min_delay_ms: 520, max_delay_ms: 650, pop_duration_ms: 420 };
 
 function parseArgs(argv) {
   const result = {};
@@ -107,6 +108,12 @@ try {
           bottom_1080x1920: Math.round(bottom),
           line_count: lineCount,
           safe: top >= safeArea.top - 0.5 && bottom <= safeArea.bottom + 0.5,
+          accent_delay_ms: captionNode.querySelector('.em')
+            ? Number(captionNode.dataset.accentDelayMs)
+            : null,
+          accent_pop_duration_ms: captionNode.querySelector('.em')
+            ? Number(captionNode.dataset.accentPopDurationMs)
+            : null,
         };
       }, { chunkIndex, chunkTime, safeArea: SAFE_AREA_1080X1920 }));
     }
@@ -163,6 +170,13 @@ try {
     if (captionSamples.some((sample) => sample.line_count === null || sample.line_count > 2)) {
       issues.push("CAPTION_LINE_COUNT_EXCESSIVE");
     }
+    if (captionSamples.some((sample) => sample.accent_delay_ms !== null && (
+      sample.accent_delay_ms < CAPTION_ACCENT_TIMING.min_delay_ms
+      || sample.accent_delay_ms > CAPTION_ACCENT_TIMING.max_delay_ms
+      || sample.accent_pop_duration_ms !== CAPTION_ACCENT_TIMING.pop_duration_ms
+    ))) {
+      issues.push("CAPTION_ACCENT_TIMING_INVALID");
+    }
     if (state.caption.includes("\\n") || state.caption.includes("/n")) issues.push("CAPTION_LITERAL_NEWLINE");
     if (state.visibleImages.length === 0 || state.visibleImages.some((image) => !image.loaded)) {
       issues.push("VISIBLE_IMAGE_NOT_LOADED");
@@ -193,6 +207,7 @@ const report = {
   schema_version: "review-reel-html-internal-qa-v1",
   frame_settle_wait_ms: FRAME_SETTLE_WAIT_MS,
   caption_safe_area_1080x1920: SAFE_AREA_1080X1920,
+  caption_accent_timing_ms: CAPTION_ACCENT_TIMING,
   html_path: path.basename(htmlPath),
   edit_recipe_path: path.relative(previewDir, editPath).replaceAll("\\", "/"),
   automatic_status: failedChecks.length === 0 && consoleErrors.length === 0 ? "pass" : "fail",

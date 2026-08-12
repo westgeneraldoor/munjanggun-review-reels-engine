@@ -543,6 +543,64 @@ const { chromium } = require('playwright');
             )
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
+    def test_keyword_accent_waits_for_scene_settle_and_follows_video_time(self):
+        recipe = {
+            "title": "delayed keyword accent test",
+            "audio_plan": {"sync_policy": {"final_voice_duration_sec": 4.0}},
+            "asset_roles": {"hero": "hero.jpg"},
+            "beats": [{
+                "id": "b01", "phase": "result", "time": [0.0, 4.0],
+                "asset": "hero", "motion": "calm_push_in", "transition_in": "calm_dissolve",
+                "caption": "finished door",
+                "caption_chunks": [{"text": "finished door", "start_sec": 0.0, "end_sec": 4.0}],
+                "caption_layout": {"size": "hero-calm", "theme": "white"},
+                "caption_emphasis": ["door"],
+                "caption_accent": {"enabled": True, "style": "result", "delay_ms": 90},
+            }],
+        }
+        hero = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E%23hero"
+        html = render_preview_html(
+            recipe=recipe,
+            asset_urls={"hero": hero, "voice": "data:audio/mp3;base64,", "font_body": "data:font/woff2;base64,"},
+            preview_title="delayed keyword accent test",
+            preview_description="browser behavior test",
+        )
+        browser_check = r"""
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  await page.goto(process.argv[1] + '?t=0');
+  const sample = async (time) => page.evaluate((t) => {
+    renderAt(t);
+    const keyword = document.querySelector('#caption .em');
+    return {opacity: keyword.style.opacity, transform: keyword.style.transform};
+  }, time);
+  const before = await sample(0.40);
+  const peak = await sample(0.751);
+  const settled = await sample(1.00);
+  await page.waitForTimeout(600);
+  const sameVideoTimeAfterWallClockWait = await sample(0.40);
+  await browser.close();
+  if (before.opacity !== '0.78' || before.transform !== 'translateY(4px) scale(0.94)') process.exit(2);
+  if (peak.opacity !== '1' || peak.transform !== 'translateY(-5px) scale(1.1)') process.exit(3);
+  if (settled.opacity !== '1' || settled.transform !== 'translateY(0px) scale(1)') process.exit(4);
+  if (JSON.stringify(sameVideoTimeAfterWallClockWait) !== JSON.stringify(before)) process.exit(5);
+})().catch(error => { console.error(error); process.exit(1); });
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / "preview.html"
+            html_path.write_text(html, encoding="utf-8")
+            result = subprocess.run(
+                ["node", "-e", browser_check, html_path.as_uri()],
+                cwd=TEMPLATE_PATH.parent.parent.parent,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
     def test_reduced_caption_hierarchy_keeps_photos_visually_primary(self):
         recipe = {
             "title": "hero calm caption test",

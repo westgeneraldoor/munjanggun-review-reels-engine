@@ -135,6 +135,9 @@ scale 차이 0.05, 좌우 총 24px, 상하 총 20px입니다.
 각 beat의 `caption_emphasis`는 정확히 한 단어/구절이고 `caption_accent.enabled: true`,
 `caption_layout.theme: white`를 사용합니다. 키워드 크기는 본문과 동일합니다. 첫 훅은
 `hero-calm 58px`, 이후에는 `small 36px`, `medium 46px`, `large 62px` 중 하나를 씁니다.
+`caption_accent.delay_ms`의 production 기본값은 520ms이고 허용 범위는 `520~650ms`입니다.
+기존 recipe가 더 작은 값을 갖더라도 renderer는 520ms로 올려 사진 전환 후에 pop을
+시작합니다. pop 길이는 420ms이며 브라우저 실제 시간이 아니라 영상 시간에 결속됩니다.
 모든 one-shot beat는 내레이션 음성 전문을 연속으로 덮는 `caption_chunks` 1~3개를
 가집니다. 최대 3개이며, 여러 chunk를 쓸 때 각 문구는 공백·문장부호 제외 최소 8자이고
 합친 문구는 narration과 같아야 합니다. 시간은 beat를 빈틈·겹침 없이 덮고 최종 음성의
@@ -163,7 +166,7 @@ scale 차이 0.05, 좌우 총 24px, 상하 총 20px입니다.
       "end_sec": 1.3
     }],
     "caption_emphasis": ["완성 결과"],
-    "caption_accent": {"enabled": true}
+    "caption_accent": {"enabled": true, "delay_ms": 520}
   }]
 }
 ```
