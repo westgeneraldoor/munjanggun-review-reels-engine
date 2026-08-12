@@ -52,7 +52,7 @@ function writeJson(filePath, value) {
 
 function localRootKind(targetPath) {
   for (const root of [repoRoot, testLocalRoot].filter(Boolean)) {
-    const relative = path.relative(root, path.resolve(targetPath));
+    const relative = path.relative(canonicalPath(root), canonicalPath(targetPath));
     if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) {
       return relative.split(path.sep)[0];
     }
@@ -88,8 +88,9 @@ function ensureInsideOutput(targetPath, label) {
 }
 
 function ensureInsidePackage(targetPath, packageDir, label) {
-  const resolved = path.resolve(targetPath);
-  if (resolved !== packageDir && !resolved.startsWith(`${packageDir}${path.sep}`)) {
+  const resolved = canonicalPath(targetPath);
+  const canonicalPackage = canonicalPath(packageDir);
+  if (resolved !== canonicalPackage && !resolved.startsWith(`${canonicalPackage}${path.sep}`)) {
     die(`${label} must stay inside the approved review package folder.`);
   }
 
@@ -112,6 +113,13 @@ function nearestExistingPath(targetPath) {
     current = parent;
   }
   return current;
+}
+
+function canonicalPath(targetPath) {
+  const resolved = path.resolve(targetPath);
+  const existing = nearestExistingPath(resolved);
+  const realExisting = fs.realpathSync.native(existing);
+  return path.resolve(realExisting, path.relative(existing, resolved));
 }
 
 function runJsonCommand(command, args, cwd, label) {

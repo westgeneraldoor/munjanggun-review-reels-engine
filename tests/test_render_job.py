@@ -50,8 +50,8 @@ class RenderJobRecordTest(unittest.TestCase):
         path = self.create_job()
 
         self.assertEqual(
-            path,
-            self.package / "_work" / "render_jobs" / "20260812T010203000000Z-ab12cd34" / "render_job.json",
+            path.resolve(),
+            (self.package / "_work" / "render_jobs" / "20260812T010203000000Z-ab12cd34" / "render_job.json").resolve(),
         )
         payload = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(payload["state"], "queued")
