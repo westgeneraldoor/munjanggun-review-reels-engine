@@ -195,6 +195,8 @@ class RenderJobWorkerTest(unittest.TestCase):
             cwd=produce_review_v2.ROOT,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="strict",
             timeout=5,
         )
 
@@ -220,6 +222,8 @@ class RenderJobWorkerTest(unittest.TestCase):
             [sys.executable, str(probe), str(produce_review_v2.ROOT), str(marker)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="strict",
             timeout=5,
         )
 
