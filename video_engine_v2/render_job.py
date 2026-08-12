@@ -27,6 +27,12 @@ _MUTABLE_FIELDS = frozenset(
         "exit_code",
     }
 )
+_STATE_TRANSITIONS = {
+    "queued": frozenset({"queued", "running", "failed"}),
+    "running": frozenset({"running", "succeeded", "failed"}),
+    "succeeded": frozenset({"succeeded"}),
+    "failed": frozenset({"failed"}),
+}
 
 
 class RenderJobError(ValueError):
@@ -45,6 +51,11 @@ def sha256_file(path: str | Path) -> str:
     return digest.hexdigest()
 
 
+def _sha256_json(payload: dict[str, Any]) -> str:
+    rendered = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+
+
 def _inside(root: Path, candidate: str | Path, code: str) -> Path:
     resolved = Path(candidate).resolve()
     try:
@@ -52,6 +63,12 @@ def _inside(root: Path, candidate: str | Path, code: str) -> Path:
     except ValueError as error:
         raise RenderJobError(code) from error
     return resolved
+
+
+def job_record_path(package_dir: str | Path, job_id: str) -> Path:
+    if not _JOB_ID.fullmatch(job_id):
+        raise RenderJobError("JOB_ID_INVALID")
+    return Path(package_dir).resolve() / "_work" / "render_jobs" / job_id / "render_job.json"
 
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -80,8 +97,7 @@ def create_job_record(
     expected_frames: int,
 ) -> Path:
     package = Path(package_dir).resolve()
-    if not _JOB_ID.fullmatch(job_id):
-        raise RenderJobError("JOB_ID_INVALID")
+    job_path = job_record_path(package, job_id)
     if not isinstance(expected_frames, int) or isinstance(expected_frames, bool) or expected_frames <= 0:
         raise RenderJobError("EXPECTED_FRAMES_INVALID")
     receipt = _inside(package, receipt_path, "RECEIPT_OUTSIDE_PACKAGE")
@@ -89,8 +105,7 @@ def create_job_record(
     if not receipt.is_file():
         raise RenderJobError("RECEIPT_MISSING")
 
-    job_dir = package / "_work" / "render_jobs" / job_id
-    job_path = job_dir / "render_job.json"
+    job_dir = job_path.parent
     if job_dir.exists():
         raise RenderJobError("JOB_ALREADY_EXISTS")
     frame_dir = output.parent / f"{output.stem}_frames"
@@ -118,6 +133,7 @@ def create_job_record(
         "frame_dir": str(frame_dir.resolve()),
         "log_path": str(log_path.resolve()),
         "bindings": bound,
+        "bindings_sha256": _sha256_json(bound),
         "output_evidence": None,
         "failure": None,
         "exit_code": None,
@@ -138,6 +154,8 @@ def read_job(path: str | Path) -> dict[str, Any]:
     job_id = payload.get("job_id")
     if not isinstance(package_value, str) or not isinstance(job_id, str):
         raise RenderJobError("JOB_RECORD_INVALID")
+    if payload.get("bindings_sha256") != _sha256_json(payload["bindings"]):
+        raise RenderJobError("JOB_BINDINGS_TAMPERED")
     expected = Path(package_value).resolve() / "_work" / "render_jobs" / job_id / "render_job.json"
     if job_path != expected:
         raise RenderJobError("JOB_RECORD_OUTSIDE_PACKAGE")
@@ -151,6 +169,8 @@ def update_job(path: str | Path, **changes: Any) -> dict[str, Any]:
     if "state" in changes and changes["state"] not in JOB_STATES:
         raise RenderJobError("JOB_STATE_INVALID")
     payload = read_job(path)
+    if "state" in changes and changes["state"] not in _STATE_TRANSITIONS[payload["state"]]:
+        raise RenderJobError("JOB_STATE_TRANSITION_INVALID")
     payload.update(changes)
     _atomic_write_json(Path(path).resolve(), payload)
     return payload

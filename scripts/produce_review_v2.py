@@ -1,10 +1,14 @@
-"""The only official v2 production entry point: preflight -> html -> render."""
+"""The only official v2 production entry point: preflight -> html -> durable render job."""
 
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
+import json
+import math
 import os
 from pathlib import Path
+import secrets
 import subprocess
 import sys
 
@@ -19,6 +23,16 @@ from video_engine_v2.production_gate import (  # noqa: E402
     validate_html_gate,
     validate_render_gate,
     write_gate_receipt,
+)
+from video_engine_v2.render_job import (  # noqa: E402
+    RenderJobError,
+    create_job_record,
+    job_record_path,
+    read_job,
+    refresh_progress,
+    sha256_file,
+    update_job,
+    utc_now,
 )
 
 
@@ -45,6 +59,114 @@ def run_utf8_capture(command: list[str], *, cwd: Path) -> subprocess.CompletedPr
     )
 
 
+def spawn_background_process(command: list[str], *, cwd: Path) -> int:
+    """Start a child independent of this foreground orchestration process."""
+    environment = os.environ.copy()
+    environment.update({"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"})
+    options: dict[str, object] = {
+        "cwd": cwd,
+        "env": environment,
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "close_fds": True,
+    }
+    if os.name == "nt":
+        options["creationflags"] = (
+            getattr(subprocess, "DETACHED_PROCESS", 0)
+            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
+    else:
+        options["start_new_session"] = True
+    return subprocess.Popen(command, **options).pid
+
+
+def _new_job_id() -> str:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    return f"{timestamp}-{secrets.token_hex(4)}"
+
+
+def _expected_frames(sync_manifest_path: str | Path) -> int:
+    try:
+        payload = json.loads(Path(sync_manifest_path).read_text(encoding="utf-8"))
+        audio = payload.get("audio", {})
+        duration = audio.get("final_voice_duration_sec", payload.get("final_voice_duration_sec"))
+        value = float(duration)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError, AttributeError) as error:
+        raise RenderJobError("SYNC_DURATION_INVALID") from error
+    if not math.isfinite(value) or value <= 0:
+        raise RenderJobError("SYNC_DURATION_INVALID")
+    return math.ceil(value * int(FINAL_RENDER_PRESET["fps"]))
+
+
+def _render_bindings(receipt: dict, receipt_path: Path) -> dict:
+    renderer = (ROOT / "render_html_preview_v2.js").resolve()
+    keys = (
+        "package_path",
+        "html_path",
+        "html_sha256",
+        "html_artifact_evidence_path",
+        "html_artifact_evidence_sha256",
+        "html_approval_path",
+        "html_approval_sha256",
+        "sync_manifest_path",
+        "sync_manifest_sha256",
+        "privacy_manifest_path",
+        "privacy_manifest_sha256",
+        "output_path",
+        "preset",
+        "render_dependencies",
+    )
+    bindings = {key: receipt[key] for key in keys if key in receipt}
+    bindings.update(
+        {
+            "receipt_path": str(receipt_path.resolve()),
+            "receipt_sha256": sha256_file(receipt_path),
+            "renderer_script_path": str(renderer),
+            "renderer_script_sha256": sha256_file(renderer),
+        }
+    )
+    return bindings
+
+
+def process_is_running(pid: int) -> bool:
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        process_query_limited_information = 0x1000
+        still_active = 259
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+        if not handle:
+            return False
+        try:
+            exit_code = wintypes.DWORD()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                return False
+            return exit_code.value == still_active
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
 def _common_arguments(parser: argparse.ArgumentParser, *, include_recipes: bool) -> None:
     parser.add_argument("--package", required=True)
     parser.add_argument("--privacy-manifest", required=True)
@@ -69,6 +191,14 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--html", required=True)
     render.add_argument("--out", required=True)
     render.add_argument("--engine-font", help="repository-contained font dependency injection")
+    render_start = commands.add_parser("render-start", help="Start a durable background render job and return immediately")
+    _common_arguments(render_start, include_recipes=False)
+    render_start.add_argument("--html", required=True)
+    render_start.add_argument("--out", required=True)
+    render_start.add_argument("--engine-font", help="repository-contained font dependency injection")
+    render_status = commands.add_parser("render-status", help="Read durable render progress without waiting for completion")
+    render_status.add_argument("--package", required=True)
+    render_status.add_argument("--job-id", required=True)
     return parser
 
 
@@ -121,6 +251,22 @@ def main(argv: list[str] | None = None) -> int:
                 str(Path(args.edit).resolve()),
             ]
             return subprocess.run(qa_command, cwd=ROOT).returncode
+        if args.command == "render-status":
+            package = Path(args.package).resolve()
+            job_path = job_record_path(package, args.job_id)
+            job = read_job(job_path)
+            if job["state"] == "running" and isinstance(job.get("worker_pid"), int) and not process_is_running(job["worker_pid"]):
+                progress = refresh_progress(job_path)
+                update_job(
+                    job_path,
+                    state="failed",
+                    completed_at=utc_now(),
+                    rendered_frames=progress["rendered_frames"],
+                    failure={"code": "WORKER_EXITED_WITHOUT_STATUS", "message": "worker process ended before recording a terminal state"},
+                    exit_code=2,
+                )
+            print(json.dumps(refresh_progress(job_path), ensure_ascii=False, indent=2))
+            return 0
         receipt = validate_render_gate(
             package_dir=args.package,
             html_path=args.html,
@@ -130,7 +276,51 @@ def main(argv: list[str] | None = None) -> int:
             preset=FINAL_RENDER_PRESET,
             engine_font_path=args.engine_font,
         )
+        if args.command == "render-start":
+            output = Path(args.out).resolve()
+            frame_dir = output.parent / f"{output.stem}_frames"
+            if frame_dir.exists():
+                raise RenderJobError("RETRY_REQUIRES_NEW_OUTPUT")
         receipt_path = write_gate_receipt(args.package, receipt)
+        if args.command == "render-start":
+            job_id = _new_job_id()
+            job_path = create_job_record(
+                package_dir=args.package,
+                job_id=job_id,
+                bindings=_render_bindings(receipt, receipt_path),
+                receipt_path=receipt_path,
+                output_path=args.out,
+                expected_frames=_expected_frames(args.sync_manifest),
+            )
+            try:
+                worker_pid = spawn_background_process(
+                    [sys.executable, str(ROOT / "scripts" / "render_review_v2_job.py"), "--job", str(job_path)],
+                    cwd=ROOT,
+                )
+            except OSError as error:
+                update_job(
+                    job_path,
+                    state="failed",
+                    completed_at=utc_now(),
+                    failure={"code": "WORKER_START_FAILED", "message": f"{type(error).__name__}: {error}"},
+                    exit_code=2,
+                )
+                print(json.dumps(refresh_progress(job_path), ensure_ascii=False, indent=2), file=sys.stderr)
+                return 2
+            print(
+                json.dumps(
+                    {
+                        "job_id": job_id,
+                        "state": "queued",
+                        "worker_pid": worker_pid,
+                        "status_path": str(job_path),
+                        "status_command": f'python scripts/produce_review_v2.py render-status --package "{Path(args.package).resolve()}" --job-id "{job_id}"',
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 0
         command = [
             "node",
             str(ROOT / "render_html_preview_v2.js"),
@@ -146,7 +336,7 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             command.extend(["--" + key.replace("_", "-"), str(value)])
         return subprocess.run(command, cwd=ROOT).returncode
-    except GateViolation as error:
+    except (GateViolation, RenderJobError) as error:
         print(f"GATE_BLOCKED: {error}", file=sys.stderr)
         return 2
 
