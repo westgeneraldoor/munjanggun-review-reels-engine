@@ -8,6 +8,8 @@ import textwrap
 import unittest
 from pathlib import Path
 
+from video_engine_v2.render_job import create_job_record, sha256_file, update_job
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "render-post-qa.mjs"
@@ -81,6 +83,49 @@ class RenderPostQaTest(unittest.TestCase):
             encoding="utf-8",
         )
         self.report_dir = self.package_dir / "_work" / "render_post_qa_fixture"
+        self.job_counter = 0
+
+    def create_render_job(self, *, mp4, sync_manifest, state="succeeded"):
+        self.job_counter += 1
+        job_id = f"20260812T030405{self.job_counter:06d}Z-{self.job_counter:08x}"
+        receipt = self.package_dir / "_work" / "production_gates" / f"receipt-{self.job_counter}.json"
+        receipt.parent.mkdir(parents=True, exist_ok=True)
+        receipt.write_text('{"action":"render"}', encoding="utf-8")
+        job_path = create_job_record(
+            package_dir=self.package_dir,
+            job_id=job_id,
+            bindings={
+                "sync_manifest_path": str(Path(sync_manifest).resolve()),
+                "sync_manifest_sha256": sha256_file(sync_manifest),
+                "preset": {"fps": 30},
+            },
+            receipt_path=receipt,
+            output_path=mp4,
+            expected_frames=750,
+        )
+        if state == "succeeded":
+            update_job(job_path, state="running")
+            update_job(
+                job_path,
+                state="succeeded",
+                completed_at="2026-08-12T03:04:05+00:00",
+                rendered_frames=750,
+                output_evidence={
+                    "path": str(Path(mp4).resolve()),
+                    "bytes": Path(mp4).stat().st_size,
+                    "sha256": sha256_file(mp4),
+                },
+                exit_code=0,
+            )
+        elif state == "failed":
+            update_job(
+                job_path,
+                state="failed",
+                completed_at="2026-08-12T03:04:05+00:00",
+                failure={"code": "fixture", "message": "fixture failure"},
+                exit_code=2,
+            )
+        return job_path
 
     def write_fake_media_tools(self):
         ffprobe_js = self.bin_dir / "fake_ffprobe.cjs"
@@ -140,6 +185,8 @@ class RenderPostQaTest(unittest.TestCase):
         node_args=None,
         report_dir=None,
         sync_manifest=None,
+        include_render_job=True,
+        render_job_state="succeeded",
     ):
         env = os.environ.copy()
         env["MUNJANGGUN_TEST_LOCAL_ROOT"] = str(self.output_root.parent)
@@ -153,19 +200,29 @@ class RenderPostQaTest(unittest.TestCase):
         if extra_env:
             env.update(extra_env)
 
+        selected_mp4 = Path(mp4 or self.mp4)
+        selected_sync = Path(sync_manifest or self.sync_manifest)
+        render_job_args = []
+        if include_render_job:
+            render_job_args = [
+                "--render-job",
+                str(self.create_render_job(mp4=selected_mp4, sync_manifest=selected_sync, state=render_job_state)),
+            ]
+
         return subprocess.run(
             [
                 "node",
                 *(node_args or []),
                 str(SCRIPT),
                 "--mp4",
-                str(mp4 or self.mp4),
+                str(selected_mp4),
                 "--package",
                 str(self.package_dir),
                 "--sync-manifest",
-                str(sync_manifest or self.sync_manifest),
+                str(selected_sync),
                 "--report-dir",
                 str(report_dir or self.report_dir),
+                *render_job_args,
                 *(extra_args or []),
             ],
             cwd=ROOT,
@@ -196,6 +253,8 @@ class RenderPostQaTest(unittest.TestCase):
         self.assertEqual(report["sync_manifest_relative_path"], "sync_manifest.json")
         self.assertEqual(report["sync_manifest_bytes"], self.sync_manifest.stat().st_size)
         self.assertEqual(report["sync_manifest_sha256"], hashlib.sha256(self.sync_manifest.read_bytes()).hexdigest())
+        self.assertEqual(report["render_job"]["state"], "succeeded")
+        self.assertEqual(report["render_job"]["output_sha256"], report["mp4_sha256"])
         self.assertEqual(report["auto_status"], "pass")
         self.assertEqual(report["overall_status"], "manual_review_required")
         self.assertEqual(report["final_status"], "needs_human_review")
@@ -203,6 +262,18 @@ class RenderPostQaTest(unittest.TestCase):
         self.assertEqual(len(report["representative_frames"]), 5)
         for frame in report["representative_frames"]:
             self.assertTrue(Path(frame["path"]).exists())
+
+    def test_rejects_non_hyperframes_qa_without_a_succeeded_render_job(self):
+        missing = self.run_qa(include_render_job=False)
+        failed = self.run_qa(
+            render_job_state="failed",
+            report_dir=self.package_dir / "_work" / "failed-job-report",
+        )
+
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("--render-job", missing.stderr)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertIn("succeeded", failed.stderr)
 
     def test_fails_when_mp4_changes_during_representative_frame_extraction(self):
         result = self.run_qa(extra_env={"FAKE_FFMPEG_MUTATE_MP4_PATH": str(self.mp4)})

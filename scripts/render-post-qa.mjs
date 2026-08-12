@@ -34,7 +34,7 @@ function readBoundJson(filePath, packageDir) {
   try {
     return {
       evidence: {
-        relative_path: path.relative(packageDir, filePath).split(path.sep).join("/"),
+        relative_path: path.relative(canonicalPath(packageDir), canonicalPath(filePath)).split(path.sep).join("/"),
         bytes: bytes.length,
         sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
       },
@@ -52,7 +52,7 @@ function writeJson(filePath, value) {
 
 function localRootKind(targetPath) {
   for (const root of [repoRoot, testLocalRoot].filter(Boolean)) {
-    const relative = path.relative(root, path.resolve(targetPath));
+    const relative = path.relative(canonicalPath(root), canonicalPath(targetPath));
     if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) {
       return relative.split(path.sep)[0];
     }
@@ -64,9 +64,17 @@ function sha256(filePath) {
   return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
 }
 
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 function boundFileEvidence(filePath, packageDir) {
   return {
-    relative_path: path.relative(packageDir, filePath).split(path.sep).join("/"),
+    relative_path: path.relative(canonicalPath(packageDir), canonicalPath(filePath)).split(path.sep).join("/"),
     bytes: fs.statSync(filePath).size,
     sha256: sha256(filePath),
   };
@@ -80,8 +88,9 @@ function ensureInsideOutput(targetPath, label) {
 }
 
 function ensureInsidePackage(targetPath, packageDir, label) {
-  const resolved = path.resolve(targetPath);
-  if (resolved !== packageDir && !resolved.startsWith(`${packageDir}${path.sep}`)) {
+  const resolved = canonicalPath(targetPath);
+  const canonicalPackage = canonicalPath(packageDir);
+  if (resolved !== canonicalPackage && !resolved.startsWith(`${canonicalPackage}${path.sep}`)) {
     die(`${label} must stay inside the approved review package folder.`);
   }
 
@@ -104,6 +113,13 @@ function nearestExistingPath(targetPath) {
     current = parent;
   }
   return current;
+}
+
+function canonicalPath(targetPath) {
+  const resolved = path.resolve(targetPath);
+  const existing = nearestExistingPath(resolved);
+  const realExisting = fs.realpathSync.native(existing);
+  return path.resolve(realExisting, path.relative(existing, resolved));
 }
 
 function runJsonCommand(command, args, cwd, label) {
@@ -260,6 +276,12 @@ ${manualRows}
 const mp4Path = path.resolve(requireArg("--mp4"));
 const packageDir = path.resolve(requireArg("--package"));
 const syncManifestPath = path.resolve(requireArg("--sync-manifest"));
+const renderJobArgument = argValue("--render-job");
+const isHyperframesOutput = path.basename(mp4Path).includes("_hyperframes_");
+if (!renderJobArgument && !isHyperframesOutput) {
+  die("Missing --render-job: standard HTML render QA requires a succeeded durable render job.");
+}
+const renderJobPath = renderJobArgument ? path.resolve(renderJobArgument) : null;
 const reportDir = path.resolve(argValue("--report-dir") || path.join(packageDir, "_work", `render_post_qa_${new Date().toISOString().replace(/[:.]/g, "-")}`));
 
 ensureInsideOutput(packageDir, "Review package");
@@ -269,6 +291,14 @@ ensureInsideOutput(reportDir, "Report directory");
 ensureInsidePackage(mp4Path, packageDir, "MP4");
 ensureInsidePackage(syncManifestPath, packageDir, "sync_manifest");
 ensureInsidePackage(reportDir, packageDir, "Report directory");
+if (renderJobPath) {
+  ensureInsideOutput(renderJobPath, "render_job");
+  ensureInsidePackage(renderJobPath, packageDir, "render_job");
+  const relativeJobPath = path.relative(canonicalPath(packageDir), canonicalPath(renderJobPath)).split(path.sep).join("/");
+  if (!/^_work\/render_jobs\/[0-9]{8}T[0-9]{12}Z-[0-9a-f]{8}\/render_job\.json$/.test(relativeJobPath)) {
+    die("render_job must use the package _work/render_jobs/<job-id>/render_job.json path.");
+  }
+}
 
 if (!fs.existsSync(mp4Path)) die(`Missing MP4: ${mp4Path}`);
 if (!fs.existsSync(syncManifestPath)) die(`Missing sync_manifest: ${syncManifestPath}`);
@@ -281,6 +311,43 @@ if (!path.basename(mp4Path).includes("upload_10mbps")) {
 
 const mp4Input = boundFileEvidence(mp4Path, packageDir);
 const { evidence: syncManifestInput, value: syncManifest } = readBoundJson(syncManifestPath, packageDir);
+let renderJobReport = null;
+if (renderJobPath) {
+  const { evidence: renderJobInput, value: renderJob } = readBoundJson(renderJobPath, packageDir);
+  const bindings = renderJob.bindings;
+  const outputEvidence = renderJob.output_evidence;
+  if (!bindings || typeof bindings !== "object" || Array.isArray(bindings)) {
+    die("render_job bindings are invalid.");
+  }
+  const actualBindingsHash = crypto.createHash("sha256").update(canonicalJson(bindings), "utf8").digest("hex");
+  if (renderJob.bindings_sha256 !== actualBindingsHash) {
+    die("render_job immutable bindings hash is invalid.");
+  }
+  if (renderJob.state !== "succeeded") {
+    die("render_job state must be succeeded before post-render QA.");
+  }
+  if (canonicalPath(bindings.package_path || ".") !== canonicalPath(packageDir)) {
+    die("render_job package binding does not match --package.");
+  }
+  if (canonicalPath(bindings.output_path || ".") !== canonicalPath(mp4Path) || canonicalPath(outputEvidence?.path || ".") !== canonicalPath(mp4Path)) {
+    die("render_job output binding does not match --mp4.");
+  }
+  if (Number(outputEvidence?.bytes) !== mp4Input.bytes || outputEvidence?.sha256 !== mp4Input.sha256) {
+    die("render_job output bytes/SHA-256 do not match the current MP4.");
+  }
+  if (canonicalPath(bindings.sync_manifest_path || ".") !== canonicalPath(syncManifestPath) || bindings.sync_manifest_sha256 !== syncManifestInput.sha256) {
+    die("render_job sync manifest binding does not match the current sync manifest.");
+  }
+  renderJobReport = {
+    relative_path: renderJobInput.relative_path,
+    bytes: renderJobInput.bytes,
+    sha256: renderJobInput.sha256,
+    job_id: renderJob.job_id,
+    state: renderJob.state,
+    output_bytes: outputEvidence.bytes,
+    output_sha256: outputEvidence.sha256,
+  };
+}
 if (syncManifest.ok !== true) {
   die("sync_manifest.ok must be true for post-render QA.");
 }
@@ -370,6 +437,7 @@ const report = {
   sync_manifest_relative_path: syncManifestInput.relative_path,
   sync_manifest_bytes: syncManifestInput.bytes,
   sync_manifest_sha256: syncManifestInput.sha256,
+  render_job: renderJobReport,
   auto_status: failedChecks.length === 0 ? "pass" : "fail",
   overall_status: failedChecks.length === 0 ? "manual_review_required" : "blocked",
   final_status: failedChecks.length === 0 ? "needs_human_review" : "blocked",

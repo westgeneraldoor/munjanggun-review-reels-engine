@@ -40,6 +40,16 @@ PRODUCTION_ENTRYPOINT_DOCUMENTS = [
     "docs/github_pr_workflow.md",
 ]
 
+DURABLE_RENDER_DOCUMENTS = [
+    "AGENTS.md",
+    "README.md",
+    "docs/review_reel_production_routing_v1.md",
+    "docs/review_video_publish_workflow_v2.md",
+    "docs/review_reels_one_shot_contract_v2.md",
+    "docs/review_recipe_contract_v2.md",
+    "docs/render_qa_rules_v2.md",
+]
+
 COMPACT_STANDARDS = {
     "docs/review_reels_content_standard_v1.md": [
         "review_source",
@@ -147,6 +157,39 @@ ARCHIVED_DOCUMENT_MOVES = {
 
 
 class AuthorityDocumentsTest(unittest.TestCase):
+    def test_live_render_authority_uses_durable_start_and_status_not_foreground_wait(self):
+        for relative_path in DURABLE_RENDER_DOCUMENTS:
+            with self.subTest(relative_path=relative_path):
+                text = (ROOT / relative_path).read_text(encoding="utf-8")
+                self.assertIn("render-start", text)
+                self.assertIn("render-status", text)
+                self.assertNotRegex(
+                    text,
+                    r"(?m)^python scripts/produce_review_v2\.py render --package",
+                )
+
+        render_rules = (ROOT / "docs/render_qa_rules_v2.md").read_text(encoding="utf-8")
+        self.assertIn("compatibility-only", render_rules)
+        self.assertIn("queued -> running -> succeeded|failed", render_rules)
+        self.assertIn("rendered_frames / expected_frames", render_rules)
+        self.assertIn("RETRY_REQUIRES_NEW_OUTPUT", render_rules)
+        self.assertIn("--render-job", render_rules)
+
+    def test_durable_render_implementation_has_detachment_and_evidence_anchors(self):
+        orchestrator = (ROOT / "scripts/produce_review_v2.py").read_text(encoding="utf-8")
+        worker = (ROOT / "scripts/render_review_v2_job.py").read_text(encoding="utf-8")
+        model = (ROOT / "video_engine_v2/render_job.py").read_text(encoding="utf-8")
+
+        for anchor in ("DETACHED_PROCESS", "CREATE_NEW_PROCESS_GROUP", "render_review_v2_job.py"):
+            self.assertIn(anchor, orchestrator)
+        for anchor in ("output_evidence", "sha256_file", "FRAME_COUNT_MISMATCH"):
+            self.assertIn(anchor, worker)
+        for anchor in ("NamedTemporaryFile", "os.replace", "bindings_sha256", "rendered_frames", "expected_frames"):
+            self.assertIn(anchor, model)
+        post_qa = (ROOT / "scripts/render-post-qa.mjs").read_text(encoding="utf-8")
+        self.assertIn("render_job state must be succeeded", post_qa)
+        self.assertIn("render_job output bytes/SHA-256", post_qa)
+
     def test_production_entrypoint_documents_name_the_v2_orchestrator_and_not_direct_commands(self):
         for relative_path in PRODUCTION_ENTRYPOINT_DOCUMENTS:
             with self.subTest(relative_path=relative_path):
