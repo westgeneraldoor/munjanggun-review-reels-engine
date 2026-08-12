@@ -77,12 +77,23 @@ class ReviewReelIntakeTests(unittest.TestCase):
             "리뷰 골라주고 폴더 만들어줘": "canonical_package_create_requested",
             "사진 다 넣었어. HTML까지 가자": "one_shot_html_requested",
             "사진 다 넣었어요 HTML까지 가자": "one_shot_html_requested",
+            # `리뷰`가 `릴스`에 붙어 있지 않거나 아예 없는 자연스러운 어미도 같은 명령이다.
+            "이 리뷰로 릴스 만들어보자": "selection_required",
+            "이걸로 릴스 해보자": "selection_required",
+            "릴스 하나 시작하자": "selection_required",
+            "이번 건 릴스로 가자": "selection_required",
         }
         for command, expected_state in cases.items():
             with self.subTest(command=command):
                 routed = route_user_command(command)
                 self.assertEqual(routed["workflow"], "review_reel_production")
                 self.assertEqual(routed["state"], expected_state)
+
+    def test_generic_review_content_phrases_without_reel_intent_stay_generic(self):
+        for command in ("리뷰 컨텐츠 만들어줘", "리뷰 콘텐츠 신규 발행하자", "리뷰 원문 정리해줘"):
+            with self.subTest(command=command):
+                routed = route_user_command(command)
+                self.assertEqual(routed["workflow"], "generic_review_content")
 
     def test_create_uses_inventory_content_id_and_never_exposes_candidate_in_user_facing_names(self):
         result = self.create()

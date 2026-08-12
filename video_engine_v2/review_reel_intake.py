@@ -105,8 +105,10 @@ def route_user_command(command: str) -> dict[str, str]:
             "state": "canonical_package_create_requested",
             "next_action": "select_inventory_record",
         }
-    if "리뷰릴스" in compact and any(
-        stem in compact for stem in ("만들", "제작", "시작", "진행", "발행")
+    # `릴스`는 이 저장소에서 리뷰 릴스만 가리키므로, `리뷰`가 붙어 있지 않거나
+    # `이 리뷰로 릴스`처럼 사이에 조사가 끼어도 같은 명령으로 본다.
+    if "릴스" in compact and any(
+        stem in compact for stem in ("만들", "제작", "시작", "진행", "발행", "해보", "하자", "가자")
     ):
         return {
             "workflow": "review_reel_production",

@@ -45,6 +45,7 @@ SUPPORTED_STORY_MODES = {
 }
 MAX_OPENING_BEAT_SEC = 4.0
 MIN_CAPTION_FONT_PX = 32
+SUPPORTED_CAPTION_THEMES = {"white", "warning", "proof", "clear", "cta", "stamp"}
 SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 CORRUPT_MARKERS = ("??", "\ufffd")
 WEAK_HOOK_PHRASES = (
@@ -789,6 +790,394 @@ def canonical_tts_input_sha256(edit_recipe: dict[str, Any]) -> str:
     return hashlib.sha256(canonical_tts_input_narration(edit_recipe).encode("utf-8")).hexdigest()
 
 
+SUPPORTED_MOTIONS = {
+    "air_leak_wipe", "before_after_flash", "clean_glow_reveal", "clean_room_pan",
+    "construction_focus", "cool_air_reveal", "detail_probe", "entry_path_pan",
+    "heat_haze_problem", "keyword_pop", "measure_scan", "mission_clear_reveal",
+    "obstacle_route_pan", "paper_crumple_pop", "precision_scan", "problem_shake",
+    "product_card_flash", "rejection_stamp", "review_capture_scroll",
+    "calm_glide_left", "calm_glide_right", "calm_glide_up", "calm_pull_out", "calm_push_in",
+    "micro_pull_out", "micro_push_in", "review_capture_hold", "space_anxiety_pull", "static_hold",
+}
+
+STATIC_PHOTO_MOTIONS = {"review_capture_hold", "static_hold"}
+MAX_ONE_SHOT_TOTAL_SHOTS = 12
+ONE_SHOT_CALM_MOTIONS = {
+    "calm_glide_left", "calm_glide_right", "calm_glide_up", "calm_pull_out", "calm_push_in",
+    "review_capture_hold", "static_hold",
+}
+ONE_SHOT_CALM_TRANSITIONS = {"calm_dissolve", "cut"}
+ONE_SHOT_CAPTION_SIZES = {"small", "medium", "large", "hero-calm"}
+CALM_DISSOLVE_MS = 380
+CALM_SCALE_DELTA = 0.05
+CALM_HORIZONTAL_TRAVEL_PX = 24
+CALM_VERTICAL_TRAVEL_PX = 20
+MIN_ONE_SHOT_HOOK_SHOT_SEC = 1.0
+MIN_ONE_SHOT_FINAL_RESULT_SEC = 2.5
+
+SUPPORTED_TRANSITIONS = {
+    "card_pop", "caption_swap", "cross_dissolve", "cut", "flash_glow", "glow",
+    "hit_flash", "paper_open", "pop", "slide_up", "smooth_cut", "smooth_slide",
+    "calm_dissolve", "soft_cut", "soft_dissolve",
+    "zoom_snap",
+}
+
+
+def _validate_beat_shots(beat: dict[str, Any], asset_roles: dict[str, Any], scene_id: str) -> list[dict[str, Any]]:
+    """한 beat 안에서 사진이 여러 장 바뀔 때 자산·모션·구간을 검증한다."""
+    shots = beat.get("shots")
+    if shots in (None, []):
+        motion = _as_text(beat.get("motion")).strip()
+        if motion and motion not in SUPPORTED_MOTIONS:
+            return [_issue("MOTION_UNSUPPORTED", f"Unsupported motion: {motion}", scene_id=scene_id)]
+        return []
+    if not isinstance(shots, list):
+        return [_issue("BEAT_SHOTS_INVALID", "shots must be a list.", scene_id=scene_id)]
+
+    issues: list[dict[str, Any]] = []
+    try:
+        beat_start, beat_end = float(beat["time"][0]), float(beat["time"][1])
+    except (KeyError, IndexError, TypeError, ValueError):
+        return [_issue("BEAT_SHOTS_INVALID", "Beat time is required for shots.", scene_id=scene_id)]
+
+    previous_end = beat_start
+    for index, shot in enumerate(shots, start=1):
+        if not isinstance(shot, dict):
+            issues.append(_issue("BEAT_SHOTS_INVALID", f"shots[{index}] must be an object.", scene_id=scene_id))
+            continue
+        asset_id = _as_text(shot.get("asset_id")).strip()
+        if not asset_id or asset_id not in asset_roles:
+            issues.append(_issue("SHOT_ASSET_UNKNOWN", f"shots[{index}] asset_id must exist in asset_roles.", scene_id=scene_id))
+        motion = _as_text(shot.get("motion")).strip()
+        if motion and motion not in SUPPORTED_MOTIONS:
+            issues.append(_issue("MOTION_UNSUPPORTED", f"shots[{index}] uses unsupported motion: {motion}", scene_id=scene_id))
+        elif motion and motion not in STATIC_PHOTO_MOTIONS and not _as_text(shot.get("motion_reason")).strip():
+            issues.append(
+                _issue(
+                    "SHOT_MOTION_REASON_MISSING",
+                    f"shots[{index}] must explain why non-static motion supports the story.",
+                    scene_id=scene_id,
+                )
+            )
+        transition = _as_text(shot.get("transition_in")).strip()
+        if transition and transition not in SUPPORTED_TRANSITIONS:
+            issues.append(
+                _issue(
+                    "TRANSITION_UNSUPPORTED",
+                    f"shots[{index}] uses unsupported transition: {transition}",
+                    scene_id=scene_id,
+                )
+            )
+        try:
+            start, end = float(shot["start_sec"]), float(shot["end_sec"])
+        except (KeyError, TypeError, ValueError):
+            issues.append(_issue("SHOT_TIME_INVALID", f"shots[{index}] needs start_sec and end_sec.", scene_id=scene_id))
+            continue
+        if (
+            end <= start
+            or start < beat_start - 0.001
+            or end > beat_end + 0.001
+            or abs(start - previous_end) > 0.001
+        ):
+            issues.append(
+                _issue("SHOT_TIME_INVALID", f"shots[{index}] must stay inside the beat and move forward.", scene_id=scene_id)
+            )
+        previous_end = end
+    if abs(previous_end - beat_end) > 0.05:
+        issues.append(_issue("SHOT_TIME_INVALID", "shots must cover the whole beat.", scene_id=scene_id))
+    return issues
+
+
+def _validate_result_first_hook_contract(edit_recipe: dict[str, Any]) -> list[dict[str, Any]]:
+    """Require a compact result -> before -> result opening and cap total shot density."""
+    issues: list[dict[str, Any]] = []
+    beats = [beat for beat in edit_recipe.get("beats") or [] if isinstance(beat, dict)]
+    total_shots = sum(len(beat.get("shots") or []) for beat in beats if isinstance(beat.get("shots") or [], list))
+    if total_shots > MAX_ONE_SHOT_TOTAL_SHOTS:
+        issues.append(
+            _issue(
+                "SHOT_DENSITY_EXCESSIVE",
+                f"One-shot review reels may use at most {MAX_ONE_SHOT_TOTAL_SHOTS} shots; found {total_shots}.",
+            )
+        )
+
+    contract = edit_recipe.get("hook_visual_contract")
+    if not isinstance(contract, dict):
+        return issues + [_issue("RESULT_FIRST_HOOK_MISSING", "hook_visual_contract is required.")]
+    result_asset_id = _as_text(contract.get("result_asset_id")).strip()
+    before_asset_id = _as_text(contract.get("before_asset_id")).strip()
+    if not result_asset_id or not before_asset_id or result_asset_id == before_asset_id:
+        return issues + [_issue("RESULT_FIRST_HOOK_INVALID", "Result and before asset IDs must be distinct and non-empty.")]
+
+    first_beat = beats[0] if beats else {}
+    shots = first_beat.get("shots") or []
+    sequence = [_as_text(shot.get("asset_id")).strip() for shot in shots[:3] if isinstance(shot, dict)]
+    if sequence != [result_asset_id, before_asset_id, result_asset_id]:
+        issues.append(
+            _issue(
+                "RESULT_FIRST_HOOK_SEQUENCE_INVALID",
+                "The opening must show result -> before -> result in its first three shots.",
+                scene_id=_as_text(first_beat.get("id") or "scene_01"),
+            )
+        )
+    return issues
+
+
+def _validate_one_shot_visual_edit_contract(edit_recipe: dict[str, Any]) -> list[dict[str, Any]]:
+    """Lock production one-shot reels to the approved calm-photo editing language."""
+    issues: list[dict[str, Any]] = []
+    beats = [beat for beat in edit_recipe.get("beats") or [] if isinstance(beat, dict)]
+    contract = edit_recipe.get("hook_visual_contract") or {}
+    result_asset_id = _as_text(contract.get("result_asset_id")).strip()
+
+    for beat_index, beat in enumerate(beats):
+        scene_id = _as_text(beat.get("id") or f"scene_{beat_index + 1:02d}")
+        shots = beat.get("shots")
+        if not isinstance(shots, list) or not shots:
+            issues.append(
+                _issue(
+                    "ONE_SHOT_SHOTS_REQUIRED",
+                    "Every production one-shot beat must declare the exact photo shots it renders.",
+                    scene_id=scene_id,
+                )
+            )
+            shots = []
+
+        layout = beat.get("caption_layout") or {}
+        size = _as_text(layout.get("size")).strip()
+        theme = _as_text(layout.get("theme")).strip()
+        emphasis = beat.get("caption_emphasis")
+        accent = beat.get("caption_accent") or {}
+        if beat_index == 0:
+            if size != "hero-calm":
+                issues.append(_issue("HOOK_CAPTION_SIZE_INVALID", "The opening caption must use hero-calm.", scene_id=scene_id))
+        elif size not in ONE_SHOT_CAPTION_SIZES - {"hero-calm"}:
+            issues.append(
+                _issue(
+                    "ONE_SHOT_CAPTION_SIZE_INVALID",
+                    "Non-hook one-shot captions must use small, medium, or large.",
+                    scene_id=scene_id,
+                )
+            )
+        if theme != "white":
+            issues.append(
+                _issue(
+                    "ONE_SHOT_CAPTION_THEME_INVALID",
+                    "Production one-shot captions use the white ivory-and-mint theme.",
+                    scene_id=scene_id,
+                )
+            )
+        if not isinstance(emphasis, list) or len(emphasis) != 1 or not _as_text(emphasis[0]).strip():
+            issues.append(
+                _issue(
+                    "CAPTION_EMPHASIS_DENSITY_INVALID",
+                    "Each production one-shot beat needs exactly one emphasis keyword.",
+                    scene_id=scene_id,
+                )
+            )
+        if accent.get("enabled") is not True:
+            issues.append(
+                _issue(
+                    "CAPTION_ACCENT_REQUIRED",
+                    "The single one-shot emphasis keyword must enable the restrained accent treatment.",
+                    scene_id=scene_id,
+                )
+            )
+
+        for shot_index, shot in enumerate(shots):
+            if not isinstance(shot, dict):
+                continue
+            motion = _as_text(shot.get("motion") or beat.get("motion")).strip()
+            transition = _as_text(shot.get("transition_in")).strip()
+            if motion not in ONE_SHOT_CALM_MOTIONS:
+                issues.append(
+                    _issue(
+                        "ONE_SHOT_MOTION_NOT_CALM",
+                        f"Production one-shot motion is too aggressive or undefined: {motion or '(empty)'}.",
+                        scene_id=scene_id,
+                    )
+                )
+            if transition not in ONE_SHOT_CALM_TRANSITIONS:
+                issues.append(
+                    _issue(
+                        "ONE_SHOT_TRANSITION_NOT_CALM",
+                        f"Production one-shot transition is too aggressive or undefined: {transition or '(empty)'}.",
+                        scene_id=scene_id,
+                    )
+                )
+            elif beat_index > 0 and transition != "calm_dissolve":
+                issues.append(
+                    _issue(
+                        "ONE_SHOT_TRANSITION_NOT_CALM",
+                        "Photo changes after the opening must use calm_dissolve.",
+                        scene_id=scene_id,
+                    )
+                )
+
+        if beat_index == 0 and shots:
+            transitions = [_as_text(shot.get("transition_in")).strip() for shot in shots if isinstance(shot, dict)]
+            if len(shots) != 3 or transitions != ["cut", "calm_dissolve", "calm_dissolve"]:
+                issues.append(
+                    _issue(
+                        "HOOK_TRANSITION_SEQUENCE_INVALID",
+                        "The opening transitions must be cut -> calm_dissolve -> calm_dissolve across exactly three shots.",
+                        scene_id=scene_id,
+                    )
+                )
+            for shot in shots[:3]:
+                try:
+                    duration = float(shot["end_sec"]) - float(shot["start_sec"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if duration < MIN_ONE_SHOT_HOOK_SHOT_SEC - 0.001:
+                    issues.append(
+                        _issue(
+                            "HOOK_SHOT_TOO_SHORT",
+                            f"Each opening comparison shot must stay at least {MIN_ONE_SHOT_HOOK_SHOT_SEC:.1f} seconds.",
+                            scene_id=scene_id,
+                        )
+                    )
+                    break
+
+        if _role(beat) == "review_proof" and (
+            len(shots) != 1
+            or _as_text(beat.get("motion")).strip() != "review_capture_hold"
+            or any(_as_text(shot.get("motion")).strip() != "review_capture_hold" for shot in shots if isinstance(shot, dict))
+        ):
+            issues.append(
+                _issue(
+                    "REVIEW_PROOF_MUST_HOLD_STILL",
+                    "Review proof must use one static review_capture_hold shot.",
+                    scene_id=scene_id,
+                )
+            )
+
+    if beats:
+        final_beat = beats[-1]
+        final_shots = final_beat.get("shots") or []
+        final_shot = final_shots[-1] if isinstance(final_shots, list) and final_shots else {}
+        try:
+            final_dwell = float(final_shot["end_sec"]) - float(final_shot["start_sec"])
+        except (KeyError, TypeError, ValueError):
+            final_dwell = 0.0
+        if (
+            not result_asset_id
+            or _as_text(final_shot.get("asset_id")).strip() != result_asset_id
+            or final_dwell < MIN_ONE_SHOT_FINAL_RESULT_SEC - 0.001
+        ):
+            issues.append(
+                _issue(
+                    "FINAL_RESULT_DWELL_INVALID",
+                    f"The final shot must hold the completed result for at least {MIN_ONE_SHOT_FINAL_RESULT_SEC:.1f} seconds.",
+                    scene_id=_as_text(final_beat.get("id") or "scene_final"),
+                )
+            )
+    return issues
+
+
+def _validate_review_emphasis_contract(
+    planning_recipe: dict[str, Any], edit_recipe: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Bind the review underline to exact source text, review timing, and normalized geometry."""
+    review_beat = next(
+        (beat for beat in edit_recipe.get("beats") or [] if isinstance(beat, dict) and _role(beat) == "review_proof"),
+        None,
+    )
+    emphasis = (review_beat or {}).get("review_emphasis")
+    if not isinstance(emphasis, dict):
+        return [_issue("REVIEW_EMPHASIS_MISSING", "The review proof beat needs review_emphasis evidence.")]
+
+    issues: list[dict[str, Any]] = []
+    quote = _as_text(emphasis.get("quote")).strip()
+    review_text = _as_text(_review_source_metadata(planning_recipe).get("text")).strip()
+    if not quote or _compact_text(quote) not in _compact_text(review_text):
+        issues.append(
+            _issue(
+                "REVIEW_EMPHASIS_QUOTE_NOT_IN_SOURCE",
+                "review_emphasis.quote must be an exact source-review substring after whitespace normalization.",
+            )
+        )
+
+    try:
+        beat_start, beat_end = float(review_beat["time"][0]), float(review_beat["time"][1])
+        start, end = float(emphasis["start_sec"]), float(emphasis["end_sec"])
+    except (KeyError, IndexError, TypeError, ValueError):
+        start = end = beat_start = beat_end = 0.0
+        issues.append(_issue("REVIEW_EMPHASIS_TIME_INVALID", "Review emphasis needs numeric timing inside the review beat."))
+    else:
+        if end <= start or start < beat_start - 0.001 or end > beat_end + 0.001:
+            issues.append(_issue("REVIEW_EMPHASIS_TIME_INVALID", "Review emphasis timing must stay inside the review beat."))
+
+    segments = emphasis.get("segments")
+    if not isinstance(segments, list) or not 1 <= len(segments) <= 3:
+        issues.append(_issue("REVIEW_EMPHASIS_SEGMENT_INVALID", "Review emphasis needs one to three underline segments."))
+    else:
+        for segment in segments:
+            try:
+                left = float(segment["left_pct"])
+                top = float(segment["top_pct"])
+                width = float(segment["width_pct"])
+            except (KeyError, TypeError, ValueError):
+                issues.append(_issue("REVIEW_EMPHASIS_SEGMENT_INVALID", "Underline segments need numeric left/top/width percentages."))
+                break
+            if left < 0 or top < 0 or width <= 0 or left + width > 100 or top > 100:
+                issues.append(_issue("REVIEW_EMPHASIS_SEGMENT_INVALID", "Underline segments must stay inside the review capture."))
+                break
+    return issues
+
+
+def _validate_caption_chunks(beat: dict[str, Any], scene_id: str) -> list[dict[str, Any]]:
+    """D-027: 구절 자막을 이어붙이면 내레이션 전문과 글자까지 같아야 한다."""
+    chunks = beat.get("caption_chunks")
+    if chunks in (None, []):
+        return []
+    issues: list[dict[str, Any]] = []
+    if not isinstance(chunks, list):
+        return [_issue("CAPTION_CHUNKS_INVALID", "caption_chunks must be a list.", scene_id=scene_id)]
+
+    narration = _compact_text(_as_text(beat.get("narration_ref")))
+    joined = _compact_text(" ".join(_as_text(chunk.get("text")) for chunk in chunks if isinstance(chunk, dict)))
+    if joined != narration:
+        issues.append(
+            _issue(
+                "CAPTION_TEXT_NOT_NARRATION",
+                "구절 자막을 이어붙인 결과가 내레이션 전문과 다릅니다. 자막은 음성을 축약하지 않습니다.",
+                scene_id=scene_id,
+            )
+        )
+
+    try:
+        beat_start, beat_end = float(beat["time"][0]), float(beat["time"][1])
+    except (KeyError, IndexError, TypeError, ValueError):
+        return issues + [_issue("CAPTION_CHUNK_TIME_INVALID", "Beat time is required for caption chunks.", scene_id=scene_id)]
+
+    previous_end = beat_start
+    for index, chunk in enumerate(chunks, start=1):
+        if not isinstance(chunk, dict) or not _as_text(chunk.get("text")).strip():
+            issues.append(_issue("CAPTION_CHUNKS_INVALID", f"caption_chunks[{index}] needs text.", scene_id=scene_id))
+            continue
+        lines = _as_text(chunk.get("text")).split("\n")
+        if not 1 <= len(lines) <= 2:
+            issues.append(
+                _issue("CAPTION_CHUNK_LINE_COUNT_INVALID", f"caption_chunks[{index}] must have one or two lines.", scene_id=scene_id)
+            )
+        try:
+            start, end = float(chunk["start_sec"]), float(chunk["end_sec"])
+        except (KeyError, TypeError, ValueError):
+            issues.append(_issue("CAPTION_CHUNK_TIME_INVALID", f"caption_chunks[{index}] needs start_sec and end_sec.", scene_id=scene_id))
+            continue
+        if end <= start or start < beat_start - 0.001 or end > beat_end + 0.001 or start < previous_end - 0.001:
+            issues.append(
+                _issue(
+                    "CAPTION_CHUNK_TIME_INVALID",
+                    f"caption_chunks[{index}] must stay inside the beat and move forward.",
+                    scene_id=scene_id,
+                )
+            )
+        previous_end = end
+    return issues
+
+
 def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edit_recipe: dict[str, Any]) -> dict[str, Any]:
     """Validate the HTML-only one-shot contract without granting MP4 authority."""
     issues: list[dict[str, Any]] = []
@@ -799,6 +1188,9 @@ def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edi
         issues.append(_issue("HTML_SCOPE_NOT_AUTHORIZED", "The one-shot contract must explicitly authorize HTML scope."))
     if contract.get("mp4_scope_authorized") is not False:
         issues.append(_issue("MP4_SCOPE_MUST_REMAIN_UNAUTHORIZED", "The one-shot contract must not authorize MP4 rendering."))
+    issues.extend(_validate_result_first_hook_contract(edit_recipe))
+    issues.extend(_validate_one_shot_visual_edit_contract(edit_recipe))
+    issues.extend(_validate_review_emphasis_contract(planning_recipe, edit_recipe))
 
     writer_brief = planning_recipe.get("writer_brief") or {}
     required_writer_fields = (
@@ -922,6 +1314,9 @@ def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edi
         if not isinstance(layout, dict):
             issues.append(_issue("CAPTION_LAYOUT_EVIDENCE_MISSING", "Caption layout evidence is required.", scene_id=scene_id))
         else:
+            theme = _as_text(layout.get("theme")).strip()
+            if theme and theme not in SUPPORTED_CAPTION_THEMES:
+                issues.append(_issue("CAPTION_THEME_UNSUPPORTED", f"Unsupported caption theme: {theme}", scene_id=scene_id))
             if layout.get("line_count") != len(caption_lines) or not 1 <= len(caption_lines) <= 2:
                 issues.append(_issue("CAPTION_LINE_COUNT_INVALID", "Captions must have one or two lines.", scene_id=scene_id))
             try:
@@ -933,6 +1328,9 @@ def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edi
         keywords = beat.get("caption_focus_keywords") or []
         if not isinstance(keywords, list) or not 1 <= len(keywords) <= 2:
             issues.append(_issue("CAPTION_KEYWORD_DENSITY_INVALID", "Each caption needs one or two focus keywords.", scene_id=scene_id))
+
+        issues.extend(_validate_caption_chunks(beat, scene_id))
+        issues.extend(_validate_beat_shots(beat, edit_recipe.get("asset_roles") or {}, scene_id))
 
         try:
             caption_start = float(beat.get("caption_start_sec"))
@@ -977,8 +1375,14 @@ def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edi
                     )
                 )
 
+    result_asset_id = _as_text((edit_recipe.get("hook_visual_contract") or {}).get("result_asset_id")).strip()
     for asset_id, asset_beats in assets.items():
         total_duration = sum(_beat_duration(beat) for beat in asset_beats)
+        is_declared_result = bool(result_asset_id) and all(
+            _as_text(beat.get("asset")).strip() == result_asset_id for beat in asset_beats
+        )
+        if is_declared_result:
+            continue
         if len(asset_beats) >= 3 and total_duration >= 8.0:
             issues.append(_issue("REPEATED_PHOTO_FILLER", f"Asset {asset_id} is repeated {len(asset_beats)} times for {total_duration:.1f}s."))
 

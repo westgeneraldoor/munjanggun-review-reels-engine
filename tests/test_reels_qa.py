@@ -4,6 +4,7 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
+from video_engine_v2 import reels_qa
 from video_engine_v2.reels_qa import (
     apply_sync_evidence,
     build_approval_log_markdown,
@@ -1183,3 +1184,217 @@ class ReelsQaTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CaptionChunkContractTest(unittest.TestCase):
+    """D-027: 자막은 음성을 축약하지 않는다."""
+
+    def beat(self, chunks):
+        return {
+            "narration_ref": "가격이 아니라 우리 집에 맞는 걸 권했습니다.",
+            "time": [0.0, 4.0],
+            "caption_chunks": chunks,
+        }
+
+    def codes(self, chunks):
+        return [issue["code"] for issue in reels_qa._validate_caption_chunks(self.beat(chunks), "b01")]
+
+    def test_chunks_that_rebuild_the_narration_pass(self):
+        self.assertEqual(
+            self.codes(
+                [
+                    {"text": "가격이 아니라", "start_sec": 0.0, "end_sec": 2.0},
+                    {"text": "우리 집에 맞는 걸\n권했습니다.", "start_sec": 2.0, "end_sec": 4.0},
+                ]
+            ),
+            [],
+        )
+
+    def test_abbreviated_caption_is_rejected(self):
+        self.assertIn(
+            "CAPTION_TEXT_NOT_NARRATION",
+            self.codes(
+                [
+                    {"text": "가격이 아니라", "start_sec": 0.0, "end_sec": 2.0},
+                    {"text": "집에 맞는 걸", "start_sec": 2.0, "end_sec": 4.0},
+                ]
+            ),
+        )
+
+    def test_chunk_outside_the_beat_or_moving_backward_is_rejected(self):
+        self.assertIn(
+            "CAPTION_CHUNK_TIME_INVALID",
+            self.codes(
+                [
+                    {"text": "가격이 아니라", "start_sec": 0.0, "end_sec": 2.0},
+                    {"text": "우리 집에 맞는 걸 권했습니다.", "start_sec": 2.0, "end_sec": 9.0},
+                ]
+            ),
+        )
+
+    def test_three_line_chunk_is_rejected(self):
+        self.assertIn(
+            "CAPTION_CHUNK_LINE_COUNT_INVALID",
+            self.codes(
+                [
+                    {"text": "가격이\n아니라\n우리 집에 맞는 걸 권했습니다.", "start_sec": 0.0, "end_sec": 4.0},
+                ]
+            ),
+        )
+
+    def test_beats_without_chunks_stay_valid(self):
+        self.assertEqual(reels_qa._validate_caption_chunks({"narration_ref": "x", "time": [0.0, 1.0]}, "b01"), [])
+
+
+class BeatShotContractTest(unittest.TestCase):
+    """한 beat 안에서 사진이 바뀔 때 자산·모션·구간을 검증한다."""
+
+    ROLES = {"before_open": "img/a.jpg", "after_open": "img/b.jpg"}
+
+    def codes(self, shots, motion=None):
+        beat = {"time": [0.0, 4.0], "shots": shots}
+        if motion is not None:
+            beat["motion"] = motion
+        return [issue["code"] for issue in reels_qa._validate_beat_shots(beat, self.ROLES, "b01")]
+
+    def test_sequential_shots_covering_the_beat_pass(self):
+        self.assertEqual(
+            self.codes(
+                [
+                    {"asset_id": "before_open", "motion": "space_anxiety_pull", "motion_reason": "Show the empty opening.", "start_sec": 0.0, "end_sec": 2.0},
+                    {"asset_id": "after_open", "motion": "before_after_flash", "motion_reason": "Reveal the completed installation.", "start_sec": 2.0, "end_sec": 4.0},
+                ]
+            ),
+            [],
+        )
+
+    def test_shot_asset_missing_from_asset_roles_is_rejected(self):
+        self.assertIn(
+            "SHOT_ASSET_UNKNOWN",
+            self.codes([{"asset_id": "ghost", "motion": "detail_probe", "start_sec": 0.0, "end_sec": 4.0}]),
+        )
+
+    def test_unsupported_motion_is_rejected(self):
+        self.assertIn(
+            "MOTION_UNSUPPORTED",
+            self.codes([{"asset_id": "before_open", "motion": "slow_pan", "start_sec": 0.0, "end_sec": 4.0}]),
+        )
+
+    def test_motion_without_a_renderer_implementation_is_rejected(self):
+        self.assertIn(
+            "MOTION_UNSUPPORTED",
+            self.codes([{"asset_id": "before_open", "motion": "region_focus", "start_sec": 0.0, "end_sec": 4.0}]),
+        )
+
+    def test_shots_must_cover_the_whole_beat(self):
+        self.assertIn(
+            "SHOT_TIME_INVALID",
+            self.codes([{"asset_id": "before_open", "motion": "detail_probe", "start_sec": 0.0, "end_sec": 2.0}]),
+        )
+
+    def test_gap_between_sequential_shots_is_rejected(self):
+        self.assertIn(
+            "SHOT_TIME_INVALID",
+            self.codes(
+                [
+                    {"asset_id": "before_open", "motion": "space_anxiety_pull", "start_sec": 0.0, "end_sec": 1.5},
+                    {"asset_id": "after_open", "motion": "clean_room_pan", "start_sec": 2.0, "end_sec": 4.0},
+                ]
+            ),
+        )
+
+    def test_unsupported_shot_transition_is_rejected(self):
+        self.assertIn(
+            "TRANSITION_UNSUPPORTED",
+            self.codes(
+                [
+                    {
+                        "asset_id": "before_open",
+                        "motion": "space_anxiety_pull",
+                        "transition_in": "sparkle_everywhere",
+                        "start_sec": 0.0,
+                        "end_sec": 4.0,
+                    }
+                ]
+            ),
+        )
+
+    def test_calm_dissolve_and_review_hold_are_supported(self):
+        self.assertEqual(
+            self.codes(
+                [
+                    {
+                        "asset_id": "before_open",
+                        "motion": "review_capture_hold",
+                        "transition_in": "cross_dissolve",
+                        "start_sec": 0.0,
+                        "end_sec": 4.0,
+                    }
+                ]
+            ),
+            [],
+        )
+
+    def test_static_hold_is_supported_without_a_motion_reason(self):
+        self.assertEqual(
+            self.codes(
+                [
+                    {
+                        "asset_id": "before_open",
+                        "motion": "static_hold",
+                        "transition_in": "cut",
+                        "start_sec": 0.0,
+                        "end_sec": 4.0,
+                    }
+                ]
+            ),
+            [],
+        )
+
+    def test_non_static_motion_without_a_reason_is_rejected(self):
+        self.assertIn(
+            "SHOT_MOTION_REASON_MISSING",
+            self.codes(
+                [
+                    {
+                        "asset_id": "before_open",
+                        "motion": "space_anxiety_pull",
+                        "transition_in": "cut",
+                        "start_sec": 0.0,
+                        "end_sec": 4.0,
+                    }
+                ]
+            ),
+        )
+
+    def test_bounded_micro_motion_and_soft_transitions_are_supported(self):
+        self.assertEqual(
+            self.codes(
+                [
+                    {
+                        "asset_id": "before_open",
+                        "motion": "micro_pull_out",
+                        "motion_reason": "Keep the empty opening gently alive.",
+                        "transition_in": "soft_cut",
+                        "start_sec": 0.0,
+                        "end_sec": 2.0,
+                    },
+                    {
+                        "asset_id": "after_open",
+                        "motion": "micro_push_in",
+                        "motion_reason": "Let the completed door settle as the result.",
+                        "transition_in": "soft_dissolve",
+                        "start_sec": 2.0,
+                        "end_sec": 4.0,
+                    },
+                ]
+            ),
+            [],
+        )
+
+    def test_beat_motion_is_checked_when_no_shots_are_declared(self):
+        beat = {"time": [0.0, 4.0], "motion": "slow_pan"}
+        self.assertIn("MOTION_UNSUPPORTED", [i["code"] for i in reels_qa._validate_beat_shots(beat, self.ROLES, "b01")])
+
+    def test_beat_without_motion_or_shots_stays_valid(self):
+        self.assertEqual(reels_qa._validate_beat_shots({"time": [0.0, 4.0]}, self.ROLES, "b01"), [])
