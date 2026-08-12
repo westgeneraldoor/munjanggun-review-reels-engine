@@ -167,6 +167,16 @@ def process_is_running(pid: int) -> bool:
     return True
 
 
+def _queued_job_is_stale(job: dict, *, grace_seconds: float = 10.0) -> bool:
+    try:
+        created_at = datetime.fromisoformat(job["created_at"])
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - created_at.astimezone(timezone.utc)).total_seconds() >= grace_seconds
+    except (KeyError, TypeError, ValueError):
+        return True
+
+
 def _common_arguments(parser: argparse.ArgumentParser, *, include_recipes: bool) -> None:
     parser.add_argument("--package", required=True)
     parser.add_argument("--privacy-manifest", required=True)
@@ -255,7 +265,17 @@ def main(argv: list[str] | None = None) -> int:
             package = Path(args.package).resolve()
             job_path = job_record_path(package, args.job_id)
             job = read_job(job_path)
-            if job["state"] == "running" and isinstance(job.get("worker_pid"), int) and not process_is_running(job["worker_pid"]):
+            if job["state"] == "queued" and job.get("worker_pid") is None and _queued_job_is_stale(job):
+                progress = refresh_progress(job_path)
+                update_job(
+                    job_path,
+                    state="failed",
+                    completed_at=utc_now(),
+                    rendered_frames=progress["rendered_frames"],
+                    failure={"code": "WORKER_DID_NOT_START", "message": "worker did not record startup within 10 seconds"},
+                    exit_code=2,
+                )
+            elif job["state"] == "running" and isinstance(job.get("worker_pid"), int) and not process_is_running(job["worker_pid"]):
                 progress = refresh_progress(job_path)
                 update_job(
                     job_path,

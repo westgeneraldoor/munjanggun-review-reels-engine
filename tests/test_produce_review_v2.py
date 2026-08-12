@@ -153,6 +153,37 @@ class ProduceReviewV2SubprocessTest(unittest.TestCase):
 
             self.assertEqual(result, 2)
 
+    def test_render_status_marks_a_stale_unstarted_job_failed(self):
+        with TemporaryDirectory() as temporary:
+            package = Path(temporary) / "118_package"
+            package.mkdir()
+            receipt = package / "receipt.json"
+            receipt.write_text("{}", encoding="utf-8")
+            output = package / "118_demo_final_render_20260812_upload_10mbps.mp4"
+            job_id = "20260812T010203000000Z-ab12cd34"
+            job_path = create_job_record(
+                package_dir=package,
+                job_id=job_id,
+                bindings={},
+                receipt_path=receipt,
+                output_path=output,
+                expected_frames=1,
+            )
+            payload = json.loads(job_path.read_text(encoding="utf-8"))
+            payload["created_at"] = "2000-01-01T00:00:00+00:00"
+            job_path.write_text(json.dumps(payload), encoding="utf-8")
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                result = produce_review_v2.main(
+                    ["render-status", "--package", str(package), "--job-id", job_id]
+                )
+
+            status = json.loads(stdout.getvalue())
+            self.assertEqual(result, 0)
+            self.assertEqual(status["state"], "failed")
+            self.assertEqual(status["failure"]["code"], "WORKER_DID_NOT_START")
+
     def test_utf8_child_runner_preserves_korean_output_paths(self):
         runner = getattr(produce_review_v2, "run_utf8_capture", None)
         self.assertIsNotNone(runner, "official HTML orchestration needs a UTF-8 child-process boundary")

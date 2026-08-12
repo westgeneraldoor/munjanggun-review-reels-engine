@@ -285,6 +285,8 @@ class RenderJobWorkerTest(unittest.TestCase):
         self.assertEqual(failed["state"], "failed")
         self.assertEqual(failed["failure"]["code"], "BOUND_INPUT_CHANGED")
         self.assertFalse(marker.exists())
+        self.assertTrue(Path(failed["log_path"]).is_file())
+        self.assertIn("BOUND_INPUT_CHANGED", Path(failed["log_path"]).read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

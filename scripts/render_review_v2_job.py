@@ -70,6 +70,10 @@ def build_render_command(job: dict) -> list[str]:
 def _mark_failed(job_path: Path, *, code: str, message: str, exit_code: int) -> None:
     try:
         progress = refresh_progress(job_path)
+        log_path = Path(progress["log_path"])
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as log:
+            log.write(f"[{utc_now()}] {code}: {message}\n")
         update_job(
             job_path,
             state="failed",
@@ -92,11 +96,13 @@ def run_job(
     path = Path(job_path).resolve()
     try:
         job = read_job(path)
+        log_path = Path(job["log_path"])
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as log:
+            log.write(f"[{utc_now()}] worker started pid={os.getpid()}\n")
         update_job(path, state="running", worker_pid=os.getpid(), started_at=utc_now())
         _validate_bound_inputs(job)
         command = command_builder(job)
-        log_path = Path(job["log_path"])
-        log_path.parent.mkdir(parents=True, exist_ok=True)
         environment = os.environ.copy()
         environment.update({"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"})
         with log_path.open("ab") as log:
