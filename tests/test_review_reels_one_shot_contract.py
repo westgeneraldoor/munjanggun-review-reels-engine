@@ -207,6 +207,42 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
 
         self.assertIn("ONE_SHOT_CAPTION_CHUNKS_REQUIRED", {issue["code"] for issue in result["issues"]})
 
+    def test_contract_allows_four_complete_caption_phrases_instead_of_crossing_a_sentence_boundary(self):
+        fixture = load_fixture()
+        beat = fixture["edit"]["beats"][2]
+        narration = (
+            "화이트 프레임, 은은한 불투명 유리, 초슬림 삼 연동 중문. "
+            "닫아 두면 신발장 쪽이 바로 보이지 않아 한결 깔끔했고요."
+        )
+        beat["narration_ref"] = narration
+        beat["caption_chunks"] = [
+            {"text": "화이트 프레임, 은은한 불투명 유리,", "start_sec": 8.0, "end_sec": 9.0},
+            {"text": "초슬림 삼 연동 중문.", "start_sec": 9.0, "end_sec": 10.0},
+            {"text": "닫아 두면 신발장 쪽이 바로 보이지 않아", "start_sec": 10.0, "end_sec": 11.4},
+            {"text": "한결 깔끔했고요.", "start_sec": 11.4, "end_sec": 12.0},
+        ]
+        beat["caption_focus_keywords"] = ["깔끔"]
+        beat["caption_emphasis"] = ["깔끔"]
+        beat["caption_accent"] = {"enabled": True, "style": "soft", "start_sec": 11.58}
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+        codes = {issue["code"] for issue in result["issues"]}
+
+        self.assertNotIn("CAPTION_CHUNK_DENSITY_EXCESSIVE", codes)
+        self.assertNotIn("CAPTION_CHUNK_CONTEXT_TOO_THIN", codes)
+
+    def test_contract_rejects_a_caption_chunk_that_crosses_a_finished_sentence(self):
+        fixture = load_fixture()
+        beat = fixture["edit"]["beats"][1]
+        beat["narration_ref"] = "Daily route. Needed care."
+        beat["caption_chunks"] = [
+            {"text": "Daily route. Needed care.", "start_sec": 4.0, "end_sec": 8.0},
+        ]
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("CAPTION_CHUNK_SENTENCE_BOUNDARY_INVALID", {issue["code"] for issue in result["issues"]})
+
     def test_contract_rejects_aggressive_one_shot_photo_motion(self):
         fixture = load_fixture()
         fixture["edit"]["beats"][1]["shots"][0].update(

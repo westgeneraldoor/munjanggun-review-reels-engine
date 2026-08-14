@@ -834,8 +834,8 @@ CALM_HORIZONTAL_TRAVEL_PX = 24
 CALM_VERTICAL_TRAVEL_PX = 20
 CAPTION_SAFE_TOP_PX = 220
 CAPTION_SAFE_BOTTOM_PX = 1470
-MAX_CONTEXTUAL_CAPTION_CHUNKS = 3
-MIN_CONTEXTUAL_CAPTION_CHARS = 8
+MAX_CONTEXTUAL_CAPTION_CHUNKS = 4
+MIN_CONTEXTUAL_CAPTION_CHARS = 7
 MIN_ONE_SHOT_HOOK_SHOT_SEC = 1.0
 MIN_ONE_SHOT_FINAL_RESULT_SEC = 2.5
 
@@ -1356,7 +1356,7 @@ def _validate_caption_chunks(beat: dict[str, Any], scene_id: str) -> list[dict[s
         issues.append(
             _issue(
                 "CAPTION_CHUNK_DENSITY_EXCESSIVE",
-                "A beat may use at most three contextual caption phrases.",
+                "A beat may use at most four contextual caption phrases.",
                 scene_id=scene_id,
             )
         )
@@ -1382,6 +1382,15 @@ def _validate_caption_chunks(beat: dict[str, Any], scene_id: str) -> list[dict[s
         if not isinstance(chunk, dict) or not _as_text(chunk.get("text")).strip():
             issues.append(_issue("CAPTION_CHUNKS_INVALID", f"caption_chunks[{index}] needs text.", scene_id=scene_id))
             continue
+        chunk_text = _as_text(chunk.get("text")).strip()
+        if re.search(r"[.!?。！？]\s*\S", chunk_text):
+            issues.append(
+                _issue(
+                    "CAPTION_CHUNK_SENTENCE_BOUNDARY_INVALID",
+                    f"caption_chunks[{index}] must end when a spoken sentence ends.",
+                    scene_id=scene_id,
+                )
+            )
         display_text = chunk.get("display_text")
         if display_text is not None:
             digit_words = str.maketrans({"0": "영", "1": "일", "2": "이", "3": "삼", "4": "사", "5": "오", "6": "육", "7": "칠", "8": "팔", "9": "구"})
