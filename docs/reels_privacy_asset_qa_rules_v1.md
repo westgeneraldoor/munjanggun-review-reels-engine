@@ -8,12 +8,14 @@
 - 중복, 흔들림/저화질, 리뷰와 무관함, 현재 대본에 불필요함은 별도의 `editorial_category`로 기록합니다.
 - 개인정보 때문에 `exclude`할 때만 마스킹·크롭·블러·교체를 실제로 시도한 기록과 `masking_infeasible_reason`, `manual_review_reference`가 필요합니다. 편집 제외에는 이를 요구하지 않습니다.
 - 각 사진은 `evidence_classes`를 가지며 완성 결과·이전 상태·리뷰 캡처는 기본 증거입니다. 실측·공정은 리뷰나 대본이 이를 주장할 때만 사용 증거가 필수입니다.
+- 편집 판단 전에 가려야 할 요소가 발견되면 `decision: hold`, `privacy_status: needs_sanitization`, `remediation.action: pending`으로 남긴다. 이 상태는 HTML asset으로 사용할 수 없지만, 사진 전체를 제외한 것도 아니다.
 
 닫힌 어휘 위반은 `PHOTO_PRIVACY_CATEGORY_INVALID`, 마스킹 우선 위반은 `MASKING_FIRST_NOT_APPLIED`로 HTML 이전에 실패합니다.
 
 ```json
 {"relative_path":"images/after.jpg","decision":"use","reason":"완성 결과 훅","privacy_status":"clear","privacy_risk_categories":[],"editorial_category":"selected_story_evidence","evidence_classes":["installed_result"],"remediation":{"action":"none"},"visual_quality":{"full_product_visible":true}}
 {"relative_path":"images/duplicate.jpg","decision":"exclude","reason":"같은 구도의 중복 컷","privacy_status":"clear","privacy_risk_categories":[],"editorial_category":"duplicate","evidence_classes":["installed_result"],"remediation":{"action":"none"}}
+{"relative_path":"images/document.jpg","decision":"hold","reason":"대본 확정 뒤 사용 여부 결정","privacy_status":"needs_sanitization","privacy_risk_categories":["mail_document"],"editorial_category":"alternate_held","evidence_classes":["context"],"remediation":{"action":"pending","candidate_actions":["crop","blur"]}}
 {"relative_path":"images/reflection.jpg","decision":"exclude","reason":"핵심 상품 전체에 얼굴이 겹침","privacy_status":"blocked","privacy_risk_categories":["reflected_identifiable_face"],"editorial_category":"privacy_unrecoverable","evidence_classes":["installed_result"],"remediation":{"action":"infeasible","attempted_actions":["crop","blur"],"infeasible_category":"risk_covers_essential_subject","masking_infeasible_reason":"상품 전체를 훼손하지 않고 식별 얼굴만 제거할 수 없음","manual_review_reference":"contact-sheet-review"}}
 ```
 

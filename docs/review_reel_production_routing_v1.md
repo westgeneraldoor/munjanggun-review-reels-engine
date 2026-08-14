@@ -98,7 +98,7 @@ inventory를 `scripts/review_reel_intake.py create`로 사용할 수 있다. 선
 성공한 intake의 이름은 기존 004·005 계열과 호환된다.
 
 ```text
-output/inbox_YYYYMMDD/004_어려운시공_YYYYMMDD_HHMMSS/
+output/004_어려운시공_YYYYMMDD_HHMMSS/
   004_어려운시공_이미지/
   CANONICAL_PACKAGE_METADATA.json
   .source
@@ -143,6 +143,28 @@ python scripts/review_reel_intake.py photo-review --output-root "output" --selec
 이 명령만 canonical metadata를 `photo_reviewed`로 전환하고 active pointer의 metadata
 hash를 갱신한다. 사진 하나라도 결정이 없거나, 실제 선택 asset과 privacy manifest의
 경로/bytes/SHA-256이 다르면 실패한다.
+
+재검수는 기존 selection/privacy 파일을 덮어쓰지 않고 revision 전용 새 파일명을 쓴다.
+승인된 이전 `photo_review`는 `photo_review_history`에 해시 결속된 채 보존되고, 같은
+selection 또는 privacy manifest 경로를 재사용하면 실패한다. 게이트에서 거부된 시도는
+canonical 승인 상태를 바꾸지 않으며 `_work/photo_review_rejections/`의 hash-only 감사
+영수증으로만 남는다. 이 규칙은 새 재검수가 발생한 package부터 적용하며 과거 package를
+소급 개조하지 않는다.
+
+## 로컬 output 평탄화
+
+새 package는 `output/<content_id>_<slug>_<timestamp>/`에 직접 누적한다. 과거
+`output/inbox_YYYYMMDD/<package>/`는 읽기 호환되지만, 이동은 일반 파일 명령이 아니라
+아래 dry-run/apply 절차만 사용한다. dry-run은 숫자 production package만 대상으로 하며
+`CAND-*`, `pilot`, `playwright`, inbox 직속 기록과 inbox 폴더 삭제를 제외한다.
+
+```powershell
+python scripts/flatten_review_output.py dry-run --output-root "output" --report "<outside-output>/flatten-plan.json"
+python scripts/flatten_review_output.py apply --output-root "output" --report "<flatten-plan.json>" --report-sha256 "<sha256>" --confirm FLATTEN_REVIEW_PACKAGES
+```
+
+apply는 report hash와 package 트리 hash를 다시 검사하고 metadata·active pointer·registry의
+상대경로를 함께 갱신한다. 충돌·변경·중간 오류가 생기면 완료된 이동을 원위치로 되돌린다.
 
 그 뒤 원문/실제 리뷰 캡처/TTS·sync/one-shot 구조 QA의 준비가 된 경우에만 다음을
 사용한다. 이 명령은 active package를 내부적으로 해석하고

@@ -143,6 +143,12 @@ Photo intake is not approved by editing `STATUS.md`. Run the official
 use/hold/exclude decision file and hash-bound privacy manifest. Only then may a
 canonical package enter `photo_reviewed`.
 
+New canonical packages are created directly under `output/<package-name>/`.
+Legacy `output/inbox_*/<package-name>/` packages remain readable. A photo-review
+revision must use new selection/privacy evidence paths; the accepted prior
+revision remains hash-bound in canonical history while rejected attempts only
+create hash-only audit receipts and never change the active approval state.
+
 The privacy manifest is a binding evidence record: it must include a non-empty
 `checked_at`, a local sanitization report, no unresolved risks, and the exact
 selected asset set with package-relative paths, byte counts, and SHA-256

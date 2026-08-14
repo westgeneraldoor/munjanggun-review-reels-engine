@@ -103,6 +103,8 @@ class ReviewReelIntakeTests(unittest.TestCase):
         self.assertNotIn("CAND-", result.package_dir.name)
         self.assertNotIn("CAND-", result.image_dir.name)
         self.assertTrue(result.package_dir.is_dir())
+        self.assertEqual(result.package_dir.parent, self.output_root.resolve())
+        self.assertEqual(result.metadata["package_relative_path"], result.package_dir.name)
         self.assertTrue(result.image_dir.is_dir())
         self.assertFalse(any(result.package_dir.glob("*_script.md")))
         self.assertFalse(any(result.package_dir.glob("*_voice.mp3")))
@@ -320,8 +322,39 @@ class ReviewReelIntakeTests(unittest.TestCase):
         self.assertFalse(first.reused_existing)
         self.assertTrue(second.reused_existing)
         self.assertEqual(first.package_dir, second.package_dir)
-        packages = list(self.output_root.glob("inbox_*/*"))
+        packages = [
+            path
+            for path in self.output_root.iterdir()
+            if path.is_dir() and path.name[:3].isdigit()
+        ]
         self.assertEqual([path.name for path in packages if path.is_dir()], [first.package_dir.name])
+
+    def test_create_remains_read_compatible_with_a_legacy_inbox_package(self):
+        first = self.create()
+        legacy_parent = self.output_root / "inbox_20300102"
+        legacy_parent.mkdir()
+        legacy_package = legacy_parent / first.package_dir.name
+        first.package_dir.rename(legacy_package)
+        metadata_path = legacy_package / "CANONICAL_PACKAGE_METADATA.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["package_relative_path"] = f"inbox_20300102/{legacy_package.name}"
+        metadata_path.write_text(json.dumps(metadata, ensure_ascii=False), encoding="utf-8")
+        registry_path = self.output_root / ".review_reel_production" / "registry.json"
+        registry_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "review-reel-production-registry-v1",
+                    "packages": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        reused = self.create()
+
+        self.assertTrue(reused.reused_existing)
+        self.assertEqual(reused.package_dir, legacy_package.resolve())
+        self.assertEqual(resolve_active_package(self.output_root).package_dir, legacy_package.resolve())
 
     def test_create_rejects_rebinding_an_existing_content_id_to_a_different_review(self):
         self.create()
@@ -338,7 +371,11 @@ class ReviewReelIntakeTests(unittest.TestCase):
         with self.assertRaisesRegex(IntakeViolation, "CONTENT_ID_ALREADY_BOUND"):
             self.create()
 
-        packages = list(self.output_root.glob("inbox_*/*"))
+        packages = [
+            path
+            for path in self.output_root.iterdir()
+            if path.is_dir() and path.name[:3].isdigit()
+        ]
         self.assertEqual(len([path for path in packages if path.is_dir()]), 1)
 
     def test_create_rejects_candidate_identifier_as_content_id_instead_of_inventing_a_number(self):
@@ -375,14 +412,16 @@ class ReviewReelIntakeTests(unittest.TestCase):
         with self.assertRaisesRegex(IntakeViolation, "ACTIVE_PACKAGE_METADATA_MISSING"):
             resolve_active_package(self.output_root)
 
-    def _write_photo_review_evidence(self, package):
+    def _write_photo_review_evidence(self, package, *, suffix="", selected_name="after.jpg"):
         first = package.image_dir / "after.jpg"
         second = package.image_dir / "detail.jpg"
         first.write_bytes(b"after")
         second.write_bytes(b"detail")
-        selected_relative = first.relative_to(package.package_dir).as_posix()
-        selection = package.package_dir / "_work" / "photo_selection_private.json"
-        selection.parent.mkdir()
+        selected = first if selected_name == "after.jpg" else second
+        held = second if selected_name == "after.jpg" else first
+        selected_relative = selected.relative_to(package.package_dir).as_posix()
+        selection = package.package_dir / "_work" / f"photo_selection_private{suffix}.json"
+        selection.parent.mkdir(exist_ok=True)
         selection.write_text(
             json.dumps(
                 {
@@ -403,7 +442,7 @@ class ReviewReelIntakeTests(unittest.TestCase):
                             "visual_quality": {"full_product_visible": True},
                         },
                         {
-                            "relative_path": second.relative_to(package.package_dir).as_posix(),
+                            "relative_path": held.relative_to(package.package_dir).as_posix(),
                             "decision": "hold",
                             "reason": "Redundant detail view.",
                             "privacy_status": "clear",
@@ -417,8 +456,8 @@ class ReviewReelIntakeTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        privacy = package.package_dir / "privacy_asset_manifest.json"
-        privacy_report = package.package_dir / "_work" / "privacy_sanitization_report.json"
+        privacy = package.package_dir / f"privacy_asset_manifest{suffix}.json"
+        privacy_report = package.package_dir / "_work" / f"privacy_sanitization_report{suffix}.json"
         privacy_report.write_text(
             json.dumps(
                 {
@@ -430,8 +469,8 @@ class ReviewReelIntakeTests(unittest.TestCase):
                     "checked_assets": [
                         {
                             "relative_path": selected_relative,
-                            "bytes": first.stat().st_size,
-                            "sha256": hashlib.sha256(first.read_bytes()).hexdigest(),
+                            "bytes": selected.stat().st_size,
+                            "sha256": hashlib.sha256(selected.read_bytes()).hexdigest(),
                         }
                     ],
                 }
@@ -448,11 +487,11 @@ class ReviewReelIntakeTests(unittest.TestCase):
                     "selected_assets": [
                         {
                             "relative_path": selected_relative,
-                            "bytes": first.stat().st_size,
-                            "sha256": hashlib.sha256(first.read_bytes()).hexdigest(),
+                            "bytes": selected.stat().st_size,
+                            "sha256": hashlib.sha256(selected.read_bytes()).hexdigest(),
                         }
                     ],
-                    "sanitization_report": "_work/privacy_sanitization_report.json",
+                    "sanitization_report": privacy_report.relative_to(package.package_dir).as_posix(),
                 }
             ),
             encoding="utf-8",
@@ -476,9 +515,177 @@ class ReviewReelIntakeTests(unittest.TestCase):
         self.assertFalse(reviewed.metadata["approvals"]["mp4_scope_authorized"])
         self.assertEqual(reviewed.metadata["photo_review"]["source_media_count"], 2)
         self.assertEqual(reviewed.metadata["photo_review"]["selected_asset_count"], 1)
+        self.assertEqual(reviewed.metadata["photo_review"]["revision"], 1)
+        self.assertNotIn("photo_review_history", reviewed.metadata)
         self.assertIn("photo_checked: true", (package.package_dir / "STATUS.md").read_text(encoding="utf-8"))
         resolved = resolve_active_package(self.output_root)
         self.assertEqual(resolved.metadata["lifecycle_state"], "photo_reviewed")
+
+    def test_photo_review_revision_preserves_the_previous_evidence_and_activates_new_files(self):
+        package = self.create()
+        selection_v1, privacy_v1 = self._write_photo_review_evidence(package)
+        first = record_photo_review(
+            output_root=self.output_root,
+            selection_path=selection_v1,
+            privacy_manifest_path=privacy_v1,
+            now=self.now,
+        )
+        first_review = dict(first.metadata["photo_review"])
+        selection_v1_bytes = selection_v1.read_bytes()
+        privacy_v1_bytes = privacy_v1.read_bytes()
+        selection_v2, privacy_v2 = self._write_photo_review_evidence(
+            package,
+            suffix="_revision_002",
+            selected_name="detail.jpg",
+        )
+
+        revised = record_photo_review(
+            output_root=self.output_root,
+            selection_path=selection_v2,
+            privacy_manifest_path=privacy_v2,
+            now=self.now.replace(second=6),
+        )
+
+        self.assertEqual(revised.metadata["photo_review"]["revision"], 2)
+        self.assertEqual(revised.metadata["photo_review"]["supersedes_revision"], 1)
+        self.assertEqual(revised.metadata["photo_review"]["selection"]["relative_path"], "_work/photo_selection_private_revision_002.json")
+        self.assertEqual(revised.metadata["photo_review_history"], [first_review])
+        self.assertEqual(selection_v1.read_bytes(), selection_v1_bytes)
+        self.assertEqual(privacy_v1.read_bytes(), privacy_v1_bytes)
+
+    def test_photo_review_revision_rejects_reusing_the_active_evidence_paths(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+        first = record_photo_review(
+            output_root=self.output_root,
+            selection_path=selection,
+            privacy_manifest_path=privacy,
+            now=self.now,
+        )
+        metadata_before = (package.package_dir / "CANONICAL_PACKAGE_METADATA.json").read_bytes()
+
+        with self.assertRaisesRegex(IntakeViolation, "PHOTO_REVIEW_REVISION_EVIDENCE_REUSED"):
+            record_photo_review(
+                output_root=self.output_root,
+                selection_path=selection,
+                privacy_manifest_path=privacy,
+                now=self.now.replace(second=6),
+            )
+
+        self.assertEqual((package.package_dir / "CANONICAL_PACKAGE_METADATA.json").read_bytes(), metadata_before)
+        self.assertEqual(resolve_active_package(self.output_root).metadata["photo_review"], first.metadata["photo_review"])
+
+    def test_photo_review_revision_rejects_reusing_any_historical_evidence_path(self):
+        package = self.create()
+        selection_v1, privacy_v1 = self._write_photo_review_evidence(package)
+        record_photo_review(
+            output_root=self.output_root,
+            selection_path=selection_v1,
+            privacy_manifest_path=privacy_v1,
+            now=self.now,
+        )
+        selection_v2, privacy_v2 = self._write_photo_review_evidence(
+            package, suffix="_revision_002", selected_name="detail.jpg"
+        )
+        record_photo_review(
+            output_root=self.output_root,
+            selection_path=selection_v2,
+            privacy_manifest_path=privacy_v2,
+            now=self.now.replace(second=6),
+        )
+        metadata_before = (package.package_dir / "CANONICAL_PACKAGE_METADATA.json").read_bytes()
+
+        with self.assertRaisesRegex(IntakeViolation, "PHOTO_REVIEW_REVISION_EVIDENCE_REUSED"):
+            record_photo_review(
+                output_root=self.output_root,
+                selection_path=selection_v1,
+                privacy_manifest_path=privacy_v1,
+                now=self.now.replace(second=7),
+            )
+
+        self.assertEqual((package.package_dir / "CANONICAL_PACKAGE_METADATA.json").read_bytes(), metadata_before)
+
+    def test_photo_review_revision_rejects_changed_historical_evidence_before_accepting_new_files(self):
+        package = self.create()
+        selection_v1, privacy_v1 = self._write_photo_review_evidence(package)
+        record_photo_review(
+            output_root=self.output_root,
+            selection_path=selection_v1,
+            privacy_manifest_path=privacy_v1,
+            now=self.now,
+        )
+        selection_v2, privacy_v2 = self._write_photo_review_evidence(
+            package, suffix="_revision_002", selected_name="detail.jpg"
+        )
+        record_photo_review(
+            output_root=self.output_root,
+            selection_path=selection_v2,
+            privacy_manifest_path=privacy_v2,
+            now=self.now.replace(second=6),
+        )
+        selection_v1.write_text("{}", encoding="utf-8")
+        selection_v3, privacy_v3 = self._write_photo_review_evidence(
+            package, suffix="_revision_003", selected_name="after.jpg"
+        )
+        metadata_before = (package.package_dir / "CANONICAL_PACKAGE_METADATA.json").read_bytes()
+
+        with self.assertRaisesRegex(IntakeViolation, "PHOTO_REVIEW_HISTORY_EVIDENCE_CHANGED"):
+            record_photo_review(
+                output_root=self.output_root,
+                selection_path=selection_v3,
+                privacy_manifest_path=privacy_v3,
+                now=self.now.replace(second=7),
+            )
+
+        self.assertEqual((package.package_dir / "CANONICAL_PACKAGE_METADATA.json").read_bytes(), metadata_before)
+
+    def test_rejected_photo_review_attempt_writes_an_audit_receipt_without_changing_active_metadata(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+        record_photo_review(
+            output_root=self.output_root,
+            selection_path=selection,
+            privacy_manifest_path=privacy,
+            now=self.now,
+        )
+        metadata_before = (package.package_dir / "CANONICAL_PACKAGE_METADATA.json").read_bytes()
+        bad_selection, bad_privacy = self._write_photo_review_evidence(
+            package,
+            suffix="_revision_002",
+            selected_name="detail.jpg",
+        )
+        payload = json.loads(bad_selection.read_text(encoding="utf-8"))
+        payload["decisions"][1].update(
+            {
+                "decision": "exclude",
+                "privacy_status": "blocked",
+                "privacy_risk_categories": ["bare_foot"],
+                "editorial_category": "privacy_unrecoverable",
+                "remediation": {
+                    "action": "infeasible",
+                    "attempted_actions": ["crop"],
+                    "infeasible_category": "risk_covers_essential_subject",
+                    "masking_infeasible_reason": "Fixture.",
+                    "manual_review_reference": "fixture",
+                },
+            }
+        )
+        bad_selection.write_text(json.dumps(payload), encoding="utf-8")
+
+        with self.assertRaisesRegex(IntakeViolation, "PHOTO_PRIVACY_CATEGORY_INVALID"):
+            record_photo_review(
+                output_root=self.output_root,
+                selection_path=bad_selection,
+                privacy_manifest_path=bad_privacy,
+                now=self.now.replace(second=7),
+            )
+
+        self.assertEqual((package.package_dir / "CANONICAL_PACKAGE_METADATA.json").read_bytes(), metadata_before)
+        receipts = list((package.package_dir / "_work" / "photo_review_rejections").glob("*.json"))
+        self.assertEqual(len(receipts), 1)
+        receipt = json.loads(receipts[0].read_text(encoding="utf-8"))
+        self.assertEqual(receipt["error_code"], "PHOTO_PRIVACY_CATEGORY_INVALID")
+        self.assertEqual(receipt["selection"]["relative_path"], "_work/photo_selection_private_revision_002.json")
 
     def test_photo_review_rejects_an_incomplete_photo_decision_record(self):
         package = self.create()
@@ -574,6 +781,57 @@ class ReviewReelIntakeTests(unittest.TestCase):
         )
 
         self.assertEqual(reviewed.metadata["photo_review"]["selected_asset_count"], 1)
+
+    def test_photo_review_can_hold_a_recoverable_privacy_risk_until_the_narrative_is_decided(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+        payload = json.loads(selection.read_text(encoding="utf-8"))
+        payload["decisions"][1].update(
+            {
+                "decision": "hold",
+                "privacy_status": "needs_sanitization",
+                "privacy_risk_categories": ["delivery_label"],
+                "editorial_category": "alternate_held",
+                "remediation": {
+                    "action": "pending",
+                    "candidate_actions": ["crop", "blur"],
+                },
+            }
+        )
+        selection.write_text(json.dumps(payload), encoding="utf-8")
+
+        reviewed = record_photo_review(
+            output_root=self.output_root,
+            selection_path=selection,
+            privacy_manifest_path=privacy,
+            now=self.now,
+        )
+
+        self.assertEqual(reviewed.metadata["photo_review"]["selected_asset_count"], 1)
+
+    def test_photo_review_cannot_use_an_asset_that_still_needs_sanitization(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+        payload = json.loads(selection.read_text(encoding="utf-8"))
+        payload["decisions"][0].update(
+            {
+                "privacy_status": "needs_sanitization",
+                "privacy_risk_categories": ["delivery_label"],
+                "remediation": {
+                    "action": "pending",
+                    "candidate_actions": ["crop", "blur"],
+                },
+            }
+        )
+        selection.write_text(json.dumps(payload), encoding="utf-8")
+
+        with self.assertRaisesRegex(IntakeViolation, "PHOTO_PRIVACY_STATE_INVALID"):
+            record_photo_review(
+                output_root=self.output_root,
+                selection_path=selection,
+                privacy_manifest_path=privacy,
+                now=self.now,
+            )
 
     def test_photo_review_accepts_a_manually_reviewed_unrecoverable_privacy_exclusion(self):
         package = self.create()
