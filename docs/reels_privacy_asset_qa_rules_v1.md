@@ -12,6 +12,15 @@
 
 닫힌 어휘 위반은 `PHOTO_PRIVACY_CATEGORY_INVALID`, 마스킹 우선 위반은 `MASKING_FIRST_NOT_APPLIED`로 HTML 이전에 실패합니다.
 
+accepted selection은 파일 자체에 `revision`, `supersedes_revision`, `revision_reason`,
+`revision_changes`를 기록합니다. revision은 현재 활성 검수에서 정확히 1씩 증가해야 하며,
+사유와 변경 요약도 selection SHA-256에 함께 결속됩니다. 이미 승인된 selection 파일을
+수정하거나 재사용해서 이 문맥을 보충하지 않고, 새 revision으로만 기록합니다.
+
+`needs_sanitization`의 `pending`은 사용 승인이나 영구 제외가 아니라 대본 확정 전 후보
+보류입니다. 사용하려면 새 revision에서 실제 crop/blur/mask 결과를 결속해야 하고,
+대본에서 쓰지 않기로 확정하면 새 revision에서 `not_required_by_narrative`로 닫습니다.
+
 ```json
 {"relative_path":"images/after.jpg","decision":"use","reason":"완성 결과 훅","privacy_status":"clear","privacy_risk_categories":[],"editorial_category":"selected_story_evidence","evidence_classes":["installed_result"],"remediation":{"action":"none"},"visual_quality":{"full_product_visible":true}}
 {"relative_path":"images/duplicate.jpg","decision":"exclude","reason":"같은 구도의 중복 컷","privacy_status":"clear","privacy_risk_categories":[],"editorial_category":"duplicate","evidence_classes":["installed_result"],"remediation":{"action":"none"}}

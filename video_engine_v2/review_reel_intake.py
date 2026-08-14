@@ -990,10 +990,55 @@ def _record_photo_review(
         invalid="PRIVACY_MANIFEST_INVALID",
     )
 
+    metadata = dict(package.metadata)
+    previous_review = metadata.get("photo_review")
+    history_value = metadata.get("photo_review_history")
+    if history_value is not None and not isinstance(history_value, list):
+        raise IntakeViolation("PHOTO_REVIEW_HISTORY_INVALID")
+    history = list(history_value or [])
+    if isinstance(previous_review, dict):
+        selection_relative = selection_file.relative_to(package_dir).as_posix()
+        privacy_relative = privacy_file.relative_to(package_dir).as_posix()
+        prior_evidence_paths = _validated_photo_review_evidence_paths(
+            package_dir=package_dir,
+            records=[*history, previous_review],
+        )
+        if selection_relative in prior_evidence_paths or privacy_relative in prior_evidence_paths:
+            raise IntakeViolation("PHOTO_REVIEW_REVISION_EVIDENCE_REUSED")
+
     if selection.get("schema_version") != PHOTO_SELECTION_SCHEMA_VERSION:
         raise IntakeViolation("PHOTO_SELECTION_SCHEMA_INVALID")
     if selection.get("content_id") != package.metadata.get("content_id"):
         raise IntakeViolation("PHOTO_SELECTION_IDENTITY_MISMATCH")
+    if isinstance(previous_review, dict):
+        previous_revision = previous_review.get("revision")
+        if not isinstance(previous_revision, int) or previous_revision < 1:
+            previous_revision = 1
+        expected_revision = previous_revision + 1
+        expected_supersedes_revision: int | None = previous_revision
+    else:
+        previous_revision = 0
+        expected_revision = 1
+        expected_supersedes_revision = None
+    selection_revision = selection.get("revision")
+    selection_supersedes = selection.get("supersedes_revision")
+    revision_reason = selection.get("revision_reason")
+    revision_changes = selection.get("revision_changes")
+    if (
+        not isinstance(selection_revision, int)
+        or selection_revision < 1
+        or not isinstance(revision_reason, str)
+        or not revision_reason.strip()
+        or not isinstance(revision_changes, list)
+        or not revision_changes
+        or any(not isinstance(change, str) or not change.strip() for change in revision_changes)
+    ):
+        raise IntakeViolation("PHOTO_SELECTION_REVISION_CONTEXT_INVALID")
+    if (
+        selection_revision != expected_revision
+        or selection_supersedes != expected_supersedes_revision
+    ):
+        raise IntakeViolation("PHOTO_SELECTION_REVISION_CONTEXT_MISMATCH")
     if selection.get("unresolved_items") != []:
         raise IntakeViolation("PHOTO_SELECTION_UNRESOLVED")
     decisions = selection.get("decisions")
@@ -1140,30 +1185,11 @@ def _record_photo_review(
         raise IntakeViolation("PRIVACY_REPORT_ASSET_MISMATCH")
 
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    metadata = dict(package.metadata)
-    previous_review = metadata.get("photo_review")
-    history_value = metadata.get("photo_review_history")
-    if history_value is not None and not isinstance(history_value, list):
-        raise IntakeViolation("PHOTO_REVIEW_HISTORY_INVALID")
-    history = list(history_value or [])
     if isinstance(previous_review, dict):
-        selection_relative = selection_file.relative_to(package_dir).as_posix()
-        privacy_relative = privacy_file.relative_to(package_dir).as_posix()
-        prior_evidence_paths = _validated_photo_review_evidence_paths(
-            package_dir=package_dir,
-            records=[*history, previous_review],
-        )
-        if selection_relative in prior_evidence_paths or privacy_relative in prior_evidence_paths:
-            raise IntakeViolation("PHOTO_REVIEW_REVISION_EVIDENCE_REUSED")
-        previous_revision = previous_review.get("revision")
-        if not isinstance(previous_revision, int) or previous_revision < 1:
-            previous_revision = 1
         previous_record = dict(previous_review)
         previous_record["revision"] = previous_revision
         history.append(previous_record)
-        revision = previous_revision + 1
-    else:
-        revision = 1
+    revision = expected_revision
     approvals = dict(metadata.get("approvals") or {})
     approvals.update(
         {
@@ -1177,6 +1203,8 @@ def _record_photo_review(
     metadata["lifecycle_state"] = "photo_reviewed"
     photo_review = {
         "revision": revision,
+        "revision_reason": revision_reason.strip(),
+        "revision_changes": [change.strip() for change in revision_changes],
         "checked_at": clock.isoformat(),
         "selection": _file_evidence(selection_file, relative_to=package_dir),
         "privacy_manifest": _file_evidence(privacy_file, relative_to=package_dir),

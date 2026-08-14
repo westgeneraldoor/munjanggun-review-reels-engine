@@ -1,5 +1,6 @@
 import json
 import hashlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -412,7 +413,34 @@ class ReviewReelIntakeTests(unittest.TestCase):
         with self.assertRaisesRegex(IntakeViolation, "ACTIVE_PACKAGE_METADATA_MISSING"):
             resolve_active_package(self.output_root)
 
-    def _write_photo_review_evidence(self, package, *, suffix="", selected_name="after.jpg"):
+    def _write_photo_review_evidence(
+        self,
+        package,
+        *,
+        suffix="",
+        selected_name="after.jpg",
+        revision=None,
+        supersedes_revision=None,
+        revision_reason=None,
+        revision_changes=None,
+    ):
+        if revision is None:
+            match = re.search(r"_revision_(\d+)", suffix)
+            revision = int(match.group(1)) if match else 1
+        if supersedes_revision is None and revision > 1:
+            supersedes_revision = revision - 1
+        if revision_reason is None:
+            revision_reason = (
+                "Initial photo review."
+                if revision == 1
+                else "Correct the accepted photo-review evidence."
+            )
+        if revision_changes is None:
+            revision_changes = [
+                "Initial evidence mapping."
+                if revision == 1
+                else "Activate a new hash-bound evidence set."
+            ]
         first = package.image_dir / "after.jpg"
         second = package.image_dir / "detail.jpg"
         first.write_bytes(b"after")
@@ -428,6 +456,10 @@ class ReviewReelIntakeTests(unittest.TestCase):
                     "schema_version": "review-reel-photo-selection-v2",
                     "content_id": "004",
                     "checked_at": "2030-01-02T03:04:05Z",
+                    "revision": revision,
+                    "supersedes_revision": supersedes_revision,
+                    "revision_reason": revision_reason,
+                    "revision_changes": revision_changes,
                     "unresolved_items": [],
                     "decisions": [
                         {
@@ -548,6 +580,14 @@ class ReviewReelIntakeTests(unittest.TestCase):
 
         self.assertEqual(revised.metadata["photo_review"]["revision"], 2)
         self.assertEqual(revised.metadata["photo_review"]["supersedes_revision"], 1)
+        self.assertEqual(
+            revised.metadata["photo_review"]["revision_reason"],
+            "Correct the accepted photo-review evidence.",
+        )
+        self.assertEqual(
+            revised.metadata["photo_review"]["revision_changes"],
+            ["Activate a new hash-bound evidence set."],
+        )
         self.assertEqual(revised.metadata["photo_review"]["selection"]["relative_path"], "_work/photo_selection_private_revision_002.json")
         self.assertEqual(revised.metadata["photo_review_history"], [first_review])
         self.assertEqual(selection_v1.read_bytes(), selection_v1_bytes)
@@ -574,6 +614,49 @@ class ReviewReelIntakeTests(unittest.TestCase):
 
         self.assertEqual((package.package_dir / "CANONICAL_PACKAGE_METADATA.json").read_bytes(), metadata_before)
         self.assertEqual(resolve_active_package(self.output_root).metadata["photo_review"], first.metadata["photo_review"])
+
+    def test_photo_review_requires_hash_bound_revision_context_in_the_selection_file(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+        value = json.loads(selection.read_text(encoding="utf-8"))
+        for field in ("revision", "supersedes_revision", "revision_reason", "revision_changes"):
+            value.pop(field, None)
+        selection.write_text(json.dumps(value), encoding="utf-8")
+
+        with self.assertRaisesRegex(IntakeViolation, "PHOTO_SELECTION_REVISION_CONTEXT_INVALID"):
+            record_photo_review(
+                output_root=self.output_root,
+                selection_path=selection,
+                privacy_manifest_path=privacy,
+                now=self.now,
+            )
+
+    def test_photo_review_revision_context_must_match_the_active_revision(self):
+        package = self.create()
+        selection_v1, privacy_v1 = self._write_photo_review_evidence(package)
+        record_photo_review(
+            output_root=self.output_root,
+            selection_path=selection_v1,
+            privacy_manifest_path=privacy_v1,
+            now=self.now,
+        )
+        selection_v2, privacy_v2 = self._write_photo_review_evidence(
+            package,
+            suffix="_revision_002",
+            selected_name="detail.jpg",
+            revision=3,
+            supersedes_revision=2,
+            revision_reason="Invalid skipped revision.",
+            revision_changes=["Skip revision two."],
+        )
+
+        with self.assertRaisesRegex(IntakeViolation, "PHOTO_SELECTION_REVISION_CONTEXT_MISMATCH"):
+            record_photo_review(
+                output_root=self.output_root,
+                selection_path=selection_v2,
+                privacy_manifest_path=privacy_v2,
+                now=self.now.replace(second=6),
+            )
 
     def test_photo_review_revision_rejects_reusing_any_historical_evidence_path(self):
         package = self.create()
