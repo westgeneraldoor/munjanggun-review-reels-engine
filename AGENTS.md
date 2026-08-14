@@ -167,11 +167,17 @@ v2 production의 유일한 공식 진입점은 아래 오케스트레이터입�
 # 0. one-shot HTML용 표준 SRT 및 Gemini/Sulafat 최종 음성 생성
 python scripts/generate_one_shot_tts.py --package "<output review package>" --planning "<planning_recipe.json>" --script "<*_script.md>"
 
+# 0.5. 실제 음성을 듣고 발음·톤·자막 싱크를 확인한 뒤 해시 결속 영수증 기록
+python scripts/produce_review_v2.py voice-review-record --package "<output review package>" --voice "<voice.mp3>" --srt "<captions.srt>" --tts-report "<_work/tts_generation_report.json>" --reviewer "<reviewer>" --evidence-reference "<review evidence>" --check pronunciation_clear --check tone_approved --check caption_sync_approved
+
 # 1. HTML/MP4 산출물 없이 sync manifest를 생성하는 preflight
 python scripts/produce_review_v2.py preflight --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json"
 
 # 2. preflight 통과 후 HTML preview 생성
 python scripts/produce_review_v2.py html --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json"
+
+# 2.5. 모든 beat와 0.5초·첫 3개 훅 대표 프레임을 직접 본 뒤 기록
+python scripts/produce_review_v2.py html-review-record --package "<output review package>" --html "<html_preview>/index.html" --reviewer "<reviewer>" --evidence-reference "<review evidence>" --check hook_sequence_reviewed --check meaning_sync_reviewed --check caption_layout_reviewed --check privacy_reviewed --check review_capture_reviewed --check cta_reviewed
 
 # 3. 기록된 HTML 승인과 명시적 MP4 렌더 승인 후 독립 렌더 작업 시작
 python scripts/produce_review_v2.py render-start --package "<output review package>" --html "<html_preview>/index.html" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --out "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4"
@@ -259,6 +265,9 @@ node scripts/hyperframes-render-gate.mjs --project "scratch/hf-pilot-<review-id>
 
 ```powershell
 node scripts/render-post-qa.mjs --mp4 "<output review package>/<review-id>_final_render_YYYYMMDD_hyperframes_upload_10mbps.mp4" --package "<output review package>" --sync-manifest "<output review package>/sync_manifest.json"
+
+# 대표 프레임과 최종 영상의 자막·개인정보·리뷰 증거·음성 싱크를 직접 본 뒤 기록
+python scripts/produce_review_v2.py render-review-record --package "<output review package>" --mp4 "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4" --post-qa-report "<output review package>/render_post_qa_report.json" --reviewer "<reviewer>" --evidence-reference "<review evidence>" --check caption_layout_reviewed --check privacy_reviewed --check review_capture_reviewed --check voice_caption_visual_sync_reviewed --check hook_and_cta_reviewed
 ```
 
 이 명령은 최종 승인자가 아니라 증거 기록자입니다.
@@ -267,6 +276,9 @@ node scripts/render-post-qa.mjs --mp4 "<output review package>/<review-id>_final
 manifest의 상대경로, bytes, SHA-256을 기록합니다. package state scan에서 과거
 `auto_status: pass`는 `post_render_qa_pass_evidence_present`일 뿐이며, 현재 MP4와
 현재 sync manifest가 모두 이 결속값과 일치할 때만 `render_complete: true`입니다.
+이 값은 자동검사까지 결속된 기술 완료입니다. 별도 `render-review-record` 영수증이 현재
+MP4·post-QA report·대표 프레임과 모두 일치해 `qa_reviewed: true`가 되고, 두 값이 같은
+MP4에 대해 모두 참일 때만 `final_delivery_complete: true`로 최종 완성을 보고합니다.
 hash가 없는 legacy pass 보고서는 `unknown`으로
 남으며, 기존 upload MP4 package를 삭제하거나 재렌더 대상으로 해석하지 않습니다.
 게시·성과는 별도 명시 증거가 없으면 계속 `unknown`입니다.

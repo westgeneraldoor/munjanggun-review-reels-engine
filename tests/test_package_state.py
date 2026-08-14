@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from video_engine_v2.package_state import UNKNOWN, scan_legacy_output
+from video_engine_v2.manual_review import RENDER_REVIEW_CHECKS, record_render_review
 
 
 class PackageStateTests(unittest.TestCase):
@@ -42,6 +43,20 @@ class PackageStateTests(unittest.TestCase):
         }
         report.update(overrides)
         return self.write("render_post_qa_report.json", json.dumps(report))
+
+    def write_render_manual_review(self, mp4: Path, report_path: Path):
+        frame = self.write("_work/render_post_qa_frames/review_proof.jpg", b"review-proof-frame")
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        report["representative_frames"] = [{"label": "review_proof", "path": str(frame)}]
+        report_path.write_text(json.dumps(report), encoding="utf-8")
+        return record_render_review(
+            package_dir=self.package,
+            mp4_path=mp4,
+            post_qa_report_path=report_path,
+            reviewer="fixture-reviewer",
+            evidence_reference="fixture-render-review",
+            checks=RENDER_REVIEW_CHECKS,
+        )
 
     def test_scanner_maps_retained_mp4_without_inventing_publication_or_qa(self):
         mp4 = self.write("001_demo_final_render_upload_10mbps.mp4", b"mp4-data")
@@ -105,10 +120,54 @@ class PackageStateTests(unittest.TestCase):
         state = report["packages"][0]
         self.assertIs(state["post_render_qa_pass_evidence_present"], True)
         self.assertIs(state["render_complete"], True)
+        self.assertEqual(state["qa_reviewed"], UNKNOWN)
+        self.assertEqual(state["final_delivery_complete"], UNKNOWN)
         self.assertEqual(state["render_evidence_limitations"], [])
         self.assertEqual(report["summary"]["post_render_qa_pass_evidence_package_count"], 1)
         self.assertEqual(report["summary"]["render_complete_true_count"], 1)
+        self.assertEqual(report["summary"]["final_delivery_complete_true_count"], 0)
+        self.assertEqual(report["summary"]["final_delivery_complete_unknown_count"], 1)
         self.assertEqual(report["summary"]["render_evidence_limitation_count"], 0)
+
+    def test_scanner_marks_final_delivery_complete_only_with_current_render_manual_review(self):
+        mp4 = self.write("001_demo_final_render_upload_10mbps.mp4", b"mp4-data")
+        report_path = self.write_hash_bound_post_render_report(mp4)
+        self.write_render_manual_review(mp4, report_path)
+
+        report = scan_legacy_output(self.output_root)
+        state = report["packages"][0]
+
+        self.assertIs(state["render_complete"], True)
+        self.assertIs(state["qa_reviewed"], True)
+        self.assertIs(state["final_delivery_complete"], True)
+        self.assertEqual(report["summary"]["final_delivery_complete_true_count"], 1)
+        self.assertEqual(report["summary"]["final_delivery_complete_unknown_count"], 0)
+
+    def test_scanner_rejects_stale_render_manual_review_without_downgrading_technical_render(self):
+        mp4 = self.write("001_demo_final_render_upload_10mbps.mp4", b"mp4-data")
+        report_path = self.write_hash_bound_post_render_report(mp4)
+        self.write_render_manual_review(mp4, report_path)
+        self.write("_work/render_post_qa_frames/review_proof.jpg", b"changed-review-frame")
+
+        state = scan_legacy_output(self.output_root)["packages"][0]
+
+        self.assertIs(state["render_complete"], True)
+        self.assertEqual(state["qa_reviewed"], UNKNOWN)
+        self.assertEqual(state["final_delivery_complete"], UNKNOWN)
+
+    def test_scanner_rejects_render_manual_review_without_reviewer_identity(self):
+        mp4 = self.write("001_demo_final_render_upload_10mbps.mp4", b"mp4-data")
+        report_path = self.write_hash_bound_post_render_report(mp4)
+        receipt_path = self.write_render_manual_review(mp4, report_path)
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt["reviewed_by"] = ""
+        receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+        state = scan_legacy_output(self.output_root)["packages"][0]
+
+        self.assertIs(state["render_complete"], True)
+        self.assertEqual(state["qa_reviewed"], UNKNOWN)
+        self.assertEqual(state["final_delivery_complete"], UNKNOWN)
 
     def test_scanner_accepts_a_hash_bound_report_for_the_same_package_with_a_different_path_spelling(self):
         mp4 = self.write("001_demo_final_render_upload_10mbps.mp4", b"mp4-data")

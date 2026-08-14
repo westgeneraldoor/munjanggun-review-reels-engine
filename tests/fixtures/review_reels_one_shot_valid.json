@@ -69,6 +69,15 @@
       "review_capture": "review-capture.jpg",
       "after_wide": "after-wide.jpg"
     },
+    "asset_evidence": {
+      "after_main": {"evidence_class": "installed_result", "visual_quality": {"full_product_visible": true}},
+      "before_problem": {"evidence_class": "before_state"},
+      "site_context": {"evidence_class": "context"},
+      "measure": {"evidence_class": "measurement"},
+      "installation": {"evidence_class": "installation_process"},
+      "review_capture": {"evidence_class": "review_capture"},
+      "after_wide": {"evidence_class": "installed_result", "visual_quality": {"full_product_visible": true}}
+    },
     "hook_visual_contract": {
       "result_asset_id": "after_main",
       "before_asset_id": "before_problem"

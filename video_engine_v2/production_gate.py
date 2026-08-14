@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import quote
 
 from video_engine_v2.reels_qa import canonical_tts_input_sha256, build_sync_manifest, validate_html_preflight
+from video_engine_v2.manual_review import HTML_REVIEW_CHECKS, VOICE_REVIEW_CHECKS
 
 
 FINAL_RENDER_PRESET = {
@@ -183,6 +184,113 @@ def _require_sha256(value: Any, *, invalid_code: str) -> str:
     if not isinstance(value, str) or not _SHA256.fullmatch(value):
         raise GateViolation(invalid_code)
     return value
+
+
+def _current_file_evidence(package_dir: Path, path: Path) -> dict[str, Any]:
+    target = _ensure_inside(package_dir, path, outside_code="MANUAL_REVIEW_EVIDENCE_INVALID")
+    if not target.is_file():
+        raise GateViolation("MANUAL_REVIEW_EVIDENCE_INVALID")
+    return {
+        "relative_path": target.relative_to(package_dir.resolve()).as_posix(),
+        "bytes": target.stat().st_size,
+        "sha256": _sha256(target),
+    }
+
+
+def _manual_receipts(package_dir: Path, review_kind: str) -> list[dict[str, Any]]:
+    directory = package_dir / "_work" / "manual_reviews"
+    receipts: list[dict[str, Any]] = []
+    for path in sorted(directory.glob(f"{review_kind}_review_*.json")) if directory.is_dir() else []:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if isinstance(payload, dict):
+            receipts.append(payload)
+    return receipts
+
+
+def _manual_receipt_base_matches(
+    receipt: dict[str, Any], package_dir: Path, *, review_kind: str, required_checks: frozenset[str]
+) -> bool:
+    identity = receipt.get("package_identity")
+    if not isinstance(identity, dict) or identity.get("package_name") != package_dir.name:
+        return False
+    try:
+        same_package = os.path.samefile(identity.get("package_path", ""), package_dir)
+    except OSError:
+        same_package = False
+    return (
+        same_package
+        and receipt.get("schema_version") == "review-reel-manual-review-v1"
+        and receipt.get("review_kind") == review_kind
+        and receipt.get("status") == "passed"
+        and receipt.get("checks") == sorted(required_checks)
+        and isinstance(receipt.get("reviewed_by"), str)
+        and bool(receipt["reviewed_by"].strip())
+        and isinstance(receipt.get("evidence_reference"), str)
+        and bool(receipt["evidence_reference"].strip())
+    )
+
+
+def _require_voice_manual_review(package_dir: Path, edit_recipe: dict[str, Any]) -> None:
+    source = edit_recipe.get("source") or {}
+    expected: dict[str, dict[str, Any]] = {}
+    for receipt_field, source_field in (("target", "voice"), ("srt", "srt"), ("tts_report", "tts_generation_report")):
+        path, _ = _package_relative_file(package_dir, source.get(source_field), outside_code="VOICE_MANUAL_REVIEW_INVALID")
+        expected[receipt_field] = _current_file_evidence(package_dir, path)
+    receipts = _manual_receipts(package_dir, "voice")
+    if not receipts:
+        raise GateViolation("VOICE_MANUAL_REVIEW_MISSING")
+    if not any(
+        _manual_receipt_base_matches(
+            receipt, package_dir, review_kind="voice", required_checks=VOICE_REVIEW_CHECKS
+        )
+        and all(receipt.get(field) == evidence for field, evidence in expected.items())
+        for receipt in receipts
+    ):
+        raise GateViolation("VOICE_MANUAL_REVIEW_STALE_OR_INVALID")
+
+
+def _require_html_manual_review(package_dir: Path, html_path: Path) -> None:
+    artifact_path = html_path.parent / HTML_ARTIFACT_EVIDENCE_FILENAME
+    qa_report_path = html_path.parent / "html_internal_qa_report.json"
+    qa_report = _read_json(
+        qa_report_path,
+        missing_code="HTML_MANUAL_REVIEW_MISSING",
+        invalid_code="HTML_MANUAL_REVIEW_STALE_OR_INVALID",
+    )
+    if qa_report.get("automatic_status") != "pass":
+        raise GateViolation("HTML_MANUAL_REVIEW_STALE_OR_INVALID")
+    expected = {
+        "target": _current_file_evidence(package_dir, html_path),
+        "artifact_evidence": _current_file_evidence(package_dir, artifact_path),
+        "qa_report": _current_file_evidence(package_dir, qa_report_path),
+    }
+    frame_paths: list[Path] = []
+    for key in ("checks", "hook_sequence_checks"):
+        values = qa_report.get(key)
+        if not isinstance(values, list):
+            raise GateViolation("HTML_MANUAL_REVIEW_STALE_OR_INVALID")
+        for item in values:
+            if not isinstance(item, dict) or not isinstance(item.get("frame_relative_path"), str):
+                raise GateViolation("HTML_MANUAL_REVIEW_STALE_OR_INVALID")
+            frame_paths.append(html_path.parent / item["frame_relative_path"])
+    if not frame_paths:
+        raise GateViolation("HTML_MANUAL_REVIEW_STALE_OR_INVALID")
+    expected_frames = [_current_file_evidence(package_dir, path) for path in frame_paths]
+    receipts = _manual_receipts(package_dir, "html")
+    if not receipts:
+        raise GateViolation("HTML_MANUAL_REVIEW_MISSING")
+    if not any(
+        _manual_receipt_base_matches(
+            receipt, package_dir, review_kind="html", required_checks=HTML_REVIEW_CHECKS
+        )
+        and all(receipt.get(field) == evidence for field, evidence in expected.items())
+        and receipt.get("qa_frames") == expected_frames
+        for receipt in receipts
+    ):
+        raise GateViolation("HTML_MANUAL_REVIEW_STALE_OR_INVALID")
 
 
 def _path_evidence(path: Path, *, kind: str, scope: str, relative_path: str) -> dict[str, Any]:
@@ -586,7 +694,7 @@ def _validate_one_shot_package_state(
         invalid_code="CANONICAL_PHOTO_REVIEW_EVIDENCE_INVALID",
     )
     if (
-        selection.get("schema_version") != "review-reel-photo-selection-v1"
+        selection.get("schema_version") != "review-reel-photo-selection-v2"
         or selection.get("content_id") != content_id
         or selection.get("unresolved_items") != []
         or not isinstance(selection.get("decisions"), list)
@@ -693,6 +801,7 @@ def _validate_preflight(
         _validate_one_shot_package_state(package_dir, planning_recipe, privacy_manifest_path)
         _validate_one_shot_audio_hashes(package_dir, edit_recipe)
         _validate_one_shot_tts_provenance(package_dir, edit_recipe)
+        _require_voice_manual_review(package_dir, edit_recipe)
     return planning, edit, planning_recipe, edit_recipe
 
 
@@ -981,6 +1090,7 @@ def validate_render_gate(
     _validate_preflight(package, planning_path, edit_path, privacy_path)
     _validate_sync_manifest(package, sync_path, planning_path, edit_path, privacy_path)
     render_dependencies = _validate_render_dependency_binding(package, html, edit_path, engine_font_path)
+    _require_html_manual_review(package, html)
     return {
         "schema_version": "1.0",
         "action": "render",

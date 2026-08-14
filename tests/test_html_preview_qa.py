@@ -12,6 +12,48 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class HtmlPreviewQaTests(unittest.TestCase):
+    def test_hook_qa_captures_half_second_and_each_of_the_first_three_shots(self):
+        recipe = {
+            "title": "hook evidence test",
+            "audio_plan": {"sync_policy": {"final_voice_duration_sec": 4.0}},
+            "asset_roles": {"result": "result.jpg", "before": "before.jpg"},
+            "beats": [{
+                "id": "b01", "narrative_role": "event", "phase": "event",
+                "time": [0.0, 4.0], "asset": "result", "motion": "calm_push_in",
+                "transition_in": "cut", "caption": "완성 결과",
+                "shots": [
+                    {"asset_id": "result", "motion": "calm_push_in", "transition_in": "cut", "start_sec": 0.0, "end_sec": 1.3},
+                    {"asset_id": "before", "motion": "calm_push_in", "transition_in": "calm_dissolve", "start_sec": 1.3, "end_sec": 2.6},
+                    {"asset_id": "result", "motion": "calm_push_in", "transition_in": "calm_dissolve", "start_sec": 2.6, "end_sec": 4.0},
+                ],
+            }],
+        }
+        pixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        html = render_preview_html(
+            recipe=recipe,
+            asset_urls={"result": pixel, "before": pixel, "voice": "data:audio/mp3;base64,", "font_body": "data:font/woff2;base64,"},
+            preview_title="hook evidence test",
+            preview_description="hook evidence test",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = Path(temp_dir)
+            html_path = temp / "index.html"
+            edit_path = temp / "edit.json"
+            html_path.write_text(html, encoding="utf-8")
+            edit_path.write_text(json.dumps(recipe), encoding="utf-8")
+            result = subprocess.run(
+                ["node", "scripts/html-preview-qa.mjs", "--html", str(html_path), "--edit", str(edit_path)],
+                cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            )
+            report = json.loads((temp / "html_internal_qa_report.json").read_text(encoding="utf-8"))
+            hook_frames = list((temp / "_qa_frames" / "hook_sequence").glob("*.png"))
+
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        self.assertEqual([item["sample_time_sec"] for item in report["hook_sequence_checks"]], [0.5, 0.65, 1.95, 3.3])
+        self.assertEqual([item["expected_asset_id"] for item in report["hook_sequence_checks"]], ["result", "result", "before", "result"])
+        self.assertEqual(len(hook_frames), 4)
+
     def test_representative_frame_waits_until_calm_transition_copy_is_gone(self):
         recipe = {
             "title": "qa settle test",

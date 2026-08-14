@@ -61,6 +61,22 @@ class RenderPostQaTest(unittest.TestCase):
         self.package_dir.mkdir()
         self.mp4 = self.package_dir / "fixture_final_render_20260622_upload_10mbps.mp4"
         self.mp4.write_bytes(b"fake mp4")
+        self.edit_recipe = self.package_dir / "fixture_edit_recipe.json"
+        self.edit_recipe.write_text(
+            json.dumps(
+                {
+                    "beats": [
+                        {"id": "b01", "narrative_role": "event", "time": [0.0, 3.8]},
+                        {"id": "b02", "narrative_role": "problem", "time": [3.8, 8.72]},
+                        {"id": "b03", "narrative_role": "resolution", "time": [8.72, 14.07]},
+                        {"id": "b04", "narrative_role": "felt_result", "time": [14.07, 18.45]},
+                        {"id": "b05", "narrative_role": "review_proof", "time": [18.45, 21.61]},
+                        {"id": "b06", "narrative_role": "cta", "time": [21.61, 25.0]},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
         self.sync_manifest = self.package_dir / "sync_manifest.json"
         self.sync_manifest.write_text(
             json.dumps(
@@ -70,6 +86,10 @@ class RenderPostQaTest(unittest.TestCase):
                     "audio": {
                         "final_voice_duration_sec": 25.0,
                         "total_voice_cps": 7.0,
+                    },
+                    "gate_inputs": {
+                        "edit_path": str(self.edit_recipe.resolve()),
+                        "edit_sha256": hashlib.sha256(self.edit_recipe.read_bytes()).hexdigest(),
                     },
                     "scenes": [
                         {
@@ -262,6 +282,44 @@ class RenderPostQaTest(unittest.TestCase):
         self.assertEqual(len(report["representative_frames"]), 5)
         for frame in report["representative_frames"]:
             self.assertTrue(Path(frame["path"]).exists())
+
+    def test_representative_frames_use_hash_bound_narrative_role_midpoints(self):
+        result = self.run_qa()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads((self.report_dir / "render_post_qa_report.json").read_text(encoding="utf-8"))
+        frames = {frame["label"]: frame for frame in report["representative_frames"]}
+        self.assertEqual(frames["review_proof"]["time_sec"], 20.03)
+        self.assertGreater(frames["review_proof"]["time_sec"], 18.45)
+        self.assertLess(frames["review_proof"]["time_sec"], 21.61)
+        self.assertEqual(frames["review_proof"]["source_role"], "review_proof")
+        self.assertEqual(report["edit_recipe_sha256"], hashlib.sha256(self.edit_recipe.read_bytes()).hexdigest())
+
+    def test_overlapping_roles_keep_their_exact_midpoints_instead_of_shifting_for_deduplication(self):
+        recipe = json.loads(self.edit_recipe.read_text(encoding="utf-8"))
+        recipe["beats"][1]["time"] = [3.0, 5.0]
+        recipe["beats"][2]["time"] = [3.0, 5.0]
+        self.edit_recipe.write_text(json.dumps(recipe), encoding="utf-8")
+        sync = json.loads(self.sync_manifest.read_text(encoding="utf-8"))
+        sync["gate_inputs"]["edit_sha256"] = hashlib.sha256(self.edit_recipe.read_bytes()).hexdigest()
+        self.sync_manifest.write_text(json.dumps(sync), encoding="utf-8")
+
+        result = self.run_qa()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads((self.report_dir / "render_post_qa_report.json").read_text(encoding="utf-8"))
+        frames = {frame["label"]: frame for frame in report["representative_frames"]}
+        self.assertEqual(frames["problem"]["time_sec"], 4.0)
+        self.assertEqual(frames["middle"]["time_sec"], 4.0)
+
+    def test_rejects_an_edit_recipe_that_no_longer_matches_the_sync_binding(self):
+        self.edit_recipe.write_text(json.dumps({"beats": []}), encoding="utf-8")
+
+        result = self.run_qa()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("edit recipe SHA-256", result.stderr)
+        self.assertFalse((self.report_dir / "render_post_qa_report.json").exists())
 
     def test_rejects_non_hyperframes_qa_without_a_succeeded_render_job(self):
         missing = self.run_qa(include_render_job=False)

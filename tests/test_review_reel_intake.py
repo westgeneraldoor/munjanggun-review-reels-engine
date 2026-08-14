@@ -386,7 +386,7 @@ class ReviewReelIntakeTests(unittest.TestCase):
         selection.write_text(
             json.dumps(
                 {
-                    "schema_version": "review-reel-photo-selection-v1",
+                    "schema_version": "review-reel-photo-selection-v2",
                     "content_id": "004",
                     "checked_at": "2030-01-02T03:04:05Z",
                     "unresolved_items": [],
@@ -396,12 +396,21 @@ class ReviewReelIntakeTests(unittest.TestCase):
                             "decision": "use",
                             "reason": "Clear finished installation view.",
                             "privacy_status": "clear",
+                            "privacy_risk_categories": [],
+                            "editorial_category": "selected_story_evidence",
+                            "evidence_classes": ["installed_result"],
+                            "remediation": {"action": "none"},
+                            "visual_quality": {"full_product_visible": True},
                         },
                         {
                             "relative_path": second.relative_to(package.package_dir).as_posix(),
                             "decision": "hold",
                             "reason": "Redundant detail view.",
                             "privacy_status": "clear",
+                            "privacy_risk_categories": [],
+                            "editorial_category": "alternate_held",
+                            "evidence_classes": ["detail"],
+                            "remediation": {"action": "none"},
                         },
                     ],
                 }
@@ -487,6 +496,114 @@ class ReviewReelIntakeTests(unittest.TestCase):
             )
 
         self.assertEqual(resolve_active_package(self.output_root).metadata["lifecycle_state"], "photo_intake_pending")
+
+    def test_photo_review_rejects_non_privacy_observations_as_blocking_categories(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+        payload = json.loads(selection.read_text(encoding="utf-8"))
+        decision = payload["decisions"][1]
+        decision.update(
+            {
+                "decision": "exclude",
+                "privacy_status": "blocked",
+                "privacy_risk_categories": ["bare_foot"],
+                "editorial_category": "privacy_unrecoverable",
+                "remediation": {
+                    "action": "infeasible",
+                    "attempted_actions": ["crop", "blur"],
+                    "infeasible_category": "risk_covers_essential_subject",
+                    "masking_infeasible_reason": "Fixture reason.",
+                    "manual_review_reference": "fixture-review",
+                },
+            }
+        )
+        selection.write_text(json.dumps(payload), encoding="utf-8")
+
+        with self.assertRaisesRegex(IntakeViolation, "PHOTO_PRIVACY_CATEGORY_INVALID"):
+            record_photo_review(
+                output_root=self.output_root,
+                selection_path=selection,
+                privacy_manifest_path=privacy,
+                now=self.now,
+            )
+
+    def test_photo_review_requires_masking_evidence_before_privacy_exclusion(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+        payload = json.loads(selection.read_text(encoding="utf-8"))
+        decision = payload["decisions"][1]
+        decision.update(
+            {
+                "decision": "exclude",
+                "privacy_status": "blocked",
+                "privacy_risk_categories": ["reflected_identifiable_face"],
+                "editorial_category": "privacy_unrecoverable",
+                "remediation": {"action": "none"},
+            }
+        )
+        selection.write_text(json.dumps(payload), encoding="utf-8")
+
+        with self.assertRaisesRegex(IntakeViolation, "MASKING_FIRST_NOT_APPLIED"):
+            record_photo_review(
+                output_root=self.output_root,
+                selection_path=selection,
+                privacy_manifest_path=privacy,
+                now=self.now,
+            )
+
+    def test_photo_review_allows_editorial_exclusion_without_a_masking_reason(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+        payload = json.loads(selection.read_text(encoding="utf-8"))
+        payload["decisions"][1].update(
+            {
+                "decision": "exclude",
+                "privacy_status": "clear",
+                "privacy_risk_categories": [],
+                "editorial_category": "duplicate",
+                "remediation": {"action": "none"},
+            }
+        )
+        selection.write_text(json.dumps(payload), encoding="utf-8")
+
+        reviewed = record_photo_review(
+            output_root=self.output_root,
+            selection_path=selection,
+            privacy_manifest_path=privacy,
+            now=self.now,
+        )
+
+        self.assertEqual(reviewed.metadata["photo_review"]["selected_asset_count"], 1)
+
+    def test_photo_review_accepts_a_manually_reviewed_unrecoverable_privacy_exclusion(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+        payload = json.loads(selection.read_text(encoding="utf-8"))
+        payload["decisions"][1].update(
+            {
+                "decision": "exclude",
+                "privacy_status": "blocked",
+                "privacy_risk_categories": ["reflected_identifiable_face"],
+                "editorial_category": "privacy_unrecoverable",
+                "remediation": {
+                    "action": "infeasible",
+                    "attempted_actions": ["crop", "blur"],
+                    "infeasible_category": "risk_covers_essential_subject",
+                    "masking_infeasible_reason": "Masking would cover the only product evidence.",
+                    "manual_review_reference": "fixture-review",
+                },
+            }
+        )
+        selection.write_text(json.dumps(payload), encoding="utf-8")
+
+        reviewed = record_photo_review(
+            output_root=self.output_root,
+            selection_path=selection,
+            privacy_manifest_path=privacy,
+            now=self.now,
+        )
+
+        self.assertEqual(reviewed.metadata["photo_review"]["selected_asset_count"], 1)
 
     def test_one_shot_html_commands_resolve_the_active_package_and_never_include_render(self):
         result = self.create()

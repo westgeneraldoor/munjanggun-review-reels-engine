@@ -1,5 +1,15 @@
 # 리뷰 릴스 recipe 계약 v2
 
+## 화면 증거 계약 (2026-08-14)
+
+edit recipe의 `asset_evidence`는 각 `asset_roles` 항목의 주 역할을 `evidence_class`로 선언합니다. 사용 화면에는 완성 결과(`installed_result`), 이전 상태(`before_state`), 리뷰 캡처(`review_capture`)가 모두 있어야 합니다. 훅의 완성 사진은 `installed_result`와 `full_product_visible: true`를 함께 만족해야 합니다.
+
+실측(`measurement`)과 공정(`installation_process`)은 리뷰 원문이나 대본이 해당 사실을 주장할 때만 사용 증거가 필수입니다. 소스에 고가치 증거가 있지만 쓰지 않으면 `unused_reason`을 기록합니다. 이 계약을 어기면 `HOOK_RESULT_NOT_FULLY_VISIBLE`, `CLAIM_EVIDENCE_MISSING`, `UNUSED_HIGH_VALUE_EVIDENCE_REASON_MISSING`으로 실패합니다.
+
+```json
+{"asset_evidence":{"after_main":{"evidence_class":"installed_result","visual_quality":{"full_product_visible":true}},"before_entry":{"evidence_class":"before_state"},"review_capture":{"evidence_class":"review_capture"},"measure_width":{"evidence_class":"measurement","unused_reason":"리뷰와 대본에 실측 주장이 없어 보조 소스로만 보존"}}}
+```
+
 production v2는 기획 의도를 담는 planning recipe와 실제 렌더 입력을 담는 edit recipe를
 분리합니다. 이 문서는 두 JSON의 책임 경계만 정의하며, 정확한 검증 조건은
 `video_engine_v2/production_gate.py`, `video_engine_v2/reels_qa.py`와 테스트가

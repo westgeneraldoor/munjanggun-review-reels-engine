@@ -17,6 +17,12 @@ from video_engine_v2.production_gate import (
     validate_html_gate,
     validate_render_gate,
 )
+from video_engine_v2.manual_review import (
+    HTML_REVIEW_CHECKS,
+    VOICE_REVIEW_CHECKS,
+    record_html_review,
+    record_voice_review,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -228,7 +234,7 @@ class ProductionGateTests(unittest.TestCase):
         selection_path.write_text(
             json.dumps(
                 {
-                    "schema_version": "review-reel-photo-selection-v1",
+                    "schema_version": "review-reel-photo-selection-v2",
                     "content_id": planning["content_id"],
                     "checked_at": "2030-01-02T03:04:05Z",
                     "unresolved_items": [],
@@ -238,6 +244,11 @@ class ProductionGateTests(unittest.TestCase):
                             "decision": "use",
                             "reason": "De-identified fixture image.",
                             "privacy_status": "clear",
+                            "privacy_risk_categories": [],
+                            "editorial_category": "selected_story_evidence",
+                            "evidence_classes": ["installed_result", "before_state", "review_capture"],
+                            "remediation": {"action": "none"},
+                            "visual_quality": {"full_product_visible": True},
                         }
                     ],
                 }
@@ -283,6 +294,15 @@ class ProductionGateTests(unittest.TestCase):
         planning["review_source"]["canonical_text_sha256"] = hashlib.sha256(review_text.encode("utf-8")).hexdigest()
         self.planning.write_text(json.dumps(planning), encoding="utf-8")
         self.edit.write_text(json.dumps(edit), encoding="utf-8")
+        record_voice_review(
+            package_dir=self.package,
+            voice_path=self.package / "voice.mp3",
+            srt_path=self.package / edit["source"]["srt"],
+            tts_report_path=report_path,
+            reviewer="fixture-reviewer",
+            evidence_reference="fixture-audible-review",
+            checks=VOICE_REVIEW_CHECKS,
+        )
         (self.package / "STATUS.md").write_text(
             "- photo_checked: true\n- pd_plan_approved: false\n- html_approved_by_user: false\n- mp4_allowed: false\n",
             encoding="utf-8",
@@ -358,6 +378,27 @@ class ProductionGateTests(unittest.TestCase):
         }
         artifact_path = self.html.parent / "html_artifact_evidence.json"
         artifact_path.write_text(json.dumps(artifact), encoding="utf-8")
+        qa_frames = self.html.parent / "_qa_frames"
+        qa_frames.mkdir()
+        frame = qa_frames / "fixture.png"
+        frame.write_bytes(b"fixture-frame")
+        (self.html.parent / "html_internal_qa_report.json").write_text(
+            json.dumps(
+                {
+                    "automatic_status": "pass",
+                    "checks": [{"frame_relative_path": "_qa_frames/fixture.png"}],
+                    "hook_sequence_checks": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        record_html_review(
+            package_dir=self.package,
+            html_path=self.html,
+            reviewer="fixture-reviewer",
+            evidence_reference="fixture-html-review",
+            checks=HTML_REVIEW_CHECKS,
+        )
         approval = {
             "schema_version": "1.0",
             "package_identity": {"package_path": str(identity_package), "package_name": identity_package.name},
@@ -489,6 +530,24 @@ class ProductionGateTests(unittest.TestCase):
 
         self.assertTrue(manifest["ok"])
         self.assertTrue(self.sync.is_file())
+
+    def test_one_shot_preflight_rejects_missing_hash_bound_voice_review(self):
+        self.write_one_shot_html_package()
+        for receipt in (self.package / "_work" / "manual_reviews").glob("voice_review_*.json"):
+            receipt.unlink()
+
+        with self.assertRaises(GateViolation) as raised:
+            create_sync_manifest(
+                package_dir=self.package,
+                planning_path=self.planning,
+                edit_path=self.edit,
+                privacy_manifest_path=self.privacy,
+                sync_manifest_path=self.sync,
+                allow_one_shot_html_contract=True,
+            )
+
+        self.assertIn("VOICE_MANUAL_REVIEW_MISSING", str(raised.exception))
+        self.assertFalse(self.sync.exists())
 
     def test_one_shot_preflight_rejects_stale_tts_text_hash_without_writing_sync_manifest(self):
         self.write_one_shot_html_package()
@@ -854,6 +913,17 @@ class ProductionGateTests(unittest.TestCase):
         self.assertEqual(receipt["html_sha256"], hashlib.sha256(self.html.read_bytes()).hexdigest())
         self.assertEqual(receipt["html_approval_path"], str(approval_path.resolve()))
 
+    def test_render_gate_rejects_missing_hash_bound_html_manual_review(self):
+        self.write_bound_html_approval()
+        for receipt in (self.package / "_work" / "manual_reviews").glob("html_review_*.json"):
+            receipt.unlink()
+
+        with self.assertRaises(GateViolation) as raised:
+            self.render_gate()
+
+        self.assertIn("HTML_MANUAL_REVIEW_MISSING", str(raised.exception))
+        self.assert_no_render_artifacts()
+
     def test_render_gate_accepts_the_same_package_identity_with_a_different_path_spelling(self):
         artifact_path, approval_path = self.write_bound_html_approval()
         same_package_with_dot_segment = os.path.join(str(self.package.parent), ".", self.package.name)
@@ -864,6 +934,13 @@ class ProductionGateTests(unittest.TestCase):
             payload["package_identity"]["package_path"] = same_package_with_dot_segment
             path.write_text(json.dumps(payload), encoding="utf-8")
         self.refresh_approval_artifact_hash(artifact_path, approval_path)
+        record_html_review(
+            package_dir=self.package,
+            html_path=self.html,
+            reviewer="fixture-reviewer",
+            evidence_reference="fixture-html-review-after-equivalent-path-update",
+            checks=HTML_REVIEW_CHECKS,
+        )
 
         receipt = self.render_gate()
 
