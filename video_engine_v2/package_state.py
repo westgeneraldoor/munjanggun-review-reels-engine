@@ -15,6 +15,8 @@ from pathlib import Path
 import re
 from typing import Any
 
+from video_engine_v2.manual_review import RENDER_REVIEW_CHECKS
+
 
 SCHEMA_VERSION = "1.0"
 UNKNOWN = "unknown"
@@ -107,6 +109,12 @@ def _artifact_kind(path: Path) -> str | None:
         return "approval_log"
     if name == "render_post_qa_report.json":
         return "post_render_qa"
+    if "manual_reviews" in parts and name.startswith("voice_review_") and name.endswith(".json"):
+        return "voice_manual_review"
+    if "manual_reviews" in parts and name.startswith("html_review_") and name.endswith(".json"):
+        return "html_manual_review"
+    if "manual_reviews" in parts and name.startswith("render_review_") and name.endswith(".json"):
+        return "render_manual_review"
     if name.endswith(".mp4") and "upload" in name:
         return "upload_mp4"
     if name.endswith("_script.md"):
@@ -182,14 +190,98 @@ def _package_dirs_at_output_boundary(output_root: Path) -> list[Path]:
     return sorted(candidates)
 
 
-def _manual_qa_state(artifacts: list[dict[str, Any]], package_dir: Path) -> bool | str:
-    reports = [artifact for artifact in artifacts if artifact["kind"] == "post_render_qa"]
-    for report in reports:
-        payload = _read_json(package_dir / report["relative_path"])
-        if not payload:
+def _current_evidence_matches(package_dir: Path, value: Any, *, expected_relative_path: str | None = None) -> bool:
+    if not isinstance(value, dict):
+        return False
+    relative_path = value.get("relative_path")
+    if (
+        not isinstance(relative_path, str)
+        or not relative_path.strip()
+        or Path(relative_path).is_absolute()
+        or (expected_relative_path is not None and relative_path != expected_relative_path)
+        or not isinstance(value.get("bytes"), int)
+        or value["bytes"] < 0
+        or not isinstance(value.get("sha256"), str)
+        or not _SHA256.fullmatch(value["sha256"])
+    ):
+        return False
+    path = (package_dir / relative_path).resolve()
+    try:
+        path.relative_to(package_dir.resolve())
+    except ValueError:
+        return False
+    return path.is_file() and path.stat().st_size == value["bytes"] and _sha256(path) == value["sha256"]
+
+
+def _manual_qa_state(
+    artifacts: list[dict[str, Any]], package_dir: Path, render_complete_mp4_relative_path: str | None
+) -> bool | str:
+    if render_complete_mp4_relative_path is None:
+        return UNKNOWN
+    upload_artifacts = {
+        artifact["relative_path"]: artifact for artifact in artifacts if artifact["kind"] == "upload_mp4"
+    }
+    sync_manifest_artifacts = {
+        artifact["relative_path"]: artifact for artifact in artifacts if artifact["kind"] == "sync_manifest"
+    }
+    for artifact in (item for item in artifacts if item["kind"] == "render_manual_review"):
+        receipt = _read_json(package_dir / artifact["relative_path"])
+        if (
+            not receipt
+            or receipt.get("schema_version") != "review-reel-manual-review-v1"
+            or receipt.get("review_kind") != "render"
+            or receipt.get("status") != "passed"
+            or receipt.get("checks") != sorted(RENDER_REVIEW_CHECKS)
+            or not isinstance(receipt.get("reviewed_at"), str)
+            or not receipt["reviewed_at"].strip()
+            or not isinstance(receipt.get("reviewed_by"), str)
+            or not receipt["reviewed_by"].strip()
+            or not isinstance(receipt.get("evidence_reference"), str)
+            or not receipt["evidence_reference"].strip()
+            or not _package_identity_matches(receipt.get("package_identity"), package_dir)
+            or not _current_evidence_matches(
+                package_dir, receipt.get("target"), expected_relative_path=render_complete_mp4_relative_path
+            )
+            or not _current_evidence_matches(package_dir, receipt.get("post_qa_report"))
+        ):
             continue
-        manual_status = str((payload.get("manual_review") or {}).get("status", "")).lower()
-        if manual_status in {"approved", "complete", "completed", "reviewed"}:
+        report_evidence = receipt["post_qa_report"]
+        report_path = package_dir / report_evidence["relative_path"]
+        report = _read_json(report_path)
+        if not report or str(report.get("auto_status", "")).lower() != "pass":
+            continue
+        candidate_path, limitation = _validate_hash_bound_post_render_report(
+            report,
+            package_dir=package_dir,
+            upload_artifacts=upload_artifacts,
+            sync_manifest_artifacts=sync_manifest_artifacts,
+        )
+        if limitation or candidate_path != render_complete_mp4_relative_path:
+            continue
+        report_frames = report.get("representative_frames")
+        receipt_frames = receipt.get("qa_frames")
+        if not isinstance(report_frames, list) or not report_frames or not isinstance(receipt_frames, list):
+            continue
+        expected_frame_paths: list[str] = []
+        valid_report_frames = True
+        for item in report_frames:
+            if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+                valid_report_frames = False
+                break
+            frame_path = Path(item["path"])
+            if not frame_path.is_absolute():
+                frame_path = package_dir / frame_path
+            try:
+                expected_frame_paths.append(frame_path.resolve().relative_to(package_dir.resolve()).as_posix())
+            except ValueError:
+                valid_report_frames = False
+                break
+        if not valid_report_frames or len(receipt_frames) != len(expected_frame_paths):
+            continue
+        if all(
+            _current_evidence_matches(package_dir, evidence, expected_relative_path=relative_path)
+            for evidence, relative_path in zip(receipt_frames, expected_frame_paths)
+        ):
             return True
     return UNKNOWN
 
@@ -366,6 +458,8 @@ def map_legacy_package(package_dir: Path, *, run_key: str | None = None) -> dict
     render_complete, post_render_qa_pass_evidence_present, render_complete_mp4_relative_path, render_evidence_limitations = (
         _post_render_qa_evidence_state(artifacts, package_dir)
     )
+    qa_reviewed = _manual_qa_state(artifacts, package_dir, render_complete_mp4_relative_path)
+    final_delivery_complete = True if render_complete is True and qa_reviewed is True else UNKNOWN
     state: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "state_source": "legacy_read_only_scan",
@@ -379,7 +473,8 @@ def map_legacy_package(package_dir: Path, *, run_key: str | None = None) -> dict
         "render_complete": render_complete,
         "render_complete_mp4_relative_path": render_complete_mp4_relative_path or UNKNOWN,
         "render_evidence_limitations": render_evidence_limitations,
-        "qa_reviewed": _manual_qa_state(artifacts, package_dir),
+        "qa_reviewed": qa_reviewed,
+        "final_delivery_complete": final_delivery_complete,
         "published": status_fields.get("published", UNKNOWN),
         "performance_observed": status_fields.get("performance_observed", UNKNOWN),
         "planning_approved": status_fields.get("pd_plan_approved", UNKNOWN),
@@ -403,6 +498,7 @@ def map_legacy_package(package_dir: Path, *, run_key: str | None = None) -> dict
             "post_render_qa_pass_evidence_present",
             "render_complete",
             "qa_reviewed",
+            "final_delivery_complete",
             "published",
             "performance_observed",
             "planning_approved",
@@ -443,6 +539,8 @@ def scan_legacy_output(output_root: str | Path) -> dict[str, Any]:
         "field_definitions": {
             "render_artifact_present": "An upload-named MP4 artifact exists; this alone does not prove media integrity.",
             "render_complete": "True only when a retained post-render QA pass binds package identity, upload MP4, and sync manifest paths, bytes, and SHA-256 values to their current files; otherwise unknown.",
+            "qa_reviewed": "True only when a separate human render-review receipt binds the current upload MP4, current post-render QA report, and every reviewed representative frame by bytes and SHA-256; otherwise unknown.",
+            "final_delivery_complete": "True only when both render_complete and qa_reviewed are true for the same current upload MP4; otherwise unknown.",
             "post_render_qa_pass_evidence_present": "A retained report recorded auto_status=pass; this is historical evidence and does not prove the current MP4 bytes.",
             "render_evidence_limitations": "Why a historical post-render QA pass could not be bound to the current upload MP4 and sync manifest bytes and SHA-256 values.",
             "published": "Only explicit retained status evidence can set true or false; absence is unknown.",
@@ -457,6 +555,8 @@ def scan_legacy_output(output_root: str | Path) -> dict[str, Any]:
             "post_render_qa_pass_evidence_package_count": count("post_render_qa_pass_evidence_present", True),
             "render_complete_true_count": count("render_complete", True),
             "render_complete_unknown_count": count("render_complete", UNKNOWN),
+            "final_delivery_complete_true_count": count("final_delivery_complete", True),
+            "final_delivery_complete_unknown_count": count("final_delivery_complete", UNKNOWN),
             "render_evidence_limitation_count": sum(bool(package["render_evidence_limitations"]) for package in packages),
             "published_known_true_count": count("published", True),
             "published_known_false_count": count("published", False),

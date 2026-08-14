@@ -55,9 +55,46 @@ page.on("console", (message) => {
 });
 
 const checks = [];
+const hookSequenceChecks = [];
 try {
   await page.goto(pathToFileURL(htmlPath).href, { waitUntil: "load" });
   await page.waitForSelector("#stage");
+
+  const hookBeat = beats[0];
+  const hookShots = Array.isArray(hookBeat?.shots) ? hookBeat.shots.slice(0, 3) : [];
+  const hookStart = Number(hookBeat?.time?.[0] ?? 0);
+  const hookEnd = Number(hookBeat?.time?.[1] ?? hookStart);
+  const halfSecondTime = Math.max(hookStart + 0.04, Math.min(0.5, hookEnd - 0.04));
+  const shotAtHalfSecond = hookShots.find((shot) => (
+    halfSecondTime >= Number(shot.start_sec) && halfSecondTime < Number(shot.end_sec)
+  )) || hookShots[0];
+  const hookSamples = [
+    { label: "hook_0_5s", time: halfSecondTime, assetId: shotAtHalfSecond?.asset_id || null },
+    ...hookShots.map((shot, index) => ({
+      label: `hook_shot_${index + 1}`,
+      time: (Number(shot.start_sec) + Number(shot.end_sec)) / 2,
+      assetId: shot.asset_id || null,
+    })),
+  ];
+  const hookFrameDir = path.join(frameDir, "hook_sequence");
+  fs.mkdirSync(hookFrameDir);
+  for (let index = 0; index < hookSamples.length; index += 1) {
+    const sample = hookSamples[index];
+    await page.evaluate((time) => {
+      const scrubber = document.querySelector("#scrubber");
+      scrubber.value = String(time);
+      scrubber.dispatchEvent(new Event("input", { bubbles: true }));
+    }, sample.time);
+    await page.waitForTimeout(FRAME_SETTLE_WAIT_MS);
+    const frameName = `${String(index + 1).padStart(2, "0")}_${sample.label}_${sample.time.toFixed(2)}s.png`;
+    await page.locator("#stage").screenshot({ path: path.join(hookFrameDir, frameName) });
+    hookSequenceChecks.push({
+      label: sample.label,
+      sample_time_sec: Number(sample.time.toFixed(3)),
+      expected_asset_id: sample.assetId,
+      frame_relative_path: `_qa_frames/hook_sequence/${frameName}`,
+    });
+  }
 
   for (let index = 0; index < beats.length; index += 1) {
     const beat = beats[index];
@@ -214,6 +251,7 @@ const report = {
   overall_status: failedChecks.length === 0 && consoleErrors.length === 0 ? "manual_review_required" : "blocked",
   console_errors: consoleErrors,
   checks,
+  hook_sequence_checks: hookSequenceChecks,
   manual_review: {
     status: "pending",
     required_checks: [

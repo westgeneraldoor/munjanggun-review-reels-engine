@@ -45,6 +45,10 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
             "result_asset_id": "after_result",
             "before_asset_id": "before_entry",
         }
+        fixture["edit"]["asset_evidence"].update({
+            "after_result": {"evidence_class": "installed_result", "visual_quality": {"full_product_visible": True}},
+            "before_entry": {"evidence_class": "before_state"},
+        })
         fixture["edit"]["beats"][0]["shots"] = [
             {"asset_id": "after_result", "motion": "calm_push_in", "motion_reason": "Show the result first.", "transition_in": "cut", "start_sec": 0.0, "end_sec": 1.3},
             {"asset_id": "before_entry", "motion": "calm_push_in", "motion_reason": "Show the before state without reversing the camera.", "transition_in": "calm_dissolve", "start_sec": 1.3, "end_sec": 2.6},
@@ -126,6 +130,46 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
         result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
 
         self.assertIn("RESULT_FIRST_HOOK_SEQUENCE_INVALID", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_rejects_a_result_hook_that_does_not_show_the_full_product(self):
+        fixture = load_fixture()
+        fixture["edit"]["asset_evidence"]["after_main"]["visual_quality"]["full_product_visible"] = False
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("HOOK_RESULT_NOT_FULLY_VISIBLE", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_requires_measurement_evidence_only_when_the_review_story_claims_measurement(self):
+        fixture = load_fixture()
+        fixture["planning"]["review_source"]["text"] += " 현장에서 직접 실측했습니다."
+        fixture["edit"]["beats"][3]["narration_ref"] = "현장에서 직접 실측했습니다."
+        fixture["edit"]["beats"][3]["asset"] = "site_context"
+        fixture["edit"]["beats"][3]["shots"][0]["asset_id"] = "site_context"
+        fixture["edit"]["asset_evidence"]["measure"]["unused_reason"] = "Fixture intentionally omits the measurement cut."
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("CLAIM_EVIDENCE_MISSING", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_allows_unused_measurement_evidence_when_the_story_makes_no_measurement_claim(self):
+        fixture = load_fixture()
+        fixture["edit"]["beats"][3]["asset"] = "site_context"
+        fixture["edit"]["beats"][3]["shots"][0]["asset_id"] = "site_context"
+        fixture["edit"]["asset_evidence"]["measure"]["unused_reason"] = "The source review makes no measurement claim."
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertNotIn("CLAIM_EVIDENCE_MISSING", {issue["code"] for issue in result["issues"]})
+        self.assertNotIn("UNUSED_HIGH_VALUE_EVIDENCE_REASON_MISSING", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_requires_a_reason_when_high_value_evidence_is_not_used(self):
+        fixture = load_fixture()
+        fixture["edit"]["beats"][3]["asset"] = "site_context"
+        fixture["edit"]["beats"][3]["shots"][0]["asset_id"] = "site_context"
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("UNUSED_HIGH_VALUE_EVIDENCE_REASON_MISSING", {issue["code"] for issue in result["issues"]})
 
     def test_contract_rejects_more_than_twelve_shots(self):
         fixture = load_fixture()
@@ -421,6 +465,9 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
             for beat in fixture["edit"]["beats"]
             if beat["narrative_role"] not in {"context", "choice_turn"}
         ]
+        fixture["edit"]["asset_evidence"]["measure"]["unused_reason"] = (
+            "The time-lapse review makes no measurement claim."
+        )
 
         result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
 

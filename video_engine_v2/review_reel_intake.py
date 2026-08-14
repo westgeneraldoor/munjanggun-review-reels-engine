@@ -50,6 +50,50 @@ _PHOTO_MEDIA_EXTENSIONS = {
     ".tiff",
     ".webp",
 }
+PHOTO_SELECTION_SCHEMA_VERSION = "review-reel-photo-selection-v2"
+PRIVACY_BLOCKING_CATEGORIES = frozenset(
+    {
+        "identifiable_face",
+        "reflected_identifiable_face",
+        "family_photo",
+        "resident_name",
+        "phone_number",
+        "account_identifier",
+        "apartment_unit_number",
+        "door_lock_code",
+        "intercom_identifier",
+        "vehicle_plate",
+        "delivery_label",
+        "mail_document",
+        "order_information",
+    }
+)
+EDITORIAL_CATEGORIES = frozenset(
+    {
+        "selected_story_evidence",
+        "alternate_held",
+        "not_required_by_narrative",
+        "duplicate",
+        "unusable_quality",
+        "unrelated_to_review",
+        "privacy_unrecoverable",
+    }
+)
+EVIDENCE_CLASSES = frozenset(
+    {
+        "installed_result",
+        "before_state",
+        "measurement",
+        "review_capture",
+        "context",
+        "detail",
+        "installation_process",
+    }
+)
+SANITIZING_ACTIONS = frozenset({"crop", "blur", "mask", "replace"})
+MASKING_INFEASIBLE_CATEGORIES = frozenset(
+    {"risk_covers_essential_subject", "sanitization_failed", "source_integrity_constraint"}
+)
 
 
 class IntakeViolation(ValueError):
@@ -766,6 +810,74 @@ def _photo_media_paths(package: CanonicalPackage) -> list[Path]:
     )
 
 
+def _validate_photo_decision_v2(decision: dict[str, Any]) -> None:
+    action = decision.get("decision")
+    privacy_status = decision.get("privacy_status")
+    categories = decision.get("privacy_risk_categories")
+    editorial_category = decision.get("editorial_category")
+    evidence_classes = decision.get("evidence_classes")
+    remediation = decision.get("remediation")
+
+    if not isinstance(categories, list) or any(not isinstance(value, str) for value in categories):
+        raise IntakeViolation("PHOTO_PRIVACY_CATEGORY_INVALID")
+    if len(categories) != len(set(categories)) or not set(categories).issubset(PRIVACY_BLOCKING_CATEGORIES):
+        raise IntakeViolation("PHOTO_PRIVACY_CATEGORY_INVALID")
+    if editorial_category not in EDITORIAL_CATEGORIES:
+        raise IntakeViolation("PHOTO_EDITORIAL_CATEGORY_INVALID")
+    if (
+        not isinstance(evidence_classes, list)
+        or not evidence_classes
+        or any(not isinstance(value, str) for value in evidence_classes)
+        or len(evidence_classes) != len(set(evidence_classes))
+        or not set(evidence_classes).issubset(EVIDENCE_CLASSES)
+    ):
+        raise IntakeViolation("PHOTO_EVIDENCE_CLASS_INVALID")
+    if not isinstance(remediation, dict):
+        raise IntakeViolation("PHOTO_REMEDIATION_INVALID")
+    remediation_action = remediation.get("action")
+
+    if privacy_status == "clear":
+        if categories or remediation_action != "none":
+            raise IntakeViolation("PHOTO_PRIVACY_STATE_INVALID")
+    elif privacy_status == "sanitized":
+        if not categories or remediation_action not in SANITIZING_ACTIONS or action != "use":
+            raise IntakeViolation("PHOTO_PRIVACY_STATE_INVALID")
+    elif privacy_status == "blocked":
+        if not categories or action != "exclude":
+            raise IntakeViolation("PHOTO_PRIVACY_STATE_INVALID")
+        attempted = remediation.get("attempted_actions")
+        if (
+            remediation_action != "infeasible"
+            or editorial_category != "privacy_unrecoverable"
+            or not isinstance(attempted, list)
+            or not attempted
+            or not set(attempted).issubset(SANITIZING_ACTIONS)
+            or remediation.get("infeasible_category") not in MASKING_INFEASIBLE_CATEGORIES
+            or not isinstance(remediation.get("masking_infeasible_reason"), str)
+            or not remediation["masking_infeasible_reason"].strip()
+            or not isinstance(remediation.get("manual_review_reference"), str)
+            or not remediation["manual_review_reference"].strip()
+        ):
+            raise IntakeViolation("MASKING_FIRST_NOT_APPLIED")
+
+    if action == "use" and editorial_category != "selected_story_evidence":
+        raise IntakeViolation("PHOTO_EDITORIAL_CATEGORY_INVALID")
+    if action == "hold" and editorial_category not in {"alternate_held", "not_required_by_narrative"}:
+        raise IntakeViolation("PHOTO_EDITORIAL_CATEGORY_INVALID")
+    if action == "exclude" and not categories and editorial_category not in {
+        "duplicate",
+        "unusable_quality",
+        "unrelated_to_review",
+    }:
+        raise IntakeViolation("PHOTO_EDITORIAL_CATEGORY_INVALID")
+    visual_quality = decision.get("visual_quality")
+    if visual_quality is not None and (
+        not isinstance(visual_quality, dict)
+        or any(not isinstance(value, bool) for value in visual_quality.values())
+    ):
+        raise IntakeViolation("PHOTO_VISUAL_QUALITY_INVALID")
+
+
 def record_photo_review(
     *,
     output_root: str | Path,
@@ -806,7 +918,7 @@ def record_photo_review(
         invalid="PRIVACY_MANIFEST_INVALID",
     )
 
-    if selection.get("schema_version") != "review-reel-photo-selection-v1":
+    if selection.get("schema_version") != PHOTO_SELECTION_SCHEMA_VERSION:
         raise IntakeViolation("PHOTO_SELECTION_SCHEMA_INVALID")
     if selection.get("content_id") != package.metadata.get("content_id"):
         raise IntakeViolation("PHOTO_SELECTION_IDENTITY_MISMATCH")
@@ -840,6 +952,7 @@ def record_photo_review(
             or privacy_status not in {"clear", "sanitized", "blocked"}
         ):
             raise IntakeViolation("PHOTO_SELECTION_DECISION_INVALID")
+        _validate_photo_decision_v2(decision)
         decision_paths.add(relative_path)
         if action == "use":
             if privacy_status == "blocked":

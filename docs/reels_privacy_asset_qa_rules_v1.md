@@ -1,5 +1,22 @@
 # 문장군 리뷰릴스 소재 개인정보 QA 규칙 v1
 
+## 사진 판정 v2 계약 (2026-08-14)
+
+`photo_selection_private.json`은 `review-reel-photo-selection-v2`를 사용하며 개인정보 위험과 편집 판단을 분리합니다.
+
+- 개인정보 위험은 얼굴·가족사진·고객명·전화번호·계정 식별자·아파트 호수·도어락/인터폰 식별정보·차량번호·송장/우편물·주문정보의 닫힌 어휘만 허용합니다. 맨발, 신발, 생활물품, 건물명, 아파트 동 번호는 개인정보 차단 사유가 아닙니다.
+- 중복, 흔들림/저화질, 리뷰와 무관함, 현재 대본에 불필요함은 별도의 `editorial_category`로 기록합니다.
+- 개인정보 때문에 `exclude`할 때만 마스킹·크롭·블러·교체를 실제로 시도한 기록과 `masking_infeasible_reason`, `manual_review_reference`가 필요합니다. 편집 제외에는 이를 요구하지 않습니다.
+- 각 사진은 `evidence_classes`를 가지며 완성 결과·이전 상태·리뷰 캡처는 기본 증거입니다. 실측·공정은 리뷰나 대본이 이를 주장할 때만 사용 증거가 필수입니다.
+
+닫힌 어휘 위반은 `PHOTO_PRIVACY_CATEGORY_INVALID`, 마스킹 우선 위반은 `MASKING_FIRST_NOT_APPLIED`로 HTML 이전에 실패합니다.
+
+```json
+{"relative_path":"images/after.jpg","decision":"use","reason":"완성 결과 훅","privacy_status":"clear","privacy_risk_categories":[],"editorial_category":"selected_story_evidence","evidence_classes":["installed_result"],"remediation":{"action":"none"},"visual_quality":{"full_product_visible":true}}
+{"relative_path":"images/duplicate.jpg","decision":"exclude","reason":"같은 구도의 중복 컷","privacy_status":"clear","privacy_risk_categories":[],"editorial_category":"duplicate","evidence_classes":["installed_result"],"remediation":{"action":"none"}}
+{"relative_path":"images/reflection.jpg","decision":"exclude","reason":"핵심 상품 전체에 얼굴이 겹침","privacy_status":"blocked","privacy_risk_categories":["reflected_identifiable_face"],"editorial_category":"privacy_unrecoverable","evidence_classes":["installed_result"],"remediation":{"action":"infeasible","attempted_actions":["crop","blur"],"infeasible_category":"risk_covers_essential_subject","masking_infeasible_reason":"상품 전체를 훼손하지 않고 식별 얼굴만 제거할 수 없음","manual_review_reference":"contact-sheet-review"}}
+```
+
 작성일: 2026-06-16
 
 ## 목적

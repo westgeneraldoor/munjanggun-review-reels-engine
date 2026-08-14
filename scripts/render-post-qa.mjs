@@ -190,32 +190,55 @@ function formatMbps(value) {
   return Number.isFinite(value) ? `${(value / 1_000_000).toFixed(2)} Mbps` : "unknown";
 }
 
-function representativeTimes(duration) {
+function beatRange(beat) {
+  if (Array.isArray(beat?.time) && beat.time.length >= 2) {
+    const start = Number(beat.time[0]);
+    const end = Number(beat.time[1]);
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) return { start, end };
+  }
+  const shots = Array.isArray(beat?.shots) ? beat.shots : [];
+  const starts = shots.map((shot) => Number(shot.start_sec)).filter(Number.isFinite);
+  const ends = shots.map((shot) => Number(shot.end_sec)).filter(Number.isFinite);
+  if (starts.length > 0 && ends.length > 0) {
+    const start = Math.min(...starts);
+    const end = Math.max(...ends);
+    if (end > start) return { start, end };
+  }
+  return null;
+}
+
+function representativeTimes(duration, editRecipe) {
   const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 1;
-  const raw = [
-    ["hook", 0.5],
-    ["problem", Math.min(4, safeDuration * 0.2)],
-    ["middle", safeDuration * 0.5],
-    ["review_proof", safeDuration * 0.8],
-    ["cta", Math.max(0.2, safeDuration - 1.0)],
+  const beats = Array.isArray(editRecipe?.beats) ? editRecipe.beats : [];
+  const selectBeat = (roles) => beats.find((beat) => roles.includes(beat?.narrative_role || beat?.phase));
+  const specs = [
+    ["hook", ["event"]],
+    ["problem", ["problem"]],
+    ["middle", ["resolution", "felt_result", "choice_turn", "context"]],
+    ["review_proof", ["review_proof"]],
+    ["cta", ["cta"]],
   ];
-  const seen = new Set();
-  return raw.map(([label, time]) => {
+  const raw = specs.map(([label, roles]) => {
+    const beat = selectBeat(roles);
+    const range = beatRange(beat);
+    if (!beat || !range) die(`Bound edit recipe is missing a timed ${label} narrative role.`);
+    const role = beat.narrative_role || beat.phase;
+    const midpoint = (range.start + range.end) / 2;
+    const time = label === "hook"
+      ? Math.max(range.start + 0.05, Math.min(range.start + 0.5, range.end - 0.05))
+      : midpoint;
+    return { label, time, sourceRole: role };
+  });
+  return raw.map(({ label, time, sourceRole }) => {
     const safeTime = Math.max(0, Math.min(Number(time), Math.max(0, safeDuration - 0.05)));
-    const rounded = Number(safeTime.toFixed(2));
-    let key = rounded.toFixed(2);
-    while (seen.has(key)) {
-      key = (Number(key) + 0.25).toFixed(2);
-    }
-    seen.add(key);
-    return [label, Math.min(Number(key), Math.max(0, safeDuration - 0.05))];
+    return { label, time: Number(safeTime.toFixed(2)), sourceRole };
   });
 }
 
-function extractRepresentativeFrames(mp4Path, reportDir, duration) {
+function extractRepresentativeFrames(mp4Path, reportDir, duration, editRecipe) {
   const framesDir = path.join(reportDir, "representative_frames");
   fs.mkdirSync(framesDir, { recursive: true });
-  return representativeTimes(duration).map(([label, time], index) => {
+  return representativeTimes(duration, editRecipe).map(({ label, time, sourceRole }, index) => {
     const filePath = path.join(framesDir, `${String(index + 1).padStart(2, "0")}_${label}_${time.toFixed(2)}s.jpg`);
     runCommand(
       "ffmpeg",
@@ -229,6 +252,7 @@ function extractRepresentativeFrames(mp4Path, reportDir, duration) {
     return {
       label,
       time_sec: Number(time.toFixed(2)),
+      source_role: sourceRole,
       path: filePath,
     };
   });
@@ -379,6 +403,18 @@ for (const [index, scene] of syncScenes.entries()) {
     die(`sync_manifest scene[${index}] must include meaning_match evidence for post-render QA.`);
   }
 }
+const editPathValue = syncManifest?.gate_inputs?.edit_path;
+const expectedEditSha256 = syncManifest?.gate_inputs?.edit_sha256;
+if (!editPathValue || !expectedEditSha256) {
+  die("sync_manifest.gate_inputs must bind the edit recipe path and SHA-256.");
+}
+const editRecipePath = path.resolve(editPathValue);
+ensureInsidePackage(editRecipePath, packageDir, "edit recipe");
+if (!fs.existsSync(editRecipePath)) die(`Missing bound edit recipe: ${editRecipePath}`);
+const { evidence: editRecipeInput, value: editRecipe } = readBoundJson(editRecipePath, packageDir);
+if (editRecipeInput.sha256 !== expectedEditSha256) {
+  die("Bound edit recipe SHA-256 does not match sync_manifest.gate_inputs.edit_sha256.");
+}
 
 const ffprobe = runJsonCommand(
   "ffprobe",
@@ -415,7 +451,7 @@ const autoChecks = [
 ];
 
 const failedChecks = autoChecks.filter((item) => item.status === "fail");
-const frames = extractRepresentativeFrames(mp4Path, reportDir, duration);
+const frames = extractRepresentativeFrames(mp4Path, reportDir, duration, editRecipe);
 const mp4AfterFrames = boundFileEvidence(mp4Path, packageDir);
 if (mp4AfterFrames.bytes !== mp4Input.bytes || mp4AfterFrames.sha256 !== mp4Input.sha256) {
   die("MP4 changed during representative frame extraction; post-render QA report was not written.");
@@ -437,6 +473,9 @@ const report = {
   sync_manifest_relative_path: syncManifestInput.relative_path,
   sync_manifest_bytes: syncManifestInput.bytes,
   sync_manifest_sha256: syncManifestInput.sha256,
+  edit_recipe_relative_path: editRecipeInput.relative_path,
+  edit_recipe_bytes: editRecipeInput.bytes,
+  edit_recipe_sha256: editRecipeInput.sha256,
   render_job: renderJobReport,
   auto_status: failedChecks.length === 0 ? "pass" : "fail",
   overall_status: failedChecks.length === 0 ? "manual_review_required" : "blocked",

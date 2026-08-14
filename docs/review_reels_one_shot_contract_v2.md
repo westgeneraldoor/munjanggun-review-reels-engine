@@ -1,5 +1,9 @@
 # 리뷰 릴스 one-shot HTML 계약 v2
 
+## 사람 검수 영수증 (2026-08-14)
+
+Gemini/Sulafat 음성 생성 뒤에는 발음·톤·자막 싱크를 실제로 듣고 `voice-review-record`를 실행해야 합니다. 현재 voice/SRT/TTS report와 해시가 맞는 영수증이 없으면 one-shot preflight가 실패합니다. HTML 자동 QA 뒤에는 모든 beat와 0.5초·첫 3개 훅 프레임을 직접 보고 `html-review-record`를 실행합니다. 이 HTML 영수증과 사용자 HTML 승인, 별도 MP4 승인은 서로 대체하지 않습니다.
+
 ## 목적과 범위
 
 사용자가 사진 검수 완료 뒤 `사진 다 넣었어. HTML까지 가자`와 같은 명시적 요청을 하면,

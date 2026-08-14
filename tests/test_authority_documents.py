@@ -22,6 +22,8 @@ from video_engine_v2.reels_qa import (
     ONE_SHOT_CALM_TRANSITIONS,
     SOFT_CPS_LIMIT,
 )
+from video_engine_v2.manual_review import HTML_REVIEW_CHECKS, RENDER_REVIEW_CHECKS, VOICE_REVIEW_CHECKS
+from video_engine_v2.review_reel_intake import PHOTO_SELECTION_SCHEMA_VERSION
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -266,6 +268,33 @@ class AuthorityDocumentsTest(unittest.TestCase):
         # 불투명 유리 너머 실루엣처럼 식별 불가한 형체는 차단 대상이 아니다.
         for text in (privacy, workflow):
             self.assertIn("실루엣", text)
+
+    def test_cold_test_recovery_contracts_are_live_and_match_code(self):
+        agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        privacy = (ROOT / "docs/reels_privacy_asset_qa_rules_v1.md").read_text(encoding="utf-8")
+        recipe = (ROOT / "docs/review_recipe_contract_v2.md").read_text(encoding="utf-8")
+        visual = (ROOT / "docs/review_reels_visual_edit_standard_v1.md").read_text(encoding="utf-8")
+        render = (ROOT / "docs/render_qa_rules_v2.md").read_text(encoding="utf-8")
+
+        self.assertIn(PHOTO_SELECTION_SCHEMA_VERSION, privacy)
+        for anchor in ("맨발", "신발", "아파트 동 번호", "PHOTO_PRIVACY_CATEGORY_INVALID", "MASKING_FIRST_NOT_APPLIED"):
+            self.assertIn(anchor, privacy)
+        for anchor in ("asset_evidence", "full_product_visible: true", "CLAIM_EVIDENCE_MISSING"):
+            self.assertIn(anchor, recipe)
+        for anchor in ("0.5초", "첫 3개 훅", "voice-review-record", "html-review-record"):
+            self.assertIn(anchor, visual)
+        for anchor in ("edit_sha256", "review_proof", "render_complete", "qa_reviewed", "final_delivery_complete"):
+            self.assertIn(anchor, render)
+
+        command_checks = {
+            "voice-review-record": VOICE_REVIEW_CHECKS,
+            "html-review-record": HTML_REVIEW_CHECKS,
+            "render-review-record": RENDER_REVIEW_CHECKS,
+        }
+        for command, checks in command_checks.items():
+            self.assertIn(command, agents)
+            for check in checks:
+                self.assertIn(f"--check {check}", agents)
 
     def test_compact_standards_preserve_unique_operating_rules(self):
         for relative_path, anchors in COMPACT_STANDARDS.items():

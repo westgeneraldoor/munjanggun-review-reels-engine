@@ -1,5 +1,11 @@
 # HTML-to-MP4 Render QA Rules v2
 
+## 역할 기반 대표 프레임과 최종 완료 상태 (2026-08-14)
+
+렌더 대표 프레임은 영상 길이의 고정 비율로 뽑지 않습니다. `sync_manifest.gate_inputs.edit_path`의 현재 edit recipe가 `edit_sha256`과 일치하는지 먼저 확인한 뒤 `event`, `problem`, 중간 전환, `review_proof`, `cta` 역할의 중간 시점을 사용합니다. 따라서 리뷰 증거 프레임이 CTA로 밀려나는 것을 허용하지 않습니다.
+
+`render_complete`는 현재 MP4와 sync manifest가 자동 post-render QA 보고서에 해시 결속된 기술 완료입니다. 총괄 PD가 현재 MP4·현재 post-QA report·모든 대표 프레임을 직접 검수하고 `render-review-record` 영수증을 남겨야 `qa_reviewed: true`가 됩니다. 둘이 같은 MP4에 대해 모두 참일 때만 `final_delivery_complete: true`이며, 그전에는 사용자에게 최종 완성으로 보고하지 않습니다.
+
 문장군 리뷰 영상은 HTML 프리뷰가 좋아 보여도 MP4 렌더가 다르면 실패입니다.
 
 ## 핵심 사고 원인

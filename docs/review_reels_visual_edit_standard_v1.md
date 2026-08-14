@@ -1,5 +1,11 @@
 # 리뷰 릴스 비주얼·편집 표준 v1
 
+## 훅과 사람 검수 증거 (2026-08-14)
+
+HTML QA는 전체 beat 대표 프레임과 별도로 0.5초 및 첫 3개 훅 shot의 중간 시점을 캡처합니다. 첫 화면 한 장만 보고 훅을 통과시키지 않습니다. 작업자는 훅 순서, 의미 싱크, 자막 배치, 개인정보, 리뷰 캡처, CTA를 직접 본 뒤 `html-review-record`로 현재 HTML·artifact evidence·QA report·모든 QA frame의 해시 영수증을 남깁니다. 이 영수증이 없거나 stale이면 MP4 렌더 게이트를 통과하지 못합니다.
+
+one-shot 음성은 preflight 전에 실제로 청취해 발음, 톤, 자막 싱크를 확인하고 `voice-review-record` 영수증을 남깁니다. 파일 존재나 TTS 생성 보고서만으로 청취 완료를 추정하지 않습니다.
+
 이 문서는 production v2의 화면, 자막, 모션, 전환, 오디오 편집 기준입니다.
 실험용 HyperFrames 규칙은 이 문서를 바꾸지 않으며 production 승격 전 별도 승인이
 필요합니다.

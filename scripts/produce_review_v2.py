@@ -34,6 +34,12 @@ from video_engine_v2.render_job import (  # noqa: E402
     update_job,
     utc_now,
 )
+from video_engine_v2.manual_review import (  # noqa: E402
+    ManualReviewViolation,
+    record_html_review,
+    record_render_review,
+    record_voice_review,
+)
 
 
 def configure_utf8_output() -> None:
@@ -209,6 +215,25 @@ def build_parser() -> argparse.ArgumentParser:
     render_status = commands.add_parser("render-status", help="Read durable render progress without waiting for completion")
     render_status.add_argument("--package", required=True)
     render_status.add_argument("--job-id", required=True)
+    for command_name, help_text in (
+        ("voice-review-record", "Record hash-bound manual voice audition evidence"),
+        ("html-review-record", "Record hash-bound manual HTML frame review evidence"),
+        ("render-review-record", "Record hash-bound manual final-render review evidence"),
+    ):
+        review = commands.add_parser(command_name, help=help_text)
+        review.add_argument("--package", required=True)
+        review.add_argument("--reviewer", required=True)
+        review.add_argument("--evidence-reference", required=True)
+        review.add_argument("--check", action="append", default=[])
+        if command_name == "voice-review-record":
+            review.add_argument("--voice", required=True)
+            review.add_argument("--srt", required=True)
+            review.add_argument("--tts-report", required=True)
+        elif command_name == "html-review-record":
+            review.add_argument("--html", required=True)
+        else:
+            review.add_argument("--mp4", required=True)
+            review.add_argument("--post-qa-report", required=True)
     return parser
 
 
@@ -216,6 +241,39 @@ def main(argv: list[str] | None = None) -> int:
     configure_utf8_output()
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "voice-review-record":
+            path = record_voice_review(
+                package_dir=args.package,
+                voice_path=args.voice,
+                srt_path=args.srt,
+                tts_report_path=args.tts_report,
+                reviewer=args.reviewer,
+                evidence_reference=args.evidence_reference,
+                checks=args.check,
+            )
+            print(path)
+            return 0
+        if args.command == "html-review-record":
+            path = record_html_review(
+                package_dir=args.package,
+                html_path=args.html,
+                reviewer=args.reviewer,
+                evidence_reference=args.evidence_reference,
+                checks=args.check,
+            )
+            print(path)
+            return 0
+        if args.command == "render-review-record":
+            path = record_render_review(
+                package_dir=args.package,
+                mp4_path=args.mp4,
+                post_qa_report_path=args.post_qa_report,
+                reviewer=args.reviewer,
+                evidence_reference=args.evidence_reference,
+                checks=args.check,
+            )
+            print(path)
+            return 0
         if args.command == "preflight":
             create_sync_manifest(
                 package_dir=args.package,
@@ -356,7 +414,7 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             command.extend(["--" + key.replace("_", "-"), str(value)])
         return subprocess.run(command, cwd=ROOT).returncode
-    except (GateViolation, RenderJobError) as error:
+    except (GateViolation, RenderJobError, ManualReviewViolation) as error:
         print(f"GATE_BLOCKED: {error}", file=sys.stderr)
         return 2
 

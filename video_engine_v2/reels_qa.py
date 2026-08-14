@@ -136,6 +136,21 @@ STRONG_CLAIM_KEYWORDS = (
     "완전 차단",
     "완벽 차단",
 )
+VISUAL_EVIDENCE_CLASSES = {
+    "installed_result",
+    "before_state",
+    "measurement",
+    "review_capture",
+    "context",
+    "detail",
+    "installation_process",
+}
+BASE_REQUIRED_VISUAL_EVIDENCE = {"installed_result", "before_state", "review_capture"}
+HIGH_VALUE_VISUAL_EVIDENCE = {"measurement", "installation_process"}
+CLAIM_EVIDENCE_KEYWORDS = {
+    "measurement": ("실측", "측정", "치수", "재보", "재어", "줄자"),
+    "installation_process": ("시공 과정", "설치 과정", "공정", "마감 작업"),
+}
 EMOTION_CLAIM_KEYWORDS = {
     "anxiety": ("불안", "걱정", "초조", "망설"),
     "relief": ("안심", "다행", "마음놓", "마음 놓", "후련"),
@@ -927,6 +942,103 @@ def _validate_result_first_hook_contract(edit_recipe: dict[str, Any]) -> list[di
     return issues
 
 
+def _validate_visual_evidence_contract(
+    planning_recipe: dict[str, Any], edit_recipe: dict[str, Any]
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    evidence = edit_recipe.get("asset_evidence")
+    if not isinstance(evidence, dict) or not evidence:
+        return [_issue("ASSET_EVIDENCE_CONTRACT_MISSING", "asset_evidence is required for one-shot production.")]
+
+    used_assets = {
+        _as_text(shot.get("asset_id")).strip()
+        for beat in edit_recipe.get("beats") or []
+        if isinstance(beat, dict)
+        for shot in beat.get("shots") or []
+        if isinstance(shot, dict) and _as_text(shot.get("asset_id")).strip()
+    }
+    evidence_classes_by_asset: dict[str, str] = {}
+    for asset_id, metadata in evidence.items():
+        if not isinstance(asset_id, str) or not isinstance(metadata, dict):
+            issues.append(_issue("ASSET_EVIDENCE_INVALID", "Every asset_evidence entry must be an object."))
+            continue
+        evidence_class = _as_text(metadata.get("evidence_class")).strip()
+        if evidence_class not in VISUAL_EVIDENCE_CLASSES:
+            issues.append(_issue("ASSET_EVIDENCE_INVALID", f"Unsupported evidence class for {asset_id}: {evidence_class or '(empty)'}"))
+            continue
+        evidence_classes_by_asset[asset_id] = evidence_class
+
+    missing_metadata = sorted(used_assets - set(evidence_classes_by_asset))
+    if missing_metadata:
+        issues.append(
+            _issue(
+                "USED_ASSET_EVIDENCE_MISSING",
+                "Used photo assets are missing evidence metadata: " + ", ".join(missing_metadata),
+            )
+        )
+
+    used_classes = {evidence_classes_by_asset[asset_id] for asset_id in used_assets if asset_id in evidence_classes_by_asset}
+    missing_base = sorted(BASE_REQUIRED_VISUAL_EVIDENCE - used_classes)
+    if missing_base:
+        issues.append(
+            _issue(
+                "REQUIRED_VISUAL_EVIDENCE_MISSING",
+                "Required one-shot evidence classes are not used: " + ", ".join(missing_base),
+            )
+        )
+
+    hook = edit_recipe.get("hook_visual_contract") or {}
+    result_asset_id = _as_text(hook.get("result_asset_id")).strip()
+    before_asset_id = _as_text(hook.get("before_asset_id")).strip()
+    result_metadata = evidence.get(result_asset_id) if isinstance(evidence.get(result_asset_id), dict) else {}
+    before_metadata = evidence.get(before_asset_id) if isinstance(evidence.get(before_asset_id), dict) else {}
+    if (
+        result_metadata.get("evidence_class") != "installed_result"
+        or (result_metadata.get("visual_quality") or {}).get("full_product_visible") is not True
+    ):
+        issues.append(
+            _issue(
+                "HOOK_RESULT_NOT_FULLY_VISIBLE",
+                "The result-first hook must use an installed_result asset whose full product is visible.",
+            )
+        )
+    if before_metadata.get("evidence_class") != "before_state":
+        issues.append(_issue("HOOK_BEFORE_EVIDENCE_INVALID", "The comparison hook must use a before_state asset."))
+
+    story_text = " ".join(
+        [
+            _as_text((planning_recipe.get("review_source") or {}).get("text")),
+            *(
+                f"{_as_text(beat.get('caption'))} {_as_text(beat.get('narration_ref'))}"
+                for beat in edit_recipe.get("beats") or []
+                if isinstance(beat, dict)
+            ),
+        ]
+    )
+    for evidence_class, keywords in CLAIM_EVIDENCE_KEYWORDS.items():
+        if any(keyword in story_text for keyword in keywords) and evidence_class not in used_classes:
+            issues.append(
+                _issue(
+                    "CLAIM_EVIDENCE_MISSING",
+                    f"The story claims {evidence_class}, but no matching evidence asset is used.",
+                )
+            )
+
+    for asset_id, evidence_class in evidence_classes_by_asset.items():
+        if (
+            evidence_class in HIGH_VALUE_VISUAL_EVIDENCE
+            and asset_id not in used_assets
+            and not _as_text(evidence[asset_id].get("unused_reason")).strip()
+        ):
+            issues.append(
+                _issue(
+                    "UNUSED_HIGH_VALUE_EVIDENCE_REASON_MISSING",
+                    f"Unused high-value evidence needs a reason: {asset_id} ({evidence_class}).",
+                )
+            )
+    return issues
+
+
 def _validate_one_shot_visual_edit_contract(edit_recipe: dict[str, Any]) -> list[dict[str, Any]]:
     """Lock production one-shot reels to the approved calm-photo editing language."""
     issues: list[dict[str, Any]] = []
@@ -1247,6 +1359,7 @@ def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edi
     if contract.get("mp4_scope_authorized") is not False:
         issues.append(_issue("MP4_SCOPE_MUST_REMAIN_UNAUTHORIZED", "The one-shot contract must not authorize MP4 rendering."))
     issues.extend(_validate_result_first_hook_contract(edit_recipe))
+    issues.extend(_validate_visual_evidence_contract(planning_recipe, edit_recipe))
     issues.extend(_validate_one_shot_visual_edit_contract(edit_recipe))
     issues.extend(_validate_review_emphasis_contract(planning_recipe, edit_recipe))
 
