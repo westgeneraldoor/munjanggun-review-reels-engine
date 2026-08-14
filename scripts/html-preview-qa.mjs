@@ -6,7 +6,7 @@ import { chromium } from "playwright";
 
 const FRAME_SETTLE_WAIT_MS = 500;
 const SAFE_AREA_1080X1920 = { top: 220, bottom: 1470 };
-const CAPTION_ACCENT_TIMING = { min_delay_ms: 520, max_delay_ms: 650, pop_duration_ms: 420 };
+const CAPTION_ACCENT_TIMING = { mode: "keyword_onset_sec", pop_duration_ms: 420 };
 
 function parseArgs(argv) {
   const result = {};
@@ -145,8 +145,8 @@ try {
           bottom_1080x1920: Math.round(bottom),
           line_count: lineCount,
           safe: top >= safeArea.top - 0.5 && bottom <= safeArea.bottom + 0.5,
-          accent_delay_ms: captionNode.querySelector('.em')
-            ? Number(captionNode.dataset.accentDelayMs)
+          accent_start_sec: captionNode.querySelector('.em')
+            ? Number(captionNode.dataset.accentStartSec)
             : null,
           accent_pop_duration_ms: captionNode.querySelector('.em')
             ? Number(captionNode.dataset.accentPopDurationMs)
@@ -207,9 +207,8 @@ try {
     if (captionSamples.some((sample) => sample.line_count === null || sample.line_count > 2)) {
       issues.push("CAPTION_LINE_COUNT_EXCESSIVE");
     }
-    if (captionSamples.some((sample) => sample.accent_delay_ms !== null && (
-      sample.accent_delay_ms < CAPTION_ACCENT_TIMING.min_delay_ms
-      || sample.accent_delay_ms > CAPTION_ACCENT_TIMING.max_delay_ms
+    if (captionSamples.some((sample) => sample.accent_start_sec !== null && (
+      !Number.isFinite(sample.accent_start_sec)
       || sample.accent_pop_duration_ms !== CAPTION_ACCENT_TIMING.pop_duration_ms
     ))) {
       issues.push("CAPTION_ACCENT_TIMING_INVALID");

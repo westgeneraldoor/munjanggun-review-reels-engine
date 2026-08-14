@@ -840,7 +840,6 @@
     const beats = recipe.beats;
     const totalDuration = Math.max(...beats.map(b => b.time[1]));
     const CAPTION_ACCENT_MIN_DELAY_MS = 520;
-    const CAPTION_ACCENT_MAX_DELAY_MS = 650;
     const CAPTION_ACCENT_POP_MS = 420;
 
     const stage = document.getElementById('stage');
@@ -1038,17 +1037,13 @@
       caption.className = `caption pos-${position} size-${size} theme-${theme}${accentEnabled ? ` accent-keyword accent-${accentStyle}` : ''}`;
       caption.style.textAlign = align;
       if (accentEnabled) {
-        const requestedDelay = Number(accent.delay_ms || CAPTION_ACCENT_MIN_DELAY_MS);
-        const delay = Math.max(
-          CAPTION_ACCENT_MIN_DELAY_MS,
-          Math.min(Number.isFinite(requestedDelay) ? requestedDelay : CAPTION_ACCENT_MIN_DELAY_MS, CAPTION_ACCENT_MAX_DELAY_MS),
-        );
-        caption.style.setProperty('--accent-delay-ms', `${delay}ms`);
-        caption.dataset.accentDelayMs = String(delay);
+        const requestedStart = Number(accent.start_sec);
+        const fallbackStart = Number(beat.time?.[0] || 0) + CAPTION_ACCENT_MIN_DELAY_MS / 1000;
+        const startSec = Number.isFinite(requestedStart) ? requestedStart : fallbackStart;
+        caption.dataset.accentStartSec = String(startSec);
         caption.dataset.accentPopDurationMs = String(CAPTION_ACCENT_POP_MS);
       } else {
-        caption.style.removeProperty('--accent-delay-ms');
-        delete caption.dataset.accentDelayMs;
+        delete caption.dataset.accentStartSec;
         delete caption.dataset.accentPopDurationMs;
       }
     }
@@ -1056,10 +1051,12 @@
     function applyKeywordAccentMotion(beat, time, chunk) {
       const keywords = caption.querySelectorAll('.em');
       if (keywords.length === 0) return;
-      const delayMs = Number(caption.dataset.accentDelayMs || CAPTION_ACCENT_MIN_DELAY_MS);
-      const startSec = Number(chunk?.start_sec ?? beat.time[0]);
+      const configuredStart = Number(caption.dataset.accentStartSec);
+      const startSec = Number.isFinite(configuredStart)
+        ? configuredStart
+        : Number(chunk?.start_sec ?? beat.time[0]) + CAPTION_ACCENT_MIN_DELAY_MS / 1000;
       const progress = clamp(
-        ((time - startSec) * 1000 - delayMs) / CAPTION_ACCENT_POP_MS,
+        ((time - startSec) * 1000) / CAPTION_ACCENT_POP_MS,
         0,
         1,
       );
@@ -1182,7 +1179,7 @@
         if (index !== activeChunk) {
           activeChunk = index;
           const chunk = activeCaptionChunk || {};
-          caption.innerHTML = highlightCaption(chunk.text, beat.caption_emphasis, beat.caption_accent);
+          caption.innerHTML = highlightCaption(chunk.display_text || chunk.text, beat.caption_emphasis, beat.caption_accent);
           caption.classList.remove('chunk-pop');
           void caption.offsetWidth;
           caption.classList.add('chunk-pop');
@@ -1435,7 +1432,8 @@
       if (reviewEmphasis && reviewUnderlineLayer.children.length > 0) {
         const start = Number(reviewEmphasis.start_sec);
         const end = Number(reviewEmphasis.end_sec);
-        const underlineProgress = clamp((time - start) / Math.max(end - start, 0.001), 0, 1);
+        const drawDuration = Math.max(Number(reviewEmphasis.draw_duration_sec || 0.15), 0.001);
+        const underlineProgress = clamp((time - start) / drawDuration, 0, 1);
         for (const line of reviewUnderlineLayer.querySelectorAll('.review-underline')) {
           line.style.transform = `scaleX(${Number(underlineProgress.toFixed(4))})`;
         }

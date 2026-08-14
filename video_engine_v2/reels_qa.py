@@ -822,7 +822,12 @@ ONE_SHOT_CALM_MOTIONS = {
     "review_capture_hold", "static_hold",
 }
 ONE_SHOT_CALM_TRANSITIONS = {"calm_dissolve", "cut"}
-ONE_SHOT_CAPTION_SIZES = {"small", "medium", "large", "hero-calm"}
+ONE_SHOT_BODY_CAPTION_SIZE = "medium"
+MIN_ONE_SHOT_BODY_CAPTION_FONT_PX = 44
+CAPTION_ACCENT_ONSET_EARLY_TOLERANCE_SEC = 0.20
+CAPTION_ACCENT_ONSET_LATE_TOLERANCE_SEC = 0.45
+MAX_REVIEW_UNDERLINE_START_DELAY_SEC = 0.10
+MAX_REVIEW_UNDERLINE_DRAW_SEC = 0.20
 CALM_DISSOLVE_MS = 380
 CALM_SCALE_DELTA = 0.05
 CALM_HORIZONTAL_TRAVEL_PX = 24
@@ -1077,11 +1082,23 @@ def _validate_one_shot_visual_edit_contract(edit_recipe: dict[str, Any]) -> list
         if beat_index == 0:
             if size != "hero-calm":
                 issues.append(_issue("HOOK_CAPTION_SIZE_INVALID", "The opening caption must use hero-calm.", scene_id=scene_id))
-        elif size not in ONE_SHOT_CAPTION_SIZES - {"hero-calm"}:
+        elif size != ONE_SHOT_BODY_CAPTION_SIZE:
             issues.append(
                 _issue(
-                    "ONE_SHOT_CAPTION_SIZE_INVALID",
-                    "Non-hook one-shot captions must use small, medium, or large.",
+                    "ONE_SHOT_BODY_CAPTION_SIZE_INCONSISTENT",
+                    "Non-hook one-shot captions must keep the medium body size instead of shrinking during the story.",
+                    scene_id=scene_id,
+                )
+            )
+        try:
+            minimum_font_px = float(layout.get("min_font_px"))
+        except (TypeError, ValueError):
+            minimum_font_px = 0.0
+        if beat_index > 0 and minimum_font_px < MIN_ONE_SHOT_BODY_CAPTION_FONT_PX:
+            issues.append(
+                _issue(
+                    "ONE_SHOT_BODY_CAPTION_SIZE_INCONSISTENT",
+                    f"Non-hook one-shot captions need at least {MIN_ONE_SHOT_BODY_CAPTION_FONT_PX}px.",
                     scene_id=scene_id,
                 )
             )
@@ -1109,6 +1126,52 @@ def _validate_one_shot_visual_edit_contract(edit_recipe: dict[str, Any]) -> list
                     scene_id=scene_id,
                 )
             )
+        elif isinstance(emphasis, list) and len(emphasis) == 1:
+            keyword = _compact_text(emphasis[0]).casefold()
+            matching_chunk = None
+            keyword_index = -1
+            for chunk in caption_chunks if isinstance(caption_chunks, list) else []:
+                if not isinstance(chunk, dict):
+                    continue
+                display_text = _as_text(chunk.get("display_text") or chunk.get("text"))
+                compact_display = _compact_text(display_text).casefold()
+                candidate_index = compact_display.find(keyword)
+                if keyword and candidate_index >= 0:
+                    matching_chunk = chunk
+                    keyword_index = candidate_index
+                    break
+            try:
+                accent_start = float(accent.get("start_sec"))
+                chunk_start = float(matching_chunk["start_sec"])
+                chunk_end = float(matching_chunk["end_sec"])
+                compact_display = _compact_text(
+                    matching_chunk.get("display_text") or matching_chunk.get("text")
+                ).casefold()
+                estimated_onset = chunk_start + (chunk_end - chunk_start) * (
+                    keyword_index / max(len(compact_display), 1)
+                )
+            except (KeyError, TypeError, ValueError):
+                issues.append(
+                    _issue(
+                        "CAPTION_ACCENT_VOICE_SYNC_INVALID",
+                        "Caption accent needs an absolute start_sec bound to the chunk containing its spoken keyword.",
+                        scene_id=scene_id,
+                    )
+                )
+            else:
+                if (
+                    accent_start < chunk_start - 0.001
+                    or accent_start > chunk_end + 0.001
+                    or accent_start < estimated_onset - CAPTION_ACCENT_ONSET_EARLY_TOLERANCE_SEC
+                    or accent_start > estimated_onset + CAPTION_ACCENT_ONSET_LATE_TOLERANCE_SEC
+                ):
+                    issues.append(
+                        _issue(
+                            "CAPTION_ACCENT_VOICE_SYNC_INVALID",
+                            "Caption accent start_sec must follow the estimated spoken onset of its keyword.",
+                            scene_id=scene_id,
+                        )
+                    )
 
         for shot_index, shot in enumerate(shots):
             if not isinstance(shot, dict):
@@ -1247,6 +1310,21 @@ def _validate_review_emphasis_contract(
     else:
         if end <= start or start < beat_start - 0.001 or end > beat_end + 0.001:
             issues.append(_issue("REVIEW_EMPHASIS_TIME_INVALID", "Review emphasis timing must stay inside the review beat."))
+        try:
+            draw_duration = float(emphasis["draw_duration_sec"])
+        except (KeyError, TypeError, ValueError):
+            draw_duration = 0.0
+        if (
+            start - beat_start > MAX_REVIEW_UNDERLINE_START_DELAY_SEC + 0.001
+            or draw_duration <= 0
+            or draw_duration > MAX_REVIEW_UNDERLINE_DRAW_SEC + 0.001
+        ):
+            issues.append(
+                _issue(
+                    "REVIEW_EMPHASIS_NOT_IMMEDIATE",
+                    "The review underline must begin with the review scene and finish drawing within 0.20 seconds.",
+                )
+            )
 
     segments = emphasis.get("segments")
     if not isinstance(segments, list) or not 1 <= len(segments) <= 3:
@@ -1304,6 +1382,19 @@ def _validate_caption_chunks(beat: dict[str, Any], scene_id: str) -> list[dict[s
         if not isinstance(chunk, dict) or not _as_text(chunk.get("text")).strip():
             issues.append(_issue("CAPTION_CHUNKS_INVALID", f"caption_chunks[{index}] needs text.", scene_id=scene_id))
             continue
+        display_text = chunk.get("display_text")
+        if display_text is not None:
+            digit_words = str.maketrans({"0": "영", "1": "일", "2": "이", "3": "삼", "4": "사", "5": "오", "6": "육", "7": "칠", "8": "팔", "9": "구"})
+            spoken_key = re.sub(r"[^0-9A-Za-z가-힣]", "", _as_text(chunk.get("text"))).translate(digit_words).casefold()
+            display_key = re.sub(r"[^0-9A-Za-z가-힣]", "", _as_text(display_text)).translate(digit_words).casefold()
+            if not display_key or display_key != spoken_key:
+                issues.append(
+                    _issue(
+                        "CAPTION_DISPLAY_TEXT_MISMATCH",
+                        f"caption_chunks[{index}].display_text may normalize number glyphs and spacing only.",
+                        scene_id=scene_id,
+                    )
+                )
         readable_chars = len(re.sub(r"[^0-9A-Za-z가-힣]", "", _as_text(chunk.get("text"))))
         if len(chunks) > 1 and readable_chars < MIN_CONTEXTUAL_CAPTION_CHARS:
             issues.append(

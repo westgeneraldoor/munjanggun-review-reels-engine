@@ -8,6 +8,8 @@ from video_engine_v2.reels_qa import (
     CALM_HORIZONTAL_TRAVEL_PX,
     CALM_SCALE_DELTA,
     CALM_VERTICAL_TRAVEL_PX,
+    CAPTION_ACCENT_ONSET_EARLY_TOLERANCE_SEC,
+    CAPTION_ACCENT_ONSET_LATE_TOLERANCE_SEC,
     CAPTION_SAFE_BOTTOM_PX,
     CAPTION_SAFE_TOP_PX,
     HARD_CPS_LIMIT,
@@ -367,9 +369,20 @@ class AuthorityDocumentsTest(unittest.TestCase):
             "review_emphasis",
             "segments",
             "caption_layout.theme",
+            "caption_accent.start_sec",
+            "display_text",
+            "draw_duration_sec",
         ):
             with self.subTest(field=field):
                 self.assertIn(field, recipe)
+
+        for anchor in (
+            "본문은 `medium 46px`",
+            "강조 단어의 실제 발화 예상 시점",
+            "3연동중문",
+            "0.20초 안에",
+        ):
+            self.assertIn(anchor, visual)
 
         self.assertIn("생성 asset은 조건부 필드", recipe)
         self.assertRegex(
@@ -387,10 +400,9 @@ class AuthorityDocumentsTest(unittest.TestCase):
         self.assertIn(f"최소 {MIN_ONE_SHOT_FINAL_RESULT_SEC:.1f}초", combined)
         self.assertIn("cut → calm_dissolve → calm_dissolve", combined)
         self.assertIn(f"calm_dissolve {CALM_DISSOLVE_MS}ms", combined)
-        self.assertIn("small 36px", combined)
         self.assertIn("medium 46px", combined)
-        self.assertIn("large 62px", combined)
         self.assertIn("hero-calm 58px", combined)
+        self.assertIn("뒤로 갈수록 `small`로 축소하지 않습니다", combined)
         self.assertIn(f"scale 차이 {CALM_SCALE_DELTA:.2f}", combined)
         self.assertIn(f"좌우 총 {CALM_HORIZONTAL_TRAVEL_PX}px", combined)
         self.assertIn(f"상하 총 {CALM_VERTICAL_TRAVEL_PX}px", combined)
@@ -414,7 +426,8 @@ class AuthorityDocumentsTest(unittest.TestCase):
         self.assertIn("한 방향", combined)
         self.assertIn("일정 속도", combined)
         self.assertIn("투명도만", combined)
-        self.assertIn("520~650ms", combined)
+        self.assertIn(f"{CAPTION_ACCENT_ONSET_EARLY_TOLERANCE_SEC:.2f}초 이상 빠르", combined)
+        self.assertIn(f"{CAPTION_ACCENT_ONSET_LATE_TOLERANCE_SEC:.2f}초 이상 늦", combined)
         self.assertIn("420ms", combined)
         self.assertIn("영상 시간", combined)
 

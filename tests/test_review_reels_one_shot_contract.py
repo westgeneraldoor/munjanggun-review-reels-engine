@@ -59,8 +59,9 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
         review_beat = fixture["edit"]["beats"][6]
         review_beat["review_emphasis"] = {
             "quote": quote or fixture["planning"]["review_source"]["review_quote_for_proof"],
-            "start_sec": 25.0,
+            "start_sec": 24.05,
             "end_sec": 26.2,
+            "draw_duration_sec": 0.15,
             "segments": [{"left_pct": 12.0, "top_pct": 54.0, "width_pct": 70.0}],
         }
 
@@ -272,6 +273,39 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
 
         self.assertIn("CAPTION_EMPHASIS_DENSITY_INVALID", {issue["code"] for issue in result["issues"]})
 
+    def test_contract_rejects_small_non_hook_captions_that_shrink_during_the_story(self):
+        fixture = load_fixture()
+        fixture["edit"]["beats"][1]["caption_layout"].update({"size": "small", "min_font_px": 36})
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("ONE_SHOT_BODY_CAPTION_SIZE_INCONSISTENT", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_rejects_an_accent_that_starts_before_the_spoken_keyword(self):
+        fixture = load_fixture()
+        beat = fixture["edit"]["beats"][1]
+        beat["caption_emphasis"] = ["attention"]
+        beat["caption_accent"] = {"enabled": True, "style": "event", "start_sec": 4.2}
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("CAPTION_ACCENT_VOICE_SYNC_INVALID", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_allows_numeric_product_display_text_only_when_it_matches_the_spoken_words(self):
+        fixture = load_fixture()
+        chunk = fixture["edit"]["beats"][0]["caption_chunks"][0]
+        chunk["text"] = "초슬림 삼 연동 중문"
+        chunk["display_text"] = "초슬림 3연동중문"
+        fixture["edit"]["beats"][0]["narration_ref"] = "초슬림 삼 연동 중문"
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertNotIn("CAPTION_DISPLAY_TEXT_MISMATCH", {issue["code"] for issue in result["issues"]})
+
+        chunk["display_text"] = "초슬림 4연동중문"
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+        self.assertIn("CAPTION_DISPLAY_TEXT_MISMATCH", {issue["code"] for issue in result["issues"]})
+
     def test_contract_keeps_the_completed_result_visible_at_the_end(self):
         fixture = load_fixture()
         final_shot = fixture["edit"]["beats"][-1]["shots"][-1]
@@ -319,6 +353,15 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
         result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
 
         self.assertIn("REVIEW_EMPHASIS_SEGMENT_INVALID", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_requires_the_review_underline_to_draw_immediately(self):
+        fixture = load_fixture()
+        review = fixture["edit"]["beats"][6]
+        review["review_emphasis"].update({"start_sec": 25.0, "draw_duration_sec": 1.5})
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("REVIEW_EMPHASIS_NOT_IMMEDIATE", {issue["code"] for issue in result["issues"]})
 
     def test_contract_rejects_an_unknown_caption_theme(self):
         fixture = load_fixture()

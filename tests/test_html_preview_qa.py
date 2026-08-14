@@ -117,7 +117,7 @@ class HtmlPreviewQaTests(unittest.TestCase):
                     "transition_in": "cut", "caption": "첫 문맥 자막",
                     "caption_layout": {"position": "bottom", "size": "large", "theme": "white"},
                     "caption_emphasis": ["문맥"],
-                    "caption_accent": {"enabled": True, "style": "result", "delay_ms": 90},
+                    "caption_accent": {"enabled": True, "style": "result", "start_sec": 0.6},
                     "caption_chunks": [
                         {"text": "첫 문맥 자막", "start_sec": 0.0, "end_sec": 2.0},
                         {"text": "두 번째 문맥\n함께 봅니다", "start_sec": 2.0, "end_sec": 4.0},
@@ -167,8 +167,9 @@ class HtmlPreviewQaTests(unittest.TestCase):
             samples,
         )
         self.assertTrue(all(sample["line_count"] <= 2 for sample in samples), samples)
-        self.assertTrue(all(sample.get("accent_delay_ms") == 520 for sample in samples), samples)
-        self.assertTrue(all(sample.get("accent_pop_duration_ms") == 420 for sample in samples), samples)
+        accent_samples = [sample for sample in samples if sample.get("accent_start_sec") is not None]
+        self.assertEqual([sample["accent_start_sec"] for sample in accent_samples], [0.6, 0.6])
+        self.assertTrue(all(sample.get("accent_pop_duration_ms") == 420 for sample in accent_samples), samples)
 
     def test_actual_three_line_caption_is_rejected(self):
         recipe = {

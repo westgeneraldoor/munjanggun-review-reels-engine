@@ -144,15 +144,18 @@ scale 차이 0.05, 좌우 총 24px, 상하 총 20px입니다.
 
 각 beat의 `caption_emphasis`는 정확히 한 단어/구절이고 `caption_accent.enabled: true`,
 `caption_layout.theme: white`를 사용합니다. 키워드 크기는 본문과 동일합니다. 첫 훅은
-`hero-calm 58px`, 이후에는 `small 36px`, `medium 46px`, `large 62px` 중 하나를 씁니다.
-`caption_accent.delay_ms`의 production 기본값은 520ms이고 허용 범위는 `520~650ms`입니다.
-기존 recipe가 더 작은 값을 갖더라도 renderer는 520ms로 올려 사진 전환 후에 pop을
-시작합니다. pop 길이는 420ms이며 브라우저 실제 시간이 아니라 영상 시간에 결속됩니다.
+`hero-calm 58px`, 이후 본문·proof·CTA는 모두 `medium 46px`입니다.
+`caption_accent.start_sec`는 강조 단어가 포함된 chunk 안의 절대 영상 시각이며 단어 위치로
+산정한 발화 예상 시점에 결속합니다. chunk 시작 고정 delay는 production 증거가 아닙니다.
+pop 길이는 420ms이며 브라우저 실제 시간이 아니라 영상 시간에 결속됩니다.
 모든 one-shot beat는 내레이션 음성 전문을 연속으로 덮는 `caption_chunks` 1~3개를
 가집니다. 최대 3개이며, 여러 chunk를 쓸 때 각 문구는 공백·문장부호 제외 최소 8자이고
 합친 문구는 narration과 같아야 합니다. 시간은 beat를 빈틈·겹침 없이 덮고 최종 음성의
 실제 문장 경계에 맞춥니다. 자막 DOM은 1080x1920 기준 `y=220~1470` 안에 있어야 하며
 명시·자동 줄바꿈을 합친 실제 화면 줄 수가 3줄 이상이면 실패합니다.
+TTS 발음을 위한 `text`와 공식 제품 표기가 다를 때만 `display_text`를 사용합니다. 숫자와
+띄어쓰기를 정규화한 결과가 같아야 하며, 예를 들어 음성 `초슬림 삼 연동 중문`은 화면에
+`초슬림 3연동중문`으로 표시할 수 있습니다.
 
 ```json
 {
@@ -172,11 +175,12 @@ scale 차이 0.05, 좌우 총 24px, 상하 총 20px입니다.
     "caption_layout": {"size": "hero-calm", "theme": "white"},
     "caption_chunks": [{
       "text": "완성 결과를 먼저 보여드립니다.",
+      "display_text": "완성 결과를 먼저 보여드립니다.",
       "start_sec": 0.0,
       "end_sec": 1.3
     }],
     "caption_emphasis": ["완성 결과"],
-    "caption_accent": {"enabled": true, "delay_ms": 520}
+    "caption_accent": {"enabled": true, "start_sec": 0.05}
   }]
 }
 ```
@@ -191,6 +195,7 @@ planning의 `review_source.text`에 실제 포함되어야 하고 시간은 해�
     "quote": "원문에 실제 있는 인용",
     "start_sec": 18.3,
     "end_sec": 20.3,
+    "draw_duration_sec": 0.15,
     "segments": [{"left_pct": 12, "top_pct": 54, "width_pct": 70}]
   }
 }
