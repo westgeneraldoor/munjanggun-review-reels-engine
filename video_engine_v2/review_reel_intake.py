@@ -21,6 +21,8 @@ from tempfile import NamedTemporaryFile
 from typing import Any
 from uuid import uuid4
 
+from PIL import Image, ImageChops, ImageDraw, UnidentifiedImageError
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 METADATA_FILENAME = "CANONICAL_PACKAGE_METADATA.json"
@@ -94,6 +96,7 @@ SANITIZING_ACTIONS = frozenset({"crop", "blur", "mask", "replace"})
 MASKING_INFEASIBLE_CATEGORIES = frozenset(
     {"risk_covers_essential_subject", "sanitization_failed", "source_integrity_constraint"}
 )
+REVIEW_CAPTURE_MAX_MASK_AREA_RATIO = 0.12
 
 
 class IntakeViolation(ValueError):
@@ -950,6 +953,99 @@ def _validate_photo_decision_v2(decision: dict[str, Any]) -> None:
         raise IntakeViolation("PHOTO_VISUAL_QUALITY_INVALID")
 
 
+def _validate_review_capture_integrity(
+    *,
+    decision: dict[str, Any],
+    source_file: Path,
+    selected_file: Path,
+) -> None:
+    """Prove that a selected review screenshot keeps the user's composition.
+
+    Review screenshots are evidence, not generic B-roll.  Sanitization may only
+    alter small, declared identifier regions; cropping, resizing, reframing, or
+    changing pixels elsewhere would remove review context and is rejected.
+    """
+
+    if "review_capture" not in decision.get("evidence_classes", ()):
+        return
+
+    integrity = decision.get("review_capture_integrity")
+    if not isinstance(integrity, dict):
+        raise IntakeViolation("REVIEW_CAPTURE_INTEGRITY_MISSING")
+    if integrity.get("composition_preserved") is not True:
+        raise IntakeViolation("REVIEW_CAPTURE_COMPOSITION_CHANGED")
+    if integrity.get("pre_masked_identifiers_preserved") is not True:
+        raise IntakeViolation("REVIEW_CAPTURE_PREMASKED_ID_TOUCHED")
+
+    remediation_action = decision.get("remediation", {}).get("action")
+    if remediation_action not in {"none", "mask", "blur"}:
+        raise IntakeViolation("REVIEW_CAPTURE_CROP_FORBIDDEN")
+
+    regions = integrity.get("localized_mask_regions")
+    if not isinstance(regions, list):
+        raise IntakeViolation("REVIEW_CAPTURE_MASK_REGION_INVALID")
+    if remediation_action == "none" and regions:
+        raise IntakeViolation("REVIEW_CAPTURE_MASK_REGION_INVALID")
+    if remediation_action in {"mask", "blur"} and not regions:
+        raise IntakeViolation("REVIEW_CAPTURE_MASK_REGION_INVALID")
+
+    try:
+        with Image.open(source_file) as source_image, Image.open(selected_file) as selected_image:
+            source_format = source_image.format
+            selected_format = selected_image.format
+            source = source_image.convert("RGB")
+            selected = selected_image.convert("RGB")
+    except (OSError, UnidentifiedImageError):
+        raise IntakeViolation("REVIEW_CAPTURE_IMAGE_INVALID") from None
+
+    if source.size != selected.size:
+        raise IntakeViolation("REVIEW_CAPTURE_COMPOSITION_CHANGED")
+    width, height = source.size
+    image_area = width * height
+    if image_area <= 0:
+        raise IntakeViolation("REVIEW_CAPTURE_IMAGE_INVALID")
+
+    allowed_categories = set(decision.get("privacy_risk_categories", ()))
+    mask_rectangles: list[tuple[int, int, int, int]] = []
+    declared_area = 0
+    for region in regions:
+        if not isinstance(region, dict) or region.get("category") not in allowed_categories:
+            raise IntakeViolation("REVIEW_CAPTURE_MASK_REGION_INVALID")
+        values = [region.get(key) for key in ("x_px", "y_px", "width_px", "height_px")]
+        if any(not isinstance(value, int) or isinstance(value, bool) for value in values):
+            raise IntakeViolation("REVIEW_CAPTURE_MASK_REGION_INVALID")
+        x, y, region_width, region_height = values
+        if (
+            x < 0
+            or y < 0
+            or region_width <= 0
+            or region_height <= 0
+            or x + region_width > width
+            or y + region_height > height
+        ):
+            raise IntakeViolation("REVIEW_CAPTURE_MASK_REGION_INVALID")
+        declared_area += region_width * region_height
+        mask_rectangles.append((x, y, x + region_width - 1, y + region_height - 1))
+    if declared_area / image_area > REVIEW_CAPTURE_MAX_MASK_AREA_RATIO:
+        raise IntakeViolation("REVIEW_CAPTURE_MASK_NOT_MINIMAL")
+
+    difference = ImageChops.difference(source, selected)
+    difference_draw = ImageDraw.Draw(difference)
+    for rectangle in mask_rectangles:
+        difference_draw.rectangle(rectangle, fill=(0, 0, 0))
+
+    if source_format == "PNG" and selected_format == "PNG":
+        changed_outside_mask = difference.getbbox() is not None
+    else:
+        # Lossy source formats can move a few edge pixels during re-encoding.
+        # Only a tiny amount of high-amplitude drift is tolerated outside the
+        # declared masks; geometric changes are already rejected above.
+        changed_pixels = sum(1 for pixel in difference.getdata() if max(pixel) > 24)
+        changed_outside_mask = changed_pixels > max(4, int(image_area * 0.0005))
+    if changed_outside_mask:
+        raise IntakeViolation("REVIEW_CAPTURE_COMPOSITION_CHANGED")
+
+
 def _record_photo_review(
     *,
     output_root: str | Path,
@@ -1088,6 +1184,11 @@ def _record_photo_review(
             )
             if not selected_file.is_file():
                 raise IntakeViolation("PHOTO_SELECTION_SELECTED_ASSET_MISSING")
+            _validate_review_capture_integrity(
+                decision=decision,
+                source_file=expected_media[relative_path],
+                selected_file=selected_file,
+            )
             selected_paths.add(selected_file.relative_to(package_dir).as_posix())
     if decision_paths != set(expected_media):
         raise IntakeViolation("PHOTO_SELECTION_INCOMPLETE")

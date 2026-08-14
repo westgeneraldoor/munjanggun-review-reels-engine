@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+from PIL import Image, ImageDraw
+
 from video_engine_v2.review_reel_intake import (
     IntakeViolation,
     build_one_shot_html_commands,
@@ -529,6 +531,176 @@ class ReviewReelIntakeTests(unittest.TestCase):
             encoding="utf-8",
         )
         return selection, privacy
+
+    def _add_sanitized_review_capture(
+        self,
+        package,
+        selection,
+        privacy,
+        *,
+        remediation_action="mask",
+        composition_preserved=True,
+        pre_masked_identifiers_preserved=True,
+        selected_size=(100, 100),
+        changed_outside_mask=False,
+    ):
+        source = package.image_dir / "review_capture.png"
+        selected = package.package_dir / "_work" / "review_capture_masked.png"
+        image = Image.new("RGB", (100, 100), "white")
+        ImageDraw.Draw(image).rectangle((5, 5, 94, 94), outline="black", width=2)
+        image.save(source)
+        sanitized = image.resize(selected_size)
+        draw = ImageDraw.Draw(sanitized)
+        draw.rectangle((10, 10, 29, 19), fill="black")
+        if changed_outside_mask:
+            draw.rectangle((70, 70, 79, 79), fill="red")
+        sanitized.save(selected)
+
+        selection_payload = json.loads(selection.read_text(encoding="utf-8"))
+        selection_payload["decisions"].append(
+            {
+                "relative_path": source.relative_to(package.package_dir).as_posix(),
+                "decision": "use",
+                "reason": "Preserve the supplied review capture and mask only the order number.",
+                "privacy_status": "sanitized",
+                "privacy_risk_categories": ["order_information"],
+                "editorial_category": "selected_story_evidence",
+                "evidence_classes": ["review_capture"],
+                "remediation": {"action": remediation_action},
+                "selected_relative_path": selected.relative_to(package.package_dir).as_posix(),
+                "review_capture_integrity": {
+                    "composition_preserved": composition_preserved,
+                    "pre_masked_identifiers_preserved": pre_masked_identifiers_preserved,
+                    "localized_mask_regions": [
+                        {
+                            "category": "order_information",
+                            "x_px": 10,
+                            "y_px": 10,
+                            "width_px": 20,
+                            "height_px": 10,
+                        }
+                    ],
+                },
+            }
+        )
+        selection.write_text(json.dumps(selection_payload), encoding="utf-8")
+
+        evidence = {
+            "relative_path": selected.relative_to(package.package_dir).as_posix(),
+            "bytes": selected.stat().st_size,
+            "sha256": hashlib.sha256(selected.read_bytes()).hexdigest(),
+        }
+        privacy_payload = json.loads(privacy.read_text(encoding="utf-8"))
+        privacy_payload["selected_assets"].append(evidence)
+        privacy.write_text(json.dumps(privacy_payload), encoding="utf-8")
+        report = package.package_dir / privacy_payload["sanitization_report"]
+        report_payload = json.loads(report.read_text(encoding="utf-8"))
+        report_payload["checked_assets"].append(evidence)
+        report.write_text(json.dumps(report_payload), encoding="utf-8")
+
+    def test_photo_review_accepts_a_full_composition_review_capture_with_only_a_local_mask(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+        self._add_sanitized_review_capture(package, selection, privacy)
+
+        reviewed = record_photo_review(
+            output_root=self.output_root,
+            selection_path=selection,
+            privacy_manifest_path=privacy,
+            now=self.now,
+        )
+
+        self.assertEqual(reviewed.metadata["photo_review"]["selected_asset_count"], 2)
+
+    def test_photo_review_rejects_cropping_a_user_supplied_review_capture(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+        self._add_sanitized_review_capture(package, selection, privacy, remediation_action="crop")
+
+        with self.assertRaisesRegex(IntakeViolation, "REVIEW_CAPTURE_CROP_FORBIDDEN"):
+            record_photo_review(
+                output_root=self.output_root,
+                selection_path=selection,
+                privacy_manifest_path=privacy,
+                now=self.now,
+            )
+
+    def test_photo_review_rejects_resizing_or_reframing_a_review_capture(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+        self._add_sanitized_review_capture(package, selection, privacy, selected_size=(80, 100))
+
+        with self.assertRaisesRegex(IntakeViolation, "REVIEW_CAPTURE_COMPOSITION_CHANGED"):
+            record_photo_review(
+                output_root=self.output_root,
+                selection_path=selection,
+                privacy_manifest_path=privacy,
+                now=self.now,
+            )
+
+    def test_photo_review_rejects_pixel_changes_outside_the_declared_review_mask(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+        self._add_sanitized_review_capture(package, selection, privacy, changed_outside_mask=True)
+
+        with self.assertRaisesRegex(IntakeViolation, "REVIEW_CAPTURE_COMPOSITION_CHANGED"):
+            record_photo_review(
+                output_root=self.output_root,
+                selection_path=selection,
+                privacy_manifest_path=privacy,
+                now=self.now,
+            )
+
+    def test_photo_review_requires_pre_masked_review_identifiers_to_remain_untouched(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+        self._add_sanitized_review_capture(
+            package,
+            selection,
+            privacy,
+            pre_masked_identifiers_preserved=False,
+        )
+
+        with self.assertRaisesRegex(IntakeViolation, "REVIEW_CAPTURE_PREMASKED_ID_TOUCHED"):
+            record_photo_review(
+                output_root=self.output_root,
+                selection_path=selection,
+                privacy_manifest_path=privacy,
+                now=self.now,
+            )
+
+    def test_photo_review_requires_review_capture_integrity_metadata(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+        self._add_sanitized_review_capture(package, selection, privacy)
+        payload = json.loads(selection.read_text(encoding="utf-8"))
+        payload["decisions"][-1].pop("review_capture_integrity")
+        selection.write_text(json.dumps(payload), encoding="utf-8")
+
+        with self.assertRaisesRegex(IntakeViolation, "REVIEW_CAPTURE_INTEGRITY_MISSING"):
+            record_photo_review(
+                output_root=self.output_root,
+                selection_path=selection,
+                privacy_manifest_path=privacy,
+                now=self.now,
+            )
+
+    def test_photo_review_rejects_a_nonminimal_review_capture_mask(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+        self._add_sanitized_review_capture(package, selection, privacy)
+        payload = json.loads(selection.read_text(encoding="utf-8"))
+        region = payload["decisions"][-1]["review_capture_integrity"]["localized_mask_regions"][0]
+        region.update({"x_px": 0, "y_px": 0, "width_px": 80, "height_px": 80})
+        selection.write_text(json.dumps(payload), encoding="utf-8")
+
+        with self.assertRaisesRegex(IntakeViolation, "REVIEW_CAPTURE_MASK_NOT_MINIMAL"):
+            record_photo_review(
+                output_root=self.output_root,
+                selection_path=selection,
+                privacy_manifest_path=privacy,
+                now=self.now,
+            )
 
     def test_photo_review_is_the_only_evidence_bound_transition_to_photo_reviewed(self):
         package = self.create()

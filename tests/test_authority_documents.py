@@ -279,6 +279,15 @@ class AuthorityDocumentsTest(unittest.TestCase):
         self.assertIn(PHOTO_SELECTION_SCHEMA_VERSION, privacy)
         for anchor in ("맨발", "신발", "아파트 동 번호", "PHOTO_PRIVACY_CATEGORY_INVALID", "MASKING_FIRST_NOT_APPLIED"):
             self.assertIn(anchor, privacy)
+        for anchor in (
+            "사용자가 제공한 전체 구도",
+            "이미 `**`로 익명화",
+            "REVIEW_CAPTURE_CROP_FORBIDDEN",
+            "REVIEW_CAPTURE_COMPOSITION_CHANGED",
+            "REVIEW_CAPTURE_PREMASKED_ID_TOUCHED",
+        ):
+            self.assertIn(anchor, privacy)
+        self.assertIn("리뷰 캡처의 사용자 제공 구도", agents)
         for anchor in ("asset_evidence", "full_product_visible: true", "CLAIM_EVIDENCE_MISSING"):
             self.assertIn(anchor, recipe)
         for anchor in ("0.5초", "첫 3개 훅", "voice-review-record", "html-review-record"):
