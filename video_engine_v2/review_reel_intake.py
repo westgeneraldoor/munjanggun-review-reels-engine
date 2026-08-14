@@ -289,10 +289,25 @@ def _read_metadata(package_dir: Path, *, code_prefix: str) -> dict[str, Any]:
     return metadata
 
 
+def _canonical_metadata_paths(output_root: Path) -> list[Path]:
+    """Return current flat packages plus read-compatible legacy inbox packages."""
+
+    paths: list[Path] = []
+    if not output_root.is_dir():
+        return paths
+    for child in output_root.iterdir():
+        if child.is_dir() and _CONTENT_PREFIX.match(child.name):
+            metadata = child / METADATA_FILENAME
+            if metadata.is_file():
+                paths.append(metadata)
+    paths.extend(output_root.glob(f"inbox_*/*/{METADATA_FILENAME}"))
+    return sorted(set(paths), key=lambda path: path.as_posix().casefold())
+
+
 def _find_existing(output_root: Path, identity: dict[str, str]) -> CanonicalPackage | None:
     if not output_root.is_dir():
         return None
-    for metadata_path in output_root.glob(f"inbox_*/*/{METADATA_FILENAME}"):
+    for metadata_path in _canonical_metadata_paths(output_root):
         package_dir = metadata_path.parent
         if package_dir.name.startswith("."):
             continue
@@ -454,6 +469,11 @@ def _used_content_ids(*, output_root: Path, reviews_root: Path, registry: dict[s
                 used.add(int(record["content_id"]))
     scan_paths: list[Path] = []
     if output_root.exists():
+        scan_paths.extend(
+            path
+            for path in output_root.iterdir()
+            if path.is_dir() and _CONTENT_PREFIX.match(path.name)
+        )
         scan_paths.extend(output_root.glob("inbox_*/*"))
     if reviews_root.exists():
         scan_paths.extend(reviews_root.glob("*.txt"))
@@ -696,8 +716,8 @@ def create_canonical_package(
         _set_active_package(root, existing, updated_at=clock.isoformat())
         return existing
 
-    collection = root / f"inbox_{clock.strftime('%Y%m%d')}"
-    package_dir = collection / package_name
+    collection = root
+    package_dir = root / package_name
     if package_dir.exists():
         raise IntakeViolation("CANONICAL_PACKAGE_NAME_COLLISION")
 
@@ -799,6 +819,46 @@ def _file_evidence(path: Path, *, relative_to: Path) -> dict[str, Any]:
     }
 
 
+def _validated_photo_review_evidence_paths(
+    *, package_dir: Path, records: list[dict[str, Any]]
+) -> set[str]:
+    """Verify every accepted revision still matches its hash-bound evidence."""
+
+    used_paths: set[str] = set()
+    for record in records:
+        if not isinstance(record, dict):
+            raise IntakeViolation("PHOTO_REVIEW_HISTORY_INVALID")
+        for field in ("selection", "privacy_manifest"):
+            evidence = record.get(field)
+            if not isinstance(evidence, dict):
+                raise IntakeViolation("PHOTO_REVIEW_HISTORY_EVIDENCE_CHANGED")
+            relative_path = evidence.get("relative_path")
+            byte_count = evidence.get("bytes")
+            digest = evidence.get("sha256")
+            if (
+                not isinstance(relative_path, str)
+                or not relative_path.strip()
+                or not isinstance(byte_count, int)
+                or byte_count < 0
+                or not isinstance(digest, str)
+                or not _SHA256.fullmatch(digest)
+            ):
+                raise IntakeViolation("PHOTO_REVIEW_HISTORY_EVIDENCE_CHANGED")
+            evidence_path = _inside(
+                package_dir,
+                package_dir / relative_path,
+                code="PHOTO_REVIEW_HISTORY_EVIDENCE_CHANGED",
+            )
+            if (
+                not evidence_path.is_file()
+                or evidence_path.stat().st_size != byte_count
+                or hashlib.sha256(evidence_path.read_bytes()).hexdigest() != digest
+            ):
+                raise IntakeViolation("PHOTO_REVIEW_HISTORY_EVIDENCE_CHANGED")
+            used_paths.add(evidence_path.relative_to(package_dir).as_posix())
+    return used_paths
+
+
 def _photo_media_paths(package: CanonicalPackage) -> list[Path]:
     return sorted(
         (
@@ -839,6 +899,18 @@ def _validate_photo_decision_v2(decision: dict[str, Any]) -> None:
     if privacy_status == "clear":
         if categories or remediation_action != "none":
             raise IntakeViolation("PHOTO_PRIVACY_STATE_INVALID")
+    elif privacy_status == "needs_sanitization":
+        candidate_actions = remediation.get("candidate_actions")
+        if (
+            not categories
+            or action != "hold"
+            or remediation_action != "pending"
+            or not isinstance(candidate_actions, list)
+            or not candidate_actions
+            or any(not isinstance(value, str) for value in candidate_actions)
+            or not set(candidate_actions).issubset(SANITIZING_ACTIONS)
+        ):
+            raise IntakeViolation("PHOTO_PRIVACY_STATE_INVALID")
     elif privacy_status == "sanitized":
         if not categories or remediation_action not in SANITIZING_ACTIONS or action != "use":
             raise IntakeViolation("PHOTO_PRIVACY_STATE_INVALID")
@@ -878,7 +950,7 @@ def _validate_photo_decision_v2(decision: dict[str, Any]) -> None:
         raise IntakeViolation("PHOTO_VISUAL_QUALITY_INVALID")
 
 
-def record_photo_review(
+def _record_photo_review(
     *,
     output_root: str | Path,
     selection_path: str | Path,
@@ -918,10 +990,55 @@ def record_photo_review(
         invalid="PRIVACY_MANIFEST_INVALID",
     )
 
+    metadata = dict(package.metadata)
+    previous_review = metadata.get("photo_review")
+    history_value = metadata.get("photo_review_history")
+    if history_value is not None and not isinstance(history_value, list):
+        raise IntakeViolation("PHOTO_REVIEW_HISTORY_INVALID")
+    history = list(history_value or [])
+    if isinstance(previous_review, dict):
+        selection_relative = selection_file.relative_to(package_dir).as_posix()
+        privacy_relative = privacy_file.relative_to(package_dir).as_posix()
+        prior_evidence_paths = _validated_photo_review_evidence_paths(
+            package_dir=package_dir,
+            records=[*history, previous_review],
+        )
+        if selection_relative in prior_evidence_paths or privacy_relative in prior_evidence_paths:
+            raise IntakeViolation("PHOTO_REVIEW_REVISION_EVIDENCE_REUSED")
+
     if selection.get("schema_version") != PHOTO_SELECTION_SCHEMA_VERSION:
         raise IntakeViolation("PHOTO_SELECTION_SCHEMA_INVALID")
     if selection.get("content_id") != package.metadata.get("content_id"):
         raise IntakeViolation("PHOTO_SELECTION_IDENTITY_MISMATCH")
+    if isinstance(previous_review, dict):
+        previous_revision = previous_review.get("revision")
+        if not isinstance(previous_revision, int) or previous_revision < 1:
+            previous_revision = 1
+        expected_revision = previous_revision + 1
+        expected_supersedes_revision: int | None = previous_revision
+    else:
+        previous_revision = 0
+        expected_revision = 1
+        expected_supersedes_revision = None
+    selection_revision = selection.get("revision")
+    selection_supersedes = selection.get("supersedes_revision")
+    revision_reason = selection.get("revision_reason")
+    revision_changes = selection.get("revision_changes")
+    if (
+        not isinstance(selection_revision, int)
+        or selection_revision < 1
+        or not isinstance(revision_reason, str)
+        or not revision_reason.strip()
+        or not isinstance(revision_changes, list)
+        or not revision_changes
+        or any(not isinstance(change, str) or not change.strip() for change in revision_changes)
+    ):
+        raise IntakeViolation("PHOTO_SELECTION_REVISION_CONTEXT_INVALID")
+    if (
+        selection_revision != expected_revision
+        or selection_supersedes != expected_supersedes_revision
+    ):
+        raise IntakeViolation("PHOTO_SELECTION_REVISION_CONTEXT_MISMATCH")
     if selection.get("unresolved_items") != []:
         raise IntakeViolation("PHOTO_SELECTION_UNRESOLVED")
     decisions = selection.get("decisions")
@@ -949,7 +1066,7 @@ def record_photo_review(
             or action not in {"use", "hold", "exclude"}
             or not isinstance(reason, str)
             or not reason.strip()
-            or privacy_status not in {"clear", "sanitized", "blocked"}
+            or privacy_status not in {"clear", "needs_sanitization", "sanitized", "blocked"}
         ):
             raise IntakeViolation("PHOTO_SELECTION_DECISION_INVALID")
         _validate_photo_decision_v2(decision)
@@ -1068,7 +1185,11 @@ def record_photo_review(
         raise IntakeViolation("PRIVACY_REPORT_ASSET_MISMATCH")
 
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    metadata = dict(package.metadata)
+    if isinstance(previous_review, dict):
+        previous_record = dict(previous_review)
+        previous_record["revision"] = previous_revision
+        history.append(previous_record)
+    revision = expected_revision
     approvals = dict(metadata.get("approvals") or {})
     approvals.update(
         {
@@ -1080,13 +1201,20 @@ def record_photo_review(
     )
     metadata["approvals"] = approvals
     metadata["lifecycle_state"] = "photo_reviewed"
-    metadata["photo_review"] = {
+    photo_review = {
+        "revision": revision,
+        "revision_reason": revision_reason.strip(),
+        "revision_changes": [change.strip() for change in revision_changes],
         "checked_at": clock.isoformat(),
         "selection": _file_evidence(selection_file, relative_to=package_dir),
         "privacy_manifest": _file_evidence(privacy_file, relative_to=package_dir),
         "source_media_count": len(expected_media),
         "selected_asset_count": len(selected_paths),
     }
+    if isinstance(previous_review, dict):
+        photo_review["supersedes_revision"] = revision - 1
+        metadata["photo_review_history"] = history
+    metadata["photo_review"] = photo_review
     _atomic_write_json(package_dir / METADATA_FILENAME, metadata)
     _atomic_write_text(
         package_dir / "STATUS.md",
@@ -1105,6 +1233,83 @@ def record_photo_review(
     reviewed = CanonicalPackage(package_dir, package.image_dir, metadata, reused_existing=True)
     _set_active_package(root, reviewed, updated_at=clock.isoformat())
     return reviewed
+
+
+def _write_photo_review_rejection_receipt(
+    *,
+    output_root: Path,
+    selection_path: str | Path,
+    privacy_manifest_path: str | Path,
+    violation: IntakeViolation,
+    now: datetime | None,
+) -> None:
+    """Record a hash-only rejected attempt without mutating canonical state."""
+
+    try:
+        package = resolve_active_package(output_root)
+        package_dir = package.package_dir.resolve()
+        clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+
+        def evidence_if_safe(value: str | Path) -> dict[str, Any] | None:
+            candidate = Path(value).resolve()
+            try:
+                candidate.relative_to(package_dir)
+            except ValueError:
+                return None
+            if not candidate.is_file():
+                return None
+            return _file_evidence(candidate, relative_to=package_dir)
+
+        receipt = {
+            "schema_version": "review-reel-photo-review-rejection-v1",
+            "attempted_at": clock.isoformat(),
+            "content_id": package.metadata.get("content_id"),
+            "package_name": package.package_dir.name,
+            "active_lifecycle_state": package.metadata.get("lifecycle_state"),
+            "active_metadata_sha256": hashlib.sha256(
+                (package_dir / METADATA_FILENAME).read_bytes()
+            ).hexdigest(),
+            "error_code": violation.codes[0] if violation.codes else str(violation),
+            "error_codes": list(violation.codes),
+            "selection": evidence_if_safe(selection_path),
+            "privacy_manifest": evidence_if_safe(privacy_manifest_path),
+        }
+        receipt_dir = package_dir / "_work" / "photo_review_rejections"
+        receipt_name = (
+            f"rejected_{clock.strftime('%Y%m%dT%H%M%S_%fZ')}_{uuid4().hex[:8]}.json"
+        )
+        _atomic_write_json(receipt_dir / receipt_name, receipt)
+    except (IntakeViolation, OSError, ValueError):
+        # Auditing must never replace the original gate error.
+        return
+
+
+def record_photo_review(
+    *,
+    output_root: str | Path,
+    selection_path: str | Path,
+    privacy_manifest_path: str | Path,
+    now: datetime | None = None,
+) -> CanonicalPackage:
+    """Record an accepted photo review or a hash-only rejected attempt receipt."""
+
+    root = Path(output_root).resolve()
+    try:
+        return _record_photo_review(
+            output_root=root,
+            selection_path=selection_path,
+            privacy_manifest_path=privacy_manifest_path,
+            now=now,
+        )
+    except IntakeViolation as violation:
+        _write_photo_review_rejection_receipt(
+            output_root=root,
+            selection_path=selection_path,
+            privacy_manifest_path=privacy_manifest_path,
+            violation=violation,
+            now=now,
+        )
+        raise
 
 
 def _assert_one_shot_contract(planning_path: Path) -> None:
