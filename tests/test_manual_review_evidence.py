@@ -28,6 +28,47 @@ class ManualReviewEvidenceTests(unittest.TestCase):
             check=False,
         )
 
+    def prepare_html_review_fixture(self):
+        preview = self.package / "preview"
+        frame_dir = preview / "_qa_frames"
+        hook_dir = frame_dir / "hook_sequence"
+        hook_dir.mkdir(parents=True)
+        html = preview / "index.html"
+        artifact = preview / "html_artifact_evidence.json"
+        report = preview / "html_internal_qa_report.json"
+        beat_frame = frame_dir / "01_b01.png"
+        hook_frame = hook_dir / "01_hook.png"
+        html.write_text("<html></html>", encoding="utf-8")
+        beat_frame.write_bytes(b"beat")
+        hook_frame.write_bytes(b"hook")
+        artifact.write_text(
+            json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "package_identity": {
+                        "package_path": str(self.package.resolve()),
+                        "package_name": self.package.name,
+                    },
+                    "html_relative_path": html.relative_to(self.package).as_posix(),
+                    "html_sha256": hashlib.sha256(html.read_bytes()).hexdigest(),
+                }
+            ),
+            encoding="utf-8",
+        )
+        report.write_text(
+            json.dumps(
+                {
+                    "automatic_status": "pass",
+                    "checks": [{"frame_relative_path": "_qa_frames/01_b01.png"}],
+                    "hook_sequence_checks": [
+                        {"frame_relative_path": "_qa_frames/hook_sequence/01_hook.png"}
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return html, artifact, report
+
     def test_voice_review_receipt_binds_voice_srt_and_tts_report(self):
         voice = self.package / "voice.mp3"
         srt = self.package / "captions.srt"
@@ -84,29 +125,7 @@ class ManualReviewEvidenceTests(unittest.TestCase):
         self.assertFalse((self.package / "_work" / "manual_reviews").exists())
 
     def test_html_review_receipt_binds_html_artifact_report_and_all_qa_frames(self):
-        preview = self.package / "preview"
-        frame_dir = preview / "_qa_frames"
-        hook_dir = frame_dir / "hook_sequence"
-        hook_dir.mkdir(parents=True)
-        html = preview / "index.html"
-        artifact = preview / "html_artifact_evidence.json"
-        report = preview / "html_internal_qa_report.json"
-        beat_frame = frame_dir / "01_b01.png"
-        hook_frame = hook_dir / "01_hook.png"
-        html.write_text("<html></html>", encoding="utf-8")
-        artifact.write_text('{"schema_version":"fixture"}', encoding="utf-8")
-        beat_frame.write_bytes(b"beat")
-        hook_frame.write_bytes(b"hook")
-        report.write_text(
-            json.dumps(
-                {
-                    "automatic_status": "pass",
-                    "checks": [{"frame_relative_path": "_qa_frames/01_b01.png"}],
-                    "hook_sequence_checks": [{"frame_relative_path": "_qa_frames/hook_sequence/01_hook.png"}],
-                }
-            ),
-            encoding="utf-8",
-        )
+        html, artifact, report = self.prepare_html_review_fixture()
 
         result = self.run_command(
             "html-review-record",
@@ -126,6 +145,96 @@ class ManualReviewEvidenceTests(unittest.TestCase):
         self.assertEqual(receipt["review_kind"], "html")
         self.assertEqual(len(receipt["qa_frames"]), 2)
         self.assertEqual(receipt["qa_report"]["sha256"], hashlib.sha256(report.read_bytes()).hexdigest())
+
+    def test_html_approval_command_requires_current_manual_html_review(self):
+        html, _, _ = self.prepare_html_review_fixture()
+
+        result = self.run_command(
+            "html-approval-record",
+            "--package", str(self.package),
+            "--html", str(html),
+            "--approved-by", "user",
+            "--evidence-reference", "user said HTML approved",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("CURRENT_HTML_MANUAL_REVIEW_MISSING", result.stderr)
+        self.assertFalse((self.package / "HTML_APPROVAL.json").exists())
+
+    def test_official_approval_commands_bind_html_then_unlock_mp4_separately(self):
+        html, artifact, _ = self.prepare_html_review_fixture()
+        review = self.run_command(
+            "html-review-record",
+            "--package", str(self.package),
+            "--html", str(html),
+            "--reviewer", "fixture-worker",
+            "--evidence-reference", "fixture-task",
+            *sum((["--check", value] for value in (
+                "hook_sequence_reviewed", "meaning_sync_reviewed", "caption_layout_reviewed",
+                "privacy_reviewed", "review_capture_reviewed", "cta_reviewed",
+            )), []),
+        )
+        self.assertEqual(review.returncode, 0, review.stderr)
+
+        html_approval = self.run_command(
+            "html-approval-record",
+            "--package", str(self.package),
+            "--html", str(html),
+            "--approved-by", "user",
+            "--evidence-reference", "user said HTML approved",
+        )
+
+        self.assertEqual(html_approval.returncode, 0, html_approval.stderr)
+        approval = json.loads((self.package / "HTML_APPROVAL.json").read_text(encoding="utf-8"))
+        self.assertEqual(approval["html_sha256"], hashlib.sha256(html.read_bytes()).hexdigest())
+        self.assertEqual(
+            approval["html_artifact_evidence_sha256"],
+            hashlib.sha256(artifact.read_bytes()).hexdigest(),
+        )
+        status = (self.package / "STATUS.md").read_text(encoding="utf-8")
+        log = (self.package / "APPROVAL_LOG.md").read_text(encoding="utf-8")
+        self.assertIn("html_approved_by_user: true", status)
+        self.assertIn("mp4_allowed: false", status)
+        self.assertIn("approved_scope: HTML preview approved", log)
+        self.assertIn("not_approved: MP4 render pending", log)
+
+        render_approval = self.run_command(
+            "render-approval-record",
+            "--package", str(self.package),
+            "--html", str(html),
+            "--approved-by", "user",
+            "--evidence-reference", "user said render it",
+        )
+
+        self.assertEqual(render_approval.returncode, 0, render_approval.stderr)
+        render_receipt = json.loads(
+            (self.package / "MP4_RENDER_APPROVAL.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(render_receipt["html_sha256"], approval["html_sha256"])
+        self.assertEqual(
+            render_receipt["html_approval_sha256"],
+            hashlib.sha256((self.package / "HTML_APPROVAL.json").read_bytes()).hexdigest(),
+        )
+        status = (self.package / "STATUS.md").read_text(encoding="utf-8")
+        log = (self.package / "APPROVAL_LOG.md").read_text(encoding="utf-8")
+        self.assertIn("mp4_allowed: true", status)
+        self.assertIn("approved_scope: MP4 render approved", log)
+        self.assertNotIn("not_approved: MP4 render pending", log)
+
+    def test_render_approval_command_cannot_replace_missing_html_approval(self):
+        html, _, _ = self.prepare_html_review_fixture()
+
+        result = self.run_command(
+            "render-approval-record",
+            "--package", str(self.package),
+            "--html", str(html),
+            "--approved-by", "user",
+            "--evidence-reference", "user said render it",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("CURRENT_HTML_APPROVAL_MISSING", result.stderr)
+        self.assertFalse((self.package / "MP4_RENDER_APPROVAL.json").exists())
 
     def test_render_review_receipt_binds_the_mp4_post_qa_report_and_representative_frames(self):
         mp4 = self.package / "fixture_upload_10mbps.mp4"

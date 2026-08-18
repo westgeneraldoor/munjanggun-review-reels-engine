@@ -85,11 +85,18 @@ python scripts/produce_review_v2.py preflight --package "<output review package>
 # 2. Build the HTML preview after the preflight gate succeeds.
 python scripts/produce_review_v2.py html --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json"
 
-# 3. Only after recorded HTML and explicit MP4 approval, start a durable render job.
+# 3. Bind the user's HTML approval and separate MP4 permission to the current HTML.
+python scripts/produce_review_v2.py html-approval-record --package "<output review package>" --html "<html_preview>/index.html" --approved-by "<user>" --evidence-reference "<explicit HTML approval>"
+python scripts/produce_review_v2.py render-approval-record --package "<output review package>" --html "<html_preview>/index.html" --approved-by "<user>" --evidence-reference "<explicit MP4 approval>"
+
+# 4. Start a durable render job. The legacy synchronous `render` command is disabled.
 python scripts/produce_review_v2.py render-start --package "<output review package>" --html "<html_preview>/index.html" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --out "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4"
 
-# 4. Poll the returned job_id without keeping the start command open.
+# 5. Poll the returned job_id without keeping the start command open.
 python scripts/produce_review_v2.py render-status --package "<output review package>" --job-id "<job-id>"
+
+# 6. Derive post-render QA inputs from that succeeded job.
+python scripts/produce_review_v2.py post-render-qa --package "<output review package>" --job-id "<job-id>"
 ```
 
 The final v2 job enforces 1080x1920, 30fps, H.264/yuv420p, AAC 44.1kHz stereo,
@@ -170,6 +177,9 @@ stale. Explicit user approval must be recorded separately in `HTML_APPROVAL.json
 with package identity, relative path, HTML SHA-256, approval timestamp, and an
 approval evidence reference; its artifact-evidence hash binds the full dependency
 list. A legacy boolean-only approval is not render authorization.
+The separate `render-approval-record` command creates `MP4_RENDER_APPROVAL.json`
+bound to both the current HTML and `HTML_APPROVAL.json`; hand-editing status or
+approval Markdown is not render authorization.
 It also runs `scripts/html-preview-qa.mjs`, captures every beat under
 `_qa_frames/`, and writes `html_internal_qa_report.json`. Automatic success
 still means `manual_review_required`; a task that did not inspect those frames

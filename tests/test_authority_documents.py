@@ -173,11 +173,11 @@ class AuthorityDocumentsTest(unittest.TestCase):
                 )
 
         render_rules = (ROOT / "docs/render_qa_rules_v2.md").read_text(encoding="utf-8")
-        self.assertIn("compatibility-only", render_rules)
+        self.assertIn("DIRECT_RENDER_DISABLED_USE_RENDER_START", render_rules)
         self.assertIn("queued -> running -> succeeded|failed", render_rules)
         self.assertIn("rendered_frames / expected_frames", render_rules)
         self.assertIn("RETRY_REQUIRES_NEW_OUTPUT", render_rules)
-        self.assertIn("--render-job", render_rules)
+        self.assertIn("post-render-qa", render_rules)
 
     def test_durable_render_implementation_has_detachment_and_evidence_anchors(self):
         orchestrator = (ROOT / "scripts/produce_review_v2.py").read_text(encoding="utf-8")

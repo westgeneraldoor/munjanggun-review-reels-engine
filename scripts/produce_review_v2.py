@@ -40,6 +40,11 @@ from video_engine_v2.manual_review import (  # noqa: E402
     record_render_review,
     record_voice_review,
 )
+from video_engine_v2.approval_evidence import (  # noqa: E402
+    ApprovalEvidenceViolation,
+    record_html_approval,
+    record_render_approval,
+)
 
 
 def configure_utf8_output() -> None:
@@ -116,6 +121,8 @@ def _render_bindings(receipt: dict, receipt_path: Path) -> dict:
         "html_artifact_evidence_sha256",
         "html_approval_path",
         "html_approval_sha256",
+        "mp4_render_approval_path",
+        "mp4_render_approval_sha256",
         "sync_manifest_path",
         "sync_manifest_sha256",
         "privacy_manifest_path",
@@ -202,11 +209,6 @@ def build_parser() -> argparse.ArgumentParser:
     _common_arguments(html, include_recipes=True)
     html.add_argument("--engine-font", help="repository-contained font dependency injection")
     html.add_argument("--one-shot-html", action="store_true", help="Require the HTML-only one-shot recipe contract")
-    render = commands.add_parser("render", help="Render an already approved HTML preview at the final preset")
-    _common_arguments(render, include_recipes=False)
-    render.add_argument("--html", required=True)
-    render.add_argument("--out", required=True)
-    render.add_argument("--engine-font", help="repository-contained font dependency injection")
     render_start = commands.add_parser("render-start", help="Start a durable background render job and return immediately")
     _common_arguments(render_start, include_recipes=False)
     render_start.add_argument("--html", required=True)
@@ -215,6 +217,21 @@ def build_parser() -> argparse.ArgumentParser:
     render_status = commands.add_parser("render-status", help="Read durable render progress without waiting for completion")
     render_status.add_argument("--package", required=True)
     render_status.add_argument("--job-id", required=True)
+    post_render_qa = commands.add_parser(
+        "post-render-qa",
+        help="Run post-render QA using only the paths bound to a succeeded durable job",
+    )
+    post_render_qa.add_argument("--package", required=True)
+    post_render_qa.add_argument("--job-id", required=True)
+    for command_name, help_text in (
+        ("html-approval-record", "Bind explicit user HTML approval to the reviewed preview"),
+        ("render-approval-record", "Record separate explicit user permission to render MP4"),
+    ):
+        approval = commands.add_parser(command_name, help=help_text)
+        approval.add_argument("--package", required=True)
+        approval.add_argument("--html", required=True)
+        approval.add_argument("--approved-by", required=True)
+        approval.add_argument("--evidence-reference", required=True)
     for command_name, help_text in (
         ("voice-review-record", "Record hash-bound manual voice audition evidence"),
         ("html-review-record", "Record hash-bound manual HTML frame review evidence"),
@@ -239,8 +256,32 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_output()
-    args = build_parser().parse_args(argv)
+    effective_argv = list(sys.argv[1:] if argv is None else argv)
+    if effective_argv and effective_argv[0] == "render":
+        print("GATE_BLOCKED: DIRECT_RENDER_DISABLED_USE_RENDER_START", file=sys.stderr)
+        return 2
+    args = build_parser().parse_args(effective_argv)
     try:
+        if args.command == "html-approval-record":
+            print(
+                record_html_approval(
+                    package_dir=args.package,
+                    html_path=args.html,
+                    approved_by=args.approved_by,
+                    evidence_reference=args.evidence_reference,
+                )
+            )
+            return 0
+        if args.command == "render-approval-record":
+            print(
+                record_render_approval(
+                    package_dir=args.package,
+                    html_path=args.html,
+                    approved_by=args.approved_by,
+                    evidence_reference=args.evidence_reference,
+                )
+            )
+            return 0
         if args.command == "voice-review-record":
             path = record_voice_review(
                 package_dir=args.package,
@@ -345,6 +386,60 @@ def main(argv: list[str] | None = None) -> int:
                 )
             print(json.dumps(refresh_progress(job_path), ensure_ascii=False, indent=2))
             return 0
+        if args.command == "post-render-qa":
+            package = Path(args.package).resolve()
+            job_path = job_record_path(package, args.job_id)
+            job = read_job(job_path)
+            if job.get("state") != "succeeded":
+                raise RenderJobError("RENDER_JOB_NOT_SUCCEEDED")
+            bindings = job.get("bindings") or {}
+            mp4_path = Path(str(bindings.get("output_path") or "")).resolve()
+            sync_manifest_path = Path(str(bindings.get("sync_manifest_path") or "")).resolve()
+            output_evidence = job.get("output_evidence") or {}
+            if (
+                output_evidence.get("path") != str(mp4_path)
+                or not mp4_path.is_file()
+                or output_evidence.get("bytes") != mp4_path.stat().st_size
+                or output_evidence.get("sha256") != sha256_file(mp4_path)
+            ):
+                raise RenderJobError("RENDER_JOB_OUTPUT_EVIDENCE_INVALID")
+            if not sync_manifest_path.is_file():
+                raise RenderJobError("RENDER_JOB_SYNC_MANIFEST_MISSING")
+            report_dir = package / "_work" / f"render_post_qa_{args.job_id}"
+            command = [
+                "node",
+                str(ROOT / "scripts" / "render-post-qa.mjs"),
+                "--mp4",
+                str(mp4_path),
+                "--package",
+                str(package),
+                "--sync-manifest",
+                str(sync_manifest_path),
+                "--render-job",
+                str(job_path.resolve()),
+                "--report-dir",
+                str(report_dir.resolve()),
+            ]
+            result = run_utf8_capture(command, cwd=ROOT)
+            if result.stdout:
+                print(result.stdout, end="")
+            if result.stderr:
+                print(result.stderr, end="", file=sys.stderr)
+            if result.returncode != 0:
+                return result.returncode
+            report_path = report_dir / "render_post_qa_report.json"
+            if not report_path.is_file():
+                raise RenderJobError("POST_RENDER_QA_REPORT_MISSING")
+            print(
+                json.dumps(
+                    {
+                        "post_qa_report": str(report_path.resolve()),
+                        "next_action": "inspect_representative_frames_then_run_render_review_record",
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return 0
         receipt = validate_render_gate(
             package_dir=args.package,
             html_path=args.html,
@@ -399,22 +494,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             return 0
-        command = [
-            "node",
-            str(ROOT / "render_html_preview_v2.js"),
-            "--html",
-            args.html,
-            "--out",
-            args.out,
-            "--gate-receipt",
-            str(receipt_path),
-        ]
-        for key, value in FINAL_RENDER_PRESET.items():
-            if key in {"video_codec", "pixel_format"}:
-                continue
-            command.extend(["--" + key.replace("_", "-"), str(value)])
-        return subprocess.run(command, cwd=ROOT).returncode
-    except (GateViolation, RenderJobError, ManualReviewViolation) as error:
+        raise RenderJobError("DIRECT_RENDER_DISABLED_USE_RENDER_START")
+    except (GateViolation, RenderJobError, ManualReviewViolation, ApprovalEvidenceViolation) as error:
         print(f"GATE_BLOCKED: {error}", file=sys.stderr)
         return 2
 

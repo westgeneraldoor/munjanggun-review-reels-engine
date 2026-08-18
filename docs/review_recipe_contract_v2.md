@@ -244,6 +244,8 @@ one-shot edit의 audio plan에는 공식 TTS 입력과 최종 voice hash, 실제
 HTML 생성 후 `html_artifact_evidence.json`은 index.html과 실제 image/voice/font 입력,
 gate receipt의 hash를 기록합니다. `HTML_APPROVAL.json`은 그 HTML과 artifact evidence에
 결속되어야 하며 legacy boolean만으로 render를 승인하지 않습니다.
+`MP4_RENDER_APPROVAL.json`은 별도 사용자 렌더 승인을 현재 HTML과 HTML approval
+SHA-256에 결속합니다.
 
 render 후 `render_post_qa_report.json`은 대상 MP4와 사용한 sync manifest의 상대경로,
 bytes, SHA-256을 기록합니다. hash 없는 legacy QA pass는 `unknown`으로 남깁니다.
@@ -253,8 +255,11 @@ bytes, SHA-256을 기록합니다. hash 없는 legacy QA pass는 `unknown`으로
 ```powershell
 python scripts/produce_review_v2.py preflight --package "<package>" --planning "<planning.json>" --edit "<edit.json>" --privacy-manifest "<privacy.json>" --sync-manifest "<package>/sync_manifest.json"
 python scripts/produce_review_v2.py html --package "<package>" --planning "<planning.json>" --edit "<edit.json>" --privacy-manifest "<privacy.json>" --sync-manifest "<package>/sync_manifest.json"
+python scripts/produce_review_v2.py html-approval-record --package "<package>" --html "<preview>/index.html" --approved-by "<user>" --evidence-reference "<explicit HTML approval>"
+python scripts/produce_review_v2.py render-approval-record --package "<package>" --html "<preview>/index.html" --approved-by "<user>" --evidence-reference "<explicit MP4 approval>"
 python scripts/produce_review_v2.py render-start --package "<package>" --html "<preview>/index.html" --privacy-manifest "<privacy.json>" --sync-manifest "<package>/sync_manifest.json" --out "<package>/<id>_final_render_YYYYMMDD_upload_10mbps.mp4"
 python scripts/produce_review_v2.py render-status --package "<package>" --job-id "<job-id>"
+python scripts/produce_review_v2.py post-render-qa --package "<package>" --job-id "<job-id>"
 ```
 
 내부 `reels_qa`, HTML builder, renderer 직접 호출은 production 증거가 아닙니다.

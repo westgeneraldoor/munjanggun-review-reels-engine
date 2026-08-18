@@ -29,6 +29,9 @@ def _validate_bound_inputs(job: dict) -> None:
     pairs = (
         ("receipt_path", "receipt_sha256"),
         ("html_path", "html_sha256"),
+        ("html_artifact_evidence_path", "html_artifact_evidence_sha256"),
+        ("html_approval_path", "html_approval_sha256"),
+        ("mp4_render_approval_path", "mp4_render_approval_sha256"),
         ("sync_manifest_path", "sync_manifest_sha256"),
         ("privacy_manifest_path", "privacy_manifest_sha256"),
         ("renderer_script_path", "renderer_script_sha256"),

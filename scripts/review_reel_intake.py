@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 
 from video_engine_v2.review_reel_intake import (  # noqa: E402
     IntakeViolation,
+    active_package_status,
     create_canonical_package,
     create_canonical_package_from_material_bank,
     record_photo_review,
@@ -34,6 +35,8 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     route = commands.add_parser("route", help="Classify a short user request without creating files")
     route.add_argument("--user-command", required=True)
+    status = commands.add_parser("status", help="Show the active canonical identity and next safe action")
+    status.add_argument("--output-root", required=True)
     create = commands.add_parser("create", help="Create or reuse one canonical pre-photo package")
     create.add_argument("--output-root", required=True)
     create.add_argument("--inventory", required=True, help="private review-reel inventory JSON")
@@ -52,10 +55,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Bind complete photo decisions and privacy evidence to the active package",
     )
     photo_review.add_argument("--output-root", required=True)
+    photo_review.add_argument("--expected-content-id", required=True)
     photo_review.add_argument("--selection", required=True)
     photo_review.add_argument("--privacy-manifest", required=True)
     one_shot = commands.add_parser("one-shot-html", help="Resolve the active package and run official one-shot HTML")
     one_shot.add_argument("--output-root", required=True)
+    one_shot.add_argument("--expected-content-id", required=True)
     one_shot.add_argument("--planning", required=True)
     one_shot.add_argument("--edit", required=True)
     one_shot.add_argument("--privacy-manifest", required=True)
@@ -68,6 +73,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "route":
             print(json.dumps(route_user_command(args.user_command), ensure_ascii=False))
+            return 0
+        if args.command == "status":
+            print(json.dumps(active_package_status(args.output_root), ensure_ascii=False))
             return 0
         if args.command in {"create", "create-from-material-bank"}:
             if args.command == "create":
@@ -89,9 +97,11 @@ def main(argv: list[str] | None = None) -> int:
                     {
                         "workflow": "review_reel_production",
                         "state": "photo_intake_pending",
+                        "content_id": str(package.metadata.get("content_id") or ""),
                         "package": str(package.package_dir),
                         "image_directory": str(package.image_dir),
                         "reused_existing": package.reused_existing,
+                        "next_action": "place_photos_then_run_photo_review",
                     },
                     ensure_ascii=False,
                 )
@@ -100,6 +110,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "photo-review":
             package = record_photo_review(
                 output_root=args.output_root,
+                expected_content_id=args.expected_content_id,
                 selection_path=args.selection,
                 privacy_manifest_path=args.privacy_manifest,
             )
@@ -119,6 +130,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         return run_one_shot_html(
             output_root=args.output_root,
+            expected_content_id=args.expected_content_id,
             planning_path=args.planning,
             edit_path=args.edit,
             privacy_manifest_path=args.privacy_manifest,

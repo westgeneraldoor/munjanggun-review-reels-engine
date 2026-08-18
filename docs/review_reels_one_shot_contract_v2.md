@@ -89,7 +89,10 @@ beat의 대표 프레임을 `_qa_frames/`에 저장하고 `html_internal_qa_repo
 
 ## MP4의 별도 권한
 
-HTML 생성 뒤에는 기존 `HTML_APPROVAL.json`과 별도 명시적 MP4 승인이 모두 필요하다.
+HTML 생성 뒤에는 `html-approval-record`가 만든 `HTML_APPROVAL.json`과,
+`render-approval-record`가 만든 `MP4_RENDER_APPROVAL.json`이 모두 필요하다. 두 번째
+영수증은 현재 HTML과 첫 번째 영수증의 SHA-256에 결속되며 상태 Markdown 수동 수정은
+승인 증거가 아니다.
 `scripts/produce_review_v2.py render-start`는 one-shot flag를 받지 않으며, 기존 render
 gate와 single-use receipt, non-overwrite 규칙을 그대로 적용한다. 시작 명령이 반환한
 job ID는 `scripts/produce_review_v2.py render-status`로 조회하며 `succeeded`와 MP4

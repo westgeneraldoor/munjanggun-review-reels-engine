@@ -5,6 +5,7 @@ import sys
 from tempfile import TemporaryDirectory
 import time
 import unittest
+from unittest.mock import patch
 
 from video_engine_v2.render_job import (
     RenderJobError,
@@ -61,6 +62,99 @@ class RenderJobRecordTest(unittest.TestCase):
         self.assertEqual(payload["bindings"]["output_path"], str(self.output.resolve()))
         self.assertEqual(payload["output_evidence"], None)
         self.assertEqual(payload["failure"], None)
+
+    def test_public_cli_does_not_advertise_synchronous_render(self):
+        script = produce_review_v2.ROOT / "scripts" / "produce_review_v2.py"
+
+        result = subprocess.run(
+            [sys.executable, str(script), "--help"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        command_choices = result.stdout.split("{", 1)[1].split("}", 1)[0].split(",")
+        self.assertNotIn("render", command_choices)
+        self.assertIn("render-start", command_choices)
+
+    def test_legacy_synchronous_render_command_stops_with_durable_job_guidance(self):
+        script = produce_review_v2.ROOT / "scripts" / "produce_review_v2.py"
+
+        result = subprocess.run(
+            [sys.executable, str(script), "render"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("DIRECT_RENDER_DISABLED_USE_RENDER_START", result.stderr)
+
+    def test_post_render_qa_command_derives_all_bound_paths_from_succeeded_job(self):
+        sync = self.package / "sync_manifest.json"
+        sync.write_text('{"ok":true}', encoding="utf-8")
+        self.output.write_bytes(b"final mp4")
+        job_id = "20260812T010203000000Z-ab12cd34"
+        job_path = create_job_record(
+            package_dir=self.package,
+            job_id=job_id,
+            bindings={
+                "sync_manifest_path": str(sync.resolve()),
+                "sync_manifest_sha256": sha256_file(sync),
+            },
+            receipt_path=self.receipt,
+            output_path=self.output,
+            expected_frames=818,
+        )
+        update_job(job_path, state="running")
+        update_job(
+            job_path,
+            state="succeeded",
+            completed_at="2026-08-12T01:02:03+00:00",
+            output_evidence={
+                "path": str(self.output.resolve()),
+                "bytes": self.output.stat().st_size,
+                "sha256": sha256_file(self.output),
+            },
+            exit_code=0,
+        )
+        captured = {}
+
+        def fake_run(command, *, cwd):
+            captured["command"] = command
+            report_dir = Path(command[command.index("--report-dir") + 1])
+            report_dir.mkdir(parents=True)
+            (report_dir / "render_post_qa_report.json").write_text('{"auto_status":"pass"}', encoding="utf-8")
+            return subprocess.CompletedProcess(command, 0, "qa complete\n", "")
+
+        with patch.object(produce_review_v2, "run_utf8_capture", side_effect=fake_run):
+            result = produce_review_v2.main(
+                ["post-render-qa", "--package", str(self.package), "--job-id", job_id]
+            )
+
+        self.assertEqual(result, 0)
+        command = captured["command"]
+        self.assertEqual(command[command.index("--render-job") + 1], str(job_path.resolve()))
+        self.assertEqual(command[command.index("--mp4") + 1], str(self.output.resolve()))
+        self.assertEqual(command[command.index("--sync-manifest") + 1], str(sync.resolve()))
+        self.assertTrue(
+            (self.package / "_work" / f"render_post_qa_{job_id}" / "render_post_qa_report.json").is_file()
+        )
+
+    def test_post_render_qa_command_rejects_unfinished_job_before_running_node(self):
+        job_id = "20260812T010203000000Z-ab12cd34"
+        self.create_job(job_id=job_id)
+
+        with patch.object(produce_review_v2, "run_utf8_capture") as runner:
+            result = produce_review_v2.main(
+                ["post-render-qa", "--package", str(self.package), "--job-id", job_id]
+            )
+
+        self.assertEqual(result, 2)
+        runner.assert_not_called()
 
     def test_rejects_job_id_path_escape(self):
         with self.assertRaisesRegex(RenderJobError, "JOB_ID_INVALID"):
@@ -148,6 +242,12 @@ class RenderJobWorkerTest(unittest.TestCase):
         self.sync.write_text('{"ok":true,"audio":{"final_voice_duration_sec":0.1}}', encoding="utf-8")
         self.privacy = self.package / "privacy_asset_manifest.json"
         self.privacy.write_text('{"unresolved_risks":[]}', encoding="utf-8")
+        self.artifact = self.html.parent / "html_artifact_evidence.json"
+        self.artifact.write_text('{"schema_version":"1.0"}', encoding="utf-8")
+        self.html_approval = self.package / "HTML_APPROVAL.json"
+        self.html_approval.write_text('{"approved_by_user":true}', encoding="utf-8")
+        self.render_approval = self.package / "MP4_RENDER_APPROVAL.json"
+        self.render_approval.write_text('{"approved_by_user":true}', encoding="utf-8")
         receipt_dir = self.package / "_work" / "production_gates"
         receipt_dir.mkdir(parents=True)
         self.receipt = receipt_dir / "render_receipt.json"
@@ -166,6 +266,12 @@ class RenderJobWorkerTest(unittest.TestCase):
                 "sync_manifest_sha256": sha256_file(self.sync),
                 "privacy_manifest_path": str(self.privacy.resolve()),
                 "privacy_manifest_sha256": sha256_file(self.privacy),
+                "html_artifact_evidence_path": str(self.artifact.resolve()),
+                "html_artifact_evidence_sha256": sha256_file(self.artifact),
+                "html_approval_path": str(self.html_approval.resolve()),
+                "html_approval_sha256": sha256_file(self.html_approval),
+                "mp4_render_approval_path": str(self.render_approval.resolve()),
+                "mp4_render_approval_sha256": sha256_file(self.render_approval),
                 "renderer_script_path": str(renderer.resolve()),
                 "renderer_script_sha256": sha256_file(renderer),
                 "preset": {"fps": 30},
@@ -287,6 +393,19 @@ class RenderJobWorkerTest(unittest.TestCase):
         self.assertFalse(marker.exists())
         self.assertTrue(Path(failed["log_path"]).is_file())
         self.assertIn("BOUND_INPUT_CHANGED", Path(failed["log_path"]).read_text(encoding="utf-8"))
+
+    def test_worker_blocks_changed_render_approval_before_renderer_runs(self):
+        job_path = self.create_job()
+        marker = Path(self.temporary.name) / "should-not-run.txt"
+        self.render_approval.write_text('{"approved_by_user":false}', encoding="utf-8")
+        command = [sys.executable, "-c", f"from pathlib import Path; Path({str(marker)!r}).write_text('bad')"]
+
+        result = render_review_v2_job.run_job(job_path, command_builder=lambda _: command)
+
+        failed = read_job(job_path)
+        self.assertEqual(result, 2)
+        self.assertEqual(failed["failure"]["code"], "BOUND_INPUT_CHANGED")
+        self.assertFalse(marker.exists())
 
 
 if __name__ == "__main__":

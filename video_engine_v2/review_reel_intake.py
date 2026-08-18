@@ -814,6 +814,50 @@ def resolve_active_package(output_root: str | Path) -> CanonicalPackage:
     return CanonicalPackage(package_dir, image_dir, metadata, reused_existing=True)
 
 
+def _assert_expected_content_id(package: CanonicalPackage, expected_content_id: str) -> None:
+    expected = str(expected_content_id).strip()
+    actual = str(package.metadata.get("content_id") or "").strip()
+    if not expected or expected != actual:
+        raise IntakeViolation("ACTIVE_PACKAGE_CONTENT_ID_MISMATCH")
+
+
+def active_package_status(output_root: str | Path) -> dict[str, Any]:
+    """Return the active canonical identity and its next safe production action."""
+
+    package = resolve_active_package(output_root)
+    lifecycle_state = str(package.metadata.get("lifecycle_state") or "unknown")
+    from video_engine_v2.package_state import map_legacy_package
+
+    evidence_state = map_legacy_package(package.package_dir)
+    if evidence_state.get("final_delivery_complete") is True:
+        next_action = "no_action_final_delivery_complete"
+    elif evidence_state.get("render_complete") is True:
+        next_action = "inspect_post_render_frames_then_run_render_review_record"
+    elif evidence_state.get("render_artifact_present") is True:
+        next_action = "inspect_render_job_then_run_post_render_qa"
+    elif (package.package_dir / "MP4_RENDER_APPROVAL.json").is_file():
+        next_action = "start_or_check_durable_render_job"
+    elif (package.package_dir / "HTML_APPROVAL.json").is_file():
+        next_action = "wait_for_explicit_mp4_approval_then_record_it"
+    elif lifecycle_state == "photo_intake_pending":
+        next_action = "place_photos_then_run_photo_review"
+    elif lifecycle_state == "photo_reviewed":
+        next_action = "prepare_planning_script_tts"
+    else:
+        next_action = "inspect_package_state_before_mutation"
+    return {
+        "workflow": "review_reel_production",
+        "content_id": str(package.metadata.get("content_id") or ""),
+        "lifecycle_state": lifecycle_state,
+        "package": str(package.package_dir),
+        "image_directory": str(package.image_dir),
+        "render_complete": evidence_state.get("render_complete", "unknown"),
+        "qa_reviewed": evidence_state.get("qa_reviewed", "unknown"),
+        "final_delivery_complete": evidence_state.get("final_delivery_complete", "unknown"),
+        "next_action": next_action,
+    }
+
+
 def _file_evidence(path: Path, *, relative_to: Path) -> dict[str, Any]:
     return {
         "relative_path": path.resolve().relative_to(relative_to.resolve()).as_posix(),
@@ -1388,6 +1432,7 @@ def _write_photo_review_rejection_receipt(
 def record_photo_review(
     *,
     output_root: str | Path,
+    expected_content_id: str | None = None,
     selection_path: str | Path,
     privacy_manifest_path: str | Path,
     now: datetime | None = None,
@@ -1396,6 +1441,8 @@ def record_photo_review(
 
     root = Path(output_root).resolve()
     try:
+        if expected_content_id is not None:
+            _assert_expected_content_id(resolve_active_package(root), expected_content_id)
         return _record_photo_review(
             output_root=root,
             selection_path=selection_path,
@@ -1427,15 +1474,18 @@ def _assert_one_shot_contract(planning_path: Path) -> None:
 def build_one_shot_html_commands(
     *,
     output_root: str | Path,
+    expected_content_id: str | None = None,
     planning_path: str | Path,
     edit_path: str | Path,
     privacy_manifest_path: str | Path,
 ) -> list[list[str]]:
     """Return only the two official, MP4-free one-shot production commands."""
 
+    package = resolve_active_package(output_root)
+    if expected_content_id is not None:
+        _assert_expected_content_id(package, expected_content_id)
     planning = Path(planning_path).resolve()
     _assert_one_shot_contract(planning)
-    package = resolve_active_package(output_root)
     edit = Path(edit_path).resolve()
     privacy = Path(privacy_manifest_path).resolve()
     sync_manifest = package.package_dir / "sync_manifest.json"
@@ -1462,6 +1512,7 @@ def build_one_shot_html_commands(
 def run_one_shot_html(
     *,
     output_root: str | Path,
+    expected_content_id: str | None = None,
     planning_path: str | Path,
     edit_path: str | Path,
     privacy_manifest_path: str | Path,
@@ -1470,6 +1521,7 @@ def run_one_shot_html(
 
     for command in build_one_shot_html_commands(
         output_root=output_root,
+        expected_content_id=expected_content_id,
         planning_path=planning_path,
         edit_path=edit_path,
         privacy_manifest_path=privacy_manifest_path,

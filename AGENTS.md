@@ -75,6 +75,11 @@ local-only source registry가 기존 번호를 스캔해 다음 미사용 세 �
 같은 candidate는 최초 배정을 재사용하며, 깨진 registry나 identity 변경은 덮어쓰지
 않고 실패해야 한다.
 
+새 세션은 파일을 쓰기 전에 `review_reel_intake.py status --output-root "output"`으로
+활성 `content_id`와 package를 확인합니다. `photo-review`와 `one-shot-html`에는 그 값을
+`--expected-content-id`로 반드시 다시 넣습니다. 활성 pointer가 다른 리뷰를 가리키면
+`ACTIVE_PACKAGE_CONTENT_ID_MISMATCH`로 파일을 읽기 전에 중단해야 합니다.
+
 ## 포맷 상태
 
 - v2: current production
@@ -188,7 +193,11 @@ python scripts/produce_review_v2.py html --package "<output review package>" --p
 # 2.5. 모든 beat와 0.5초·첫 3개 훅 대표 프레임을 직접 본 뒤 기록
 python scripts/produce_review_v2.py html-review-record --package "<output review package>" --html "<html_preview>/index.html" --reviewer "<reviewer>" --evidence-reference "<review evidence>" --check hook_sequence_reviewed --check meaning_sync_reviewed --check caption_layout_reviewed --check privacy_reviewed --check review_capture_reviewed --check cta_reviewed
 
-# 3. 기록된 HTML 승인과 명시적 MP4 렌더 승인 후 독립 렌더 작업 시작
+# 2.6. 사용자의 HTML 승인과 별도 MP4 렌더 승인을 각각 현재 HTML 해시에 결속
+python scripts/produce_review_v2.py html-approval-record --package "<output review package>" --html "<html_preview>/index.html" --approved-by "<user>" --evidence-reference "<explicit HTML approval>"
+python scripts/produce_review_v2.py render-approval-record --package "<output review package>" --html "<html_preview>/index.html" --approved-by "<user>" --evidence-reference "<explicit MP4 render approval>"
+
+# 3. 두 승인이 기록된 뒤 독립 렌더 작업 시작 (`render` 직접 명령은 비활성)
 python scripts/produce_review_v2.py render-start --package "<output review package>" --html "<html_preview>/index.html" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --out "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4"
 
 # 4. 시작 명령이 반환한 job_id로 진행률/완료 증거 조회
@@ -217,6 +226,9 @@ artifact evidence SHA-256을 모두 가져야 합니다. 따라서 approval은 H
 아니라 artifact evidence에 기록된 image/voice/font dependency hash 전체에 결속됩니다.
 legacy의
 `html_approved_by_user: true`만으로는 render를 승인하지 않습니다.
+별도 MP4 승인도 공식 `render-approval-record`가 만든 `MP4_RENDER_APPROVAL.json`으로
+현재 HTML과 `HTML_APPROVAL.json` 해시에 결속합니다. `STATUS.md`나 `APPROVAL_LOG.md`를
+손으로 바꾼 것만으로는 렌더를 승인하지 않습니다.
 
 공식 HTML 생성 직후 `scripts/html-preview-qa.mjs`가 모든 beat 대표 프레임과
 `html_internal_qa_report.json`을 생성해야 합니다. 자동 검사가 통과해도
@@ -270,13 +282,22 @@ node scripts/hyperframes-render-gate.mjs --project "scratch/hf-pilot-<review-id>
 사용자의 명시적 MP4 렌더 승인 후에만 `--render-approved`를 붙입니다.
 생성된 HyperFrames 파일럿의 `npm run render` 직접 실행은 금지되며, 렌더는 반드시 `scripts/hyperframes-render-gate.mjs`를 통해서만 진행합니다.
 
-렌더 후 QA 증거 생성:
+표준 HTML 렌더 후 QA 증거 생성:
+
+```powershell
+python scripts/produce_review_v2.py post-render-qa --package "<output review package>" --job-id "<job-id>"
+```
+
+이 명령은 성공한 render job에서 MP4와 sync 경로를 직접 읽고 실제 report 경로를
+반환합니다. 경로를 수동 조립하거나 package 루트의 고정 report 이름을 가정하지 않습니다.
+
+HyperFrames 렌더 후 QA 증거 생성:
 
 ```powershell
 node scripts/render-post-qa.mjs --mp4 "<output review package>/<review-id>_final_render_YYYYMMDD_hyperframes_upload_10mbps.mp4" --package "<output review package>" --sync-manifest "<output review package>/sync_manifest.json"
 
 # 대표 프레임과 최종 영상의 자막·개인정보·리뷰 증거·음성 싱크를 직접 본 뒤 기록
-python scripts/produce_review_v2.py render-review-record --package "<output review package>" --mp4 "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4" --post-qa-report "<output review package>/render_post_qa_report.json" --reviewer "<reviewer>" --evidence-reference "<review evidence>" --check caption_layout_reviewed --check privacy_reviewed --check review_capture_reviewed --check voice_caption_visual_sync_reviewed --check hook_and_cta_reviewed
+python scripts/produce_review_v2.py render-review-record --package "<output review package>" --mp4 "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4" --post-qa-report "<post-render-qa가 반환한 report 경로>" --reviewer "<reviewer>" --evidence-reference "<review evidence>" --check caption_layout_reviewed --check privacy_reviewed --check review_capture_reviewed --check voice_caption_visual_sync_reviewed --check hook_and_cta_reviewed
 ```
 
 이 명령은 최종 승인자가 아니라 증거 기록자입니다.

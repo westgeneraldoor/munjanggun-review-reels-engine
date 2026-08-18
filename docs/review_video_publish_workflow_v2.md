@@ -354,8 +354,11 @@ literal_qa_result: 화면에 문턱/턱/레일/단차 없음. 통과.
 렌더는 내부 renderer를 직접 호출하지 않고 공식 오케스트레이터를 사용합니다.
 
 ```powershell
+python scripts/produce_review_v2.py html-approval-record --package "<output review package>" --html "<html_preview>/index.html" --approved-by "<user>" --evidence-reference "<explicit HTML approval>"
+python scripts/produce_review_v2.py render-approval-record --package "<output review package>" --html "<html_preview>/index.html" --approved-by "<user>" --evidence-reference "<explicit MP4 approval>"
 python scripts/produce_review_v2.py render-start --package "<output review package>" --html "<html_preview>/index.html" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --out "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4"
 python scripts/produce_review_v2.py render-status --package "<output review package>" --job-id "<job-id>"
+python scripts/produce_review_v2.py post-render-qa --package "<output review package>" --job-id "<job-id>"
 ```
 
 `render-start`는 호출 세션과 분리된 작업 ID를 즉시 반환합니다. `render-status`가

@@ -107,6 +107,10 @@ def _artifact_kind(path: Path) -> str | None:
         return "status"
     if name == "approval_log.md":
         return "approval_log"
+    if name == "html_approval.json":
+        return "html_approval"
+    if name == "mp4_render_approval.json":
+        return "mp4_render_approval"
     if name == "render_post_qa_report.json":
         return "post_render_qa"
     if "manual_reviews" in parts and name.startswith("voice_review_") and name.endswith(".json"):

@@ -37,6 +37,7 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _PRIVACY_INSPECTION_CATEGORIES = {"face", "vehicle_plate", "address", "family_photo"}
 HTML_ARTIFACT_EVIDENCE_FILENAME = "html_artifact_evidence.json"
 HTML_APPROVAL_EVIDENCE_FILENAME = "HTML_APPROVAL.json"
+MP4_RENDER_APPROVAL_EVIDENCE_FILENAME = "MP4_RENDER_APPROVAL.json"
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ENGINE_FONT_RELATIVE_PATH = "nelnasamchae.ttf"
 ENGINE_FONT_PATH = REPOSITORY_ROOT / DEFAULT_ENGINE_FONT_RELATIVE_PATH
@@ -1050,6 +1051,46 @@ def _validate_html_approval_binding(package_dir: Path, html_path: Path) -> dict[
     }
 
 
+def _validate_mp4_approval_binding(
+    package_dir: Path,
+    html_path: Path,
+    html_binding: dict[str, str],
+) -> dict[str, str]:
+    package = package_dir.resolve()
+    html = _ensure_inside(package, html_path, outside_code="HTML_OUTSIDE_PACKAGE")
+    approval_path = package / MP4_RENDER_APPROVAL_EVIDENCE_FILENAME
+    approval = _read_json(
+        approval_path,
+        missing_code="MP4_APPROVAL_EVIDENCE_MISSING",
+        invalid_code="MP4_APPROVAL_EVIDENCE_INVALID",
+    )
+    _require_package_identity(
+        approval.get("package_identity"),
+        package,
+        invalid_code="MP4_APPROVAL_EVIDENCE_INVALID",
+        mismatch_code="MP4_APPROVAL_PACKAGE_MISMATCH",
+    )
+    if (
+        approval.get("schema_version") != "review-reel-mp4-render-approval-v1"
+        or approval.get("html_relative_path") != html.relative_to(package).as_posix()
+        or approval.get("html_sha256") != _sha256(html)
+        or approval.get("html_approval_relative_path") != HTML_APPROVAL_EVIDENCE_FILENAME
+        or approval.get("html_approval_sha256") != html_binding["html_approval_sha256"]
+        or approval.get("approved_by_user") is not True
+        or not isinstance(approval.get("approved_at"), str)
+        or not approval["approved_at"].strip()
+        or not isinstance(approval.get("approved_by"), str)
+        or not approval["approved_by"].strip()
+        or not isinstance(approval.get("approval_evidence_reference"), str)
+        or not approval["approval_evidence_reference"].strip()
+    ):
+        raise GateViolation("MP4_APPROVAL_EVIDENCE_INVALID")
+    return {
+        "mp4_render_approval_path": str(approval_path),
+        "mp4_render_approval_sha256": _sha256(approval_path),
+    }
+
+
 def validate_render_gate(
     *,
     package_dir: str | Path,
@@ -1075,6 +1116,7 @@ def validate_render_gate(
     _require_html_approval(package)
     _require_mp4_approval(package)
     html_binding = _validate_html_approval_binding(package, html)
+    mp4_approval_binding = _validate_mp4_approval_binding(package, html, html_binding)
     privacy_path = _ensure_inside(package, Path(privacy_manifest_path), outside_code="PRIVACY_MANIFEST_OUTSIDE_PACKAGE")
     sync_path = _ensure_inside(package, Path(sync_manifest_path), outside_code="SYNC_MANIFEST_OUTSIDE_PACKAGE")
     payload = _read_json(sync_path, missing_code="SYNC_MANIFEST_MISSING", invalid_code="SYNC_MANIFEST_INVALID")
@@ -1111,6 +1153,7 @@ def validate_render_gate(
         "package_path": str(package),
         "html_path": str(html),
         **html_binding,
+        **mp4_approval_binding,
         "output_path": str(output),
         "preset": dict(FINAL_RENDER_PRESET),
         "sync_manifest_path": str(sync_path),

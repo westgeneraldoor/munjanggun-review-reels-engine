@@ -13,6 +13,7 @@ from PIL import Image, ImageDraw
 
 from video_engine_v2.review_reel_intake import (
     IntakeViolation,
+    active_package_status,
     build_one_shot_html_commands,
     create_canonical_package,
     create_canonical_package_from_material_bank,
@@ -1193,6 +1194,109 @@ class ReviewReelIntakeTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["workflow"], "review_reel_production")
+
+    def test_cli_status_exposes_active_identity_and_next_safe_action(self):
+        package = self.create()
+        script = Path(__file__).resolve().parents[1] / "scripts" / "review_reel_intake.py"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "status",
+                "--output-root",
+                str(self.output_root),
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        status = json.loads(result.stdout)
+        self.assertEqual(status["workflow"], "review_reel_production")
+        self.assertEqual(status["content_id"], "004")
+        self.assertEqual(status["lifecycle_state"], "photo_intake_pending")
+        self.assertEqual(Path(status["package"]), package.package_dir)
+        self.assertEqual(status["next_action"], "place_photos_then_run_photo_review")
+
+    def test_active_status_never_sends_a_completed_package_back_to_tts(self):
+        self.create()
+        completed_state = {
+            "render_artifact_present": True,
+            "render_complete": True,
+            "qa_reviewed": True,
+            "final_delivery_complete": True,
+            "html_approved": True,
+            "mp4_render_approved": True,
+        }
+
+        with patch("video_engine_v2.package_state.map_legacy_package", return_value=completed_state):
+            status = active_package_status(self.output_root)
+
+        self.assertEqual(status["render_complete"], True)
+        self.assertEqual(status["qa_reviewed"], True)
+        self.assertEqual(status["final_delivery_complete"], True)
+        self.assertEqual(status["next_action"], "no_action_final_delivery_complete")
+
+    def test_photo_review_cli_rejects_stale_active_identity_before_reading_evidence(self):
+        self.create()
+        script = Path(__file__).resolve().parents[1] / "scripts" / "review_reel_intake.py"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "photo-review",
+                "--output-root",
+                str(self.output_root),
+                "--expected-content-id",
+                "999",
+                "--selection",
+                str(self.root / "missing-selection.json"),
+                "--privacy-manifest",
+                str(self.root / "missing-privacy.json"),
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("ACTIVE_PACKAGE_CONTENT_ID_MISMATCH", result.stderr)
+        self.assertNotIn("PHOTO_SELECTION_MISSING", result.stderr)
+
+    def test_one_shot_cli_rejects_stale_active_identity_before_reading_recipes(self):
+        self.create()
+        script = Path(__file__).resolve().parents[1] / "scripts" / "review_reel_intake.py"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "one-shot-html",
+                "--output-root",
+                str(self.output_root),
+                "--expected-content-id",
+                "999",
+                "--planning",
+                str(self.root / "missing-planning.json"),
+                "--edit",
+                str(self.root / "missing-edit.json"),
+                "--privacy-manifest",
+                str(self.root / "missing-privacy.json"),
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("ACTIVE_PACKAGE_CONTENT_ID_MISMATCH", result.stderr)
+        self.assertNotIn("PLANNING_RECIPE_MISSING", result.stderr)
 
 
 if __name__ == "__main__":

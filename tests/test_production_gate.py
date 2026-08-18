@@ -434,6 +434,21 @@ class ProductionGateTests(unittest.TestCase):
             approval.pop("html_sha256")
         approval_path = self.package / "HTML_APPROVAL.json"
         approval_path.write_text(json.dumps(approval), encoding="utf-8")
+        render_approval = {
+            "schema_version": "review-reel-mp4-render-approval-v1",
+            "package_identity": {"package_path": str(self.package), "package_name": self.package.name},
+            "html_relative_path": html_relative_path,
+            "html_sha256": html_hash,
+            "html_approval_relative_path": "HTML_APPROVAL.json",
+            "html_approval_sha256": hashlib.sha256(approval_path.read_bytes()).hexdigest(),
+            "approved_by_user": True,
+            "approved_at": "2030-01-02T03:07:05Z",
+            "approved_by": "fixture-user",
+            "approval_evidence_reference": "fixture-render-approval",
+        }
+        (self.package / "MP4_RENDER_APPROVAL.json").write_text(
+            json.dumps(render_approval), encoding="utf-8"
+        )
         return artifact_path, approval_path
 
     def test_render_gate_reuses_the_hash_bound_one_shot_contract_without_inventing_pd_approval(self):
@@ -464,6 +479,10 @@ class ProductionGateTests(unittest.TestCase):
         approval = json.loads(approval_path.read_text(encoding="utf-8"))
         approval["html_artifact_evidence_sha256"] = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
         approval_path.write_text(json.dumps(approval), encoding="utf-8")
+        render_approval_path = self.package / "MP4_RENDER_APPROVAL.json"
+        render_approval = json.loads(render_approval_path.read_text(encoding="utf-8"))
+        render_approval["html_approval_sha256"] = hashlib.sha256(approval_path.read_bytes()).hexdigest()
+        render_approval_path.write_text(json.dumps(render_approval), encoding="utf-8")
 
     def render_dependencies(self):
         artifact_path = self.html.parent / "html_artifact_evidence.json"
@@ -1157,6 +1176,19 @@ class ProductionGateTests(unittest.TestCase):
             self.render_gate()
 
         self.assertIn("HTML_APPROVAL_PACKAGE_MISMATCH", str(raised.exception))
+        self.assert_no_render_artifacts()
+
+    def test_render_gate_rejects_tampered_mp4_approval_evidence(self):
+        self.write_bound_html_approval()
+        render_approval_path = self.package / "MP4_RENDER_APPROVAL.json"
+        render_approval = json.loads(render_approval_path.read_text(encoding="utf-8"))
+        render_approval["html_sha256"] = "0" * 64
+        render_approval_path.write_text(json.dumps(render_approval), encoding="utf-8")
+
+        with self.assertRaises(GateViolation) as raised:
+            self.render_gate()
+
+        self.assertIn("MP4_APPROVAL_EVIDENCE_INVALID", str(raised.exception))
         self.assert_no_render_artifacts()
 
     def test_render_gate_rechecks_privacy_asset_hash_immediately_before_render(self):
