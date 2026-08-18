@@ -434,6 +434,7 @@ const { chromium } = require('playwright');
                         "quote": "recommended a style that suited our home",
                         "start_sec": 1.0,
                         "end_sec": 3.0,
+                        "draw_duration_sec": 0.15,
                         "segments": [{"left_pct": 10.0, "top_pct": 54.0, "width_pct": 70.0}],
                     },
                 }
@@ -457,9 +458,9 @@ const { chromium } = require('playwright');
     const before = line && line.style.transform;
     const lineHeight = line && getComputedStyle(line).height;
     const lineShadow = line && getComputedStyle(line).boxShadow;
-    renderAt(2);
+    renderAt(1.075);
     const during = line && line.style.transform;
-    renderAt(3.5);
+    renderAt(1.3);
     return {
       before,
       during,
@@ -555,7 +556,7 @@ const { chromium } = require('playwright');
                 "caption_chunks": [{"text": "finished door", "start_sec": 0.0, "end_sec": 4.0}],
                 "caption_layout": {"size": "hero-calm", "theme": "white"},
                 "caption_emphasis": ["door"],
-                "caption_accent": {"enabled": True, "style": "result", "delay_ms": 90},
+                "caption_accent": {"enabled": True, "style": "result", "start_sec": 1.5},
             }],
         }
         hero = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E%23hero"
@@ -576,16 +577,64 @@ const { chromium } = require('playwright');
     const keyword = document.querySelector('#caption .em');
     return {opacity: keyword.style.opacity, transform: keyword.style.transform};
   }, time);
-  const before = await sample(0.40);
-  const peak = await sample(0.751);
-  const settled = await sample(1.00);
+  const before = await sample(1.40);
+  const peak = await sample(1.731);
+  const settled = await sample(2.00);
   await page.waitForTimeout(600);
-  const sameVideoTimeAfterWallClockWait = await sample(0.40);
+  const sameVideoTimeAfterWallClockWait = await sample(1.40);
   await browser.close();
   if (before.opacity !== '0.78' || before.transform !== 'translateY(4px) scale(0.94)') process.exit(2);
   if (peak.opacity !== '1' || peak.transform !== 'translateY(-5px) scale(1.1)') process.exit(3);
   if (settled.opacity !== '1' || settled.transform !== 'translateY(0px) scale(1)') process.exit(4);
   if (JSON.stringify(sameVideoTimeAfterWallClockWait) !== JSON.stringify(before)) process.exit(5);
+})().catch(error => { console.error(error); process.exit(1); });
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / "preview.html"
+            html_path.write_text(html, encoding="utf-8")
+            result = subprocess.run(
+                ["node", "-e", browser_check, html_path.as_uri()],
+                cwd=TEMPLATE_PATH.parent.parent.parent,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+    def test_caption_chunk_renders_canonical_display_text_without_changing_spoken_text(self):
+        recipe = {
+            "title": "display text test",
+            "audio_plan": {"sync_policy": {"final_voice_duration_sec": 4.0}},
+            "asset_roles": {"hero": "hero.jpg"},
+            "beats": [{
+                "id": "b01", "phase": "result", "time": [0.0, 4.0],
+                "asset": "hero", "motion": "calm_push_in", "transition_in": "cut",
+                "caption": "초슬림 3연동중문",
+                "caption_chunks": [{
+                    "text": "초슬림 삼 연동 중문",
+                    "display_text": "초슬림 3연동중문",
+                    "start_sec": 0.0,
+                    "end_sec": 4.0,
+                }],
+            }],
+        }
+        hero = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E%23hero"
+        html = render_preview_html(
+            recipe=recipe,
+            asset_urls={"hero": hero, "voice": "data:audio/mp3;base64,", "font_body": "data:font/woff2;base64,"},
+            preview_title="display text test",
+            preview_description="display text test",
+        )
+        browser_check = r"""
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  await page.goto(process.argv[1] + '?t=1');
+  const text = await page.locator('#caption').innerText();
+  await browser.close();
+  if (text !== '초슬림 3연동중문') process.exit(2);
 })().catch(error => { console.error(error); process.exit(1); });
 """
         with tempfile.TemporaryDirectory() as temp_dir:

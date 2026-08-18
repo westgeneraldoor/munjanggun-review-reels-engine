@@ -12,6 +12,23 @@
 
 닫힌 어휘 위반은 `PHOTO_PRIVACY_CATEGORY_INVALID`, 마스킹 우선 위반은 `MASKING_FIRST_NOT_APPLIED`로 HTML 이전에 실패합니다.
 
+### 리뷰 캡처 증거 구도 보존
+
+리뷰 캡처는 일반 사진이 아니라 리뷰 원문과 출처 맥락을 함께 보여 주는 증거다.
+**사용자가 제공한 전체 구도**와 해상도를 그대로 유지하며, 실제로 남아 있는 주문번호·
+전화번호·호수 같은 식별 영역만 최소 마스킹한다. 작성자 아이디처럼 이미 `**`로 익명화된
+문자열은 개인정보 위험으로 다시 판정하거나 덧가리지 않는다.
+
+- `evidence_classes`에 `review_capture`가 있는 사용 asset은 `review_capture_integrity`를 필수로 기록한다.
+- `composition_preserved: true`, `pre_masked_identifiers_preserved: true`와 실제 `localized_mask_regions`를 결속한다.
+- 리뷰 캡처의 crop·resize·확대·본문만 재구성은 금지한다. 원본과 선택본의 실제 픽셀 크기가 같아야 한다.
+- 선언한 작은 마스킹 영역 밖의 픽셀이 바뀌면 실패한다. 전체 마스킹 면적도 화면의 12%를 넘을 수 없다.
+- 구도 훼손은 `REVIEW_CAPTURE_COMPOSITION_CHANGED`, crop·교체 시도는 `REVIEW_CAPTURE_CROP_FORBIDDEN`, 이미 익명화된 식별자를 보존하지 않았다는 판정은 `REVIEW_CAPTURE_PREMASKED_ID_TOUCHED`로 실패한다.
+
+```json
+{"evidence_classes":["review_capture"],"privacy_status":"sanitized","privacy_risk_categories":["order_information"],"remediation":{"action":"mask"},"review_capture_integrity":{"composition_preserved":true,"pre_masked_identifiers_preserved":true,"localized_mask_regions":[{"category":"order_information","x_px":78,"y_px":36,"width_px":156,"height_px":13}]}}
+```
+
 accepted selection은 파일 자체에 `revision`, `supersedes_revision`, `revision_reason`,
 `revision_changes`를 기록합니다. revision은 현재 활성 검수에서 정확히 1씩 증가해야 하며,
 사유와 변경 요약도 selection SHA-256에 함께 결속됩니다. 이미 승인된 selection 파일을
@@ -60,7 +77,7 @@ accepted selection은 파일 자체에 `revision`, `supersedes_revision`, `revis
 
 ```text
 - 차량번호: 번호판만 가리고 사진은 사용한다. 사진 자체를 제외하는 것이 기본이 아니다.
-- 리뷰 캡처: 반드시 사용한다. 상품주문번호·작성자 계정·프로필 이미지 등 가릴 것만 가린다.
+- 리뷰 캡처: 반드시 사용한다. 사용자 제공 구도는 유지하고, 아직 노출된 상품주문번호·식별 가능한 프로필 이미지 등 가릴 것만 가린다. 이미 `**` 처리된 작성자 아이디는 그대로 둔다.
 - 호수 표식: 해당 영역만 가리거나 크롭한다.
 ```
 

@@ -59,8 +59,9 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
         review_beat = fixture["edit"]["beats"][6]
         review_beat["review_emphasis"] = {
             "quote": quote or fixture["planning"]["review_source"]["review_quote_for_proof"],
-            "start_sec": 25.0,
+            "start_sec": 24.05,
             "end_sec": 26.2,
+            "draw_duration_sec": 0.15,
             "segments": [{"left_pct": 12.0, "top_pct": 54.0, "width_pct": 70.0}],
         }
 
@@ -206,6 +207,42 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
 
         self.assertIn("ONE_SHOT_CAPTION_CHUNKS_REQUIRED", {issue["code"] for issue in result["issues"]})
 
+    def test_contract_allows_four_complete_caption_phrases_instead_of_crossing_a_sentence_boundary(self):
+        fixture = load_fixture()
+        beat = fixture["edit"]["beats"][2]
+        narration = (
+            "화이트 프레임, 은은한 불투명 유리, 초슬림 삼 연동 중문. "
+            "닫아 두면 신발장 쪽이 바로 보이지 않아 한결 깔끔했고요."
+        )
+        beat["narration_ref"] = narration
+        beat["caption_chunks"] = [
+            {"text": "화이트 프레임, 은은한 불투명 유리,", "start_sec": 8.0, "end_sec": 9.0},
+            {"text": "초슬림 삼 연동 중문.", "start_sec": 9.0, "end_sec": 10.0},
+            {"text": "닫아 두면 신발장 쪽이 바로 보이지 않아", "start_sec": 10.0, "end_sec": 11.4},
+            {"text": "한결 깔끔했고요.", "start_sec": 11.4, "end_sec": 12.0},
+        ]
+        beat["caption_focus_keywords"] = ["깔끔"]
+        beat["caption_emphasis"] = ["깔끔"]
+        beat["caption_accent"] = {"enabled": True, "style": "soft", "start_sec": 11.58}
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+        codes = {issue["code"] for issue in result["issues"]}
+
+        self.assertNotIn("CAPTION_CHUNK_DENSITY_EXCESSIVE", codes)
+        self.assertNotIn("CAPTION_CHUNK_CONTEXT_TOO_THIN", codes)
+
+    def test_contract_rejects_a_caption_chunk_that_crosses_a_finished_sentence(self):
+        fixture = load_fixture()
+        beat = fixture["edit"]["beats"][1]
+        beat["narration_ref"] = "Daily route. Needed care."
+        beat["caption_chunks"] = [
+            {"text": "Daily route. Needed care.", "start_sec": 4.0, "end_sec": 8.0},
+        ]
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("CAPTION_CHUNK_SENTENCE_BOUNDARY_INVALID", {issue["code"] for issue in result["issues"]})
+
     def test_contract_rejects_aggressive_one_shot_photo_motion(self):
         fixture = load_fixture()
         fixture["edit"]["beats"][1]["shots"][0].update(
@@ -237,6 +274,59 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
 
         self.assertIn("HOOK_SHOT_TOO_SHORT", codes)
         self.assertIn("HOOK_TRANSITION_SEQUENCE_INVALID", codes)
+
+    def test_contract_rejects_hook_visual_changes_that_cross_caption_claim_boundaries(self):
+        fixture = load_fixture()
+        fixture["edit"]["beats"][0]["caption_chunks"] = [
+            {
+                "text": "Clear now. Before blocked. Works now.",
+                "start_sec": 0.0,
+                "end_sec": 4.0,
+            },
+        ]
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("HOOK_SHOT_CAPTION_ALIGNMENT_INVALID", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_reports_malformed_hook_claim_times_without_crashing(self):
+        fixture = load_fixture()
+        fixture["edit"]["beats"][0]["caption_chunks"][1]["start_sec"] = "not-a-time"
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("HOOK_SHOT_CAPTION_ALIGNMENT_INVALID", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_requires_each_hook_shot_to_bind_meaning_evidence_to_its_asset(self):
+        for source in (None, "asset_evidence:after_main; narration_fragment:Before blocked."):
+            with self.subTest(source=source):
+                fixture = load_fixture()
+                shot = fixture["edit"]["beats"][0]["shots"][1]
+                if source is None:
+                    shot.pop("meaning_match_source", None)
+                else:
+                    shot["meaning_match_source"] = source
+
+                result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+                self.assertIn(
+                    "HOOK_SHOT_MEANING_EVIDENCE_MISSING",
+                    {issue["code"] for issue in result["issues"]},
+                )
+
+    def test_contract_warns_when_a_long_photo_edit_recycles_too_few_available_assets(self):
+        fixture = load_fixture()
+        repeated = fixture["edit"]["beats"][1]["shots"][0]["asset_id"]
+        for beat in fixture["edit"]["beats"][1:]:
+            for shot in beat["shots"]:
+                if shot["asset_id"] != "review_capture":
+                    shot["asset_id"] = repeated
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        variety = [issue for issue in result["issues"] if issue["code"] == "PHOTO_VARIETY_LOW"]
+        self.assertEqual(1, len(variety))
+        self.assertEqual("warn", variety[0]["severity"])
 
     def test_contract_keeps_review_proof_still(self):
         fixture = load_fixture()
@@ -271,6 +361,39 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
         result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
 
         self.assertIn("CAPTION_EMPHASIS_DENSITY_INVALID", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_rejects_small_non_hook_captions_that_shrink_during_the_story(self):
+        fixture = load_fixture()
+        fixture["edit"]["beats"][1]["caption_layout"].update({"size": "small", "min_font_px": 36})
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("ONE_SHOT_BODY_CAPTION_SIZE_INCONSISTENT", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_rejects_an_accent_that_starts_before_the_spoken_keyword(self):
+        fixture = load_fixture()
+        beat = fixture["edit"]["beats"][1]
+        beat["caption_emphasis"] = ["attention"]
+        beat["caption_accent"] = {"enabled": True, "style": "event", "start_sec": 4.2}
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("CAPTION_ACCENT_VOICE_SYNC_INVALID", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_allows_numeric_product_display_text_only_when_it_matches_the_spoken_words(self):
+        fixture = load_fixture()
+        chunk = fixture["edit"]["beats"][0]["caption_chunks"][0]
+        chunk["text"] = "초슬림 삼 연동 중문"
+        chunk["display_text"] = "초슬림 3연동중문"
+        fixture["edit"]["beats"][0]["narration_ref"] = "초슬림 삼 연동 중문"
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertNotIn("CAPTION_DISPLAY_TEXT_MISMATCH", {issue["code"] for issue in result["issues"]})
+
+        chunk["display_text"] = "초슬림 4연동중문"
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+        self.assertIn("CAPTION_DISPLAY_TEXT_MISMATCH", {issue["code"] for issue in result["issues"]})
 
     def test_contract_keeps_the_completed_result_visible_at_the_end(self):
         fixture = load_fixture()
@@ -319,6 +442,15 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
         result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
 
         self.assertIn("REVIEW_EMPHASIS_SEGMENT_INVALID", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_requires_the_review_underline_to_draw_immediately(self):
+        fixture = load_fixture()
+        review = fixture["edit"]["beats"][6]
+        review["review_emphasis"].update({"start_sec": 25.0, "draw_duration_sec": 1.5})
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("REVIEW_EMPHASIS_NOT_IMMEDIATE", {issue["code"] for issue in result["issues"]})
 
     def test_contract_rejects_an_unknown_caption_theme(self):
         fixture = load_fixture()

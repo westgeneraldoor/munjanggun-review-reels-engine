@@ -822,15 +822,20 @@ ONE_SHOT_CALM_MOTIONS = {
     "review_capture_hold", "static_hold",
 }
 ONE_SHOT_CALM_TRANSITIONS = {"calm_dissolve", "cut"}
-ONE_SHOT_CAPTION_SIZES = {"small", "medium", "large", "hero-calm"}
+ONE_SHOT_BODY_CAPTION_SIZE = "medium"
+MIN_ONE_SHOT_BODY_CAPTION_FONT_PX = 44
+CAPTION_ACCENT_ONSET_EARLY_TOLERANCE_SEC = 0.20
+CAPTION_ACCENT_ONSET_LATE_TOLERANCE_SEC = 0.45
+MAX_REVIEW_UNDERLINE_START_DELAY_SEC = 0.10
+MAX_REVIEW_UNDERLINE_DRAW_SEC = 0.20
 CALM_DISSOLVE_MS = 380
 CALM_SCALE_DELTA = 0.05
 CALM_HORIZONTAL_TRAVEL_PX = 24
 CALM_VERTICAL_TRAVEL_PX = 20
 CAPTION_SAFE_TOP_PX = 220
 CAPTION_SAFE_BOTTOM_PX = 1470
-MAX_CONTEXTUAL_CAPTION_CHUNKS = 3
-MIN_CONTEXTUAL_CAPTION_CHARS = 8
+MAX_CONTEXTUAL_CAPTION_CHUNKS = 4
+MIN_CONTEXTUAL_CAPTION_CHARS = 7
 MIN_ONE_SHOT_HOOK_SHOT_SEC = 1.0
 MIN_ONE_SHOT_FINAL_RESULT_SEC = 2.5
 
@@ -920,6 +925,33 @@ def _validate_result_first_hook_contract(edit_recipe: dict[str, Any]) -> list[di
             )
         )
 
+    evidence = edit_recipe.get("asset_evidence") or {}
+    available_photo_assets = {
+        _as_text(asset_id).strip()
+        for asset_id, metadata in evidence.items()
+        if isinstance(metadata, dict)
+        and _as_text(metadata.get("evidence_class")).strip() != "review_capture"
+        and _as_text(asset_id).strip()
+    }
+    non_review_shots = [
+        shot
+        for beat in beats
+        for shot in beat.get("shots") or []
+        if isinstance(shot, dict) and _as_text(shot.get("asset_id")).strip() in available_photo_assets
+    ]
+    used_photo_assets = {_as_text(shot.get("asset_id")).strip() for shot in non_review_shots}
+    if len(non_review_shots) >= 8:
+        minimum_distinct = min(6, len(available_photo_assets), (len(non_review_shots) + 1) // 2)
+        if len(used_photo_assets) < minimum_distinct:
+            issues.append(
+                _issue(
+                    "PHOTO_VARIETY_LOW",
+                    "A long photo edit is recycling too few of the available narrative-safe assets: "
+                    f"used {len(used_photo_assets)}, expected at least {minimum_distinct} distinct photos.",
+                    severity="warn",
+                )
+            )
+
     contract = edit_recipe.get("hook_visual_contract")
     if not isinstance(contract, dict):
         return issues + [_issue("RESULT_FIRST_HOOK_MISSING", "hook_visual_contract is required.")]
@@ -939,6 +971,49 @@ def _validate_result_first_hook_contract(edit_recipe: dict[str, Any]) -> list[di
                 scene_id=_as_text(first_beat.get("id") or "scene_01"),
             )
         )
+
+    caption_chunks = first_beat.get("caption_chunks") or []
+    opening_shots = shots[:3] if isinstance(shots, list) else []
+    if len(opening_shots) == 3:
+        aligned = len(caption_chunks) == 3
+        if aligned:
+            for shot, chunk in zip(opening_shots, caption_chunks):
+                if not isinstance(shot, dict) or not isinstance(chunk, dict):
+                    aligned = False
+                    break
+                try:
+                    shot_start = float(shot["start_sec"])
+                    shot_end = float(shot["end_sec"])
+                    chunk_start = float(chunk["start_sec"])
+                    chunk_end = float(chunk["end_sec"])
+                except (KeyError, TypeError, ValueError):
+                    aligned = False
+                    break
+                if abs(shot_start - chunk_start) > 0.001 or abs(shot_end - chunk_end) > 0.001:
+                    aligned = False
+                    break
+        if not aligned:
+            issues.append(
+                _issue(
+                    "HOOK_SHOT_CAPTION_ALIGNMENT_INVALID",
+                    "Each result-before-result hook shot must match one complete spoken caption claim at the same times.",
+                    scene_id=_as_text(first_beat.get("id") or "scene_01"),
+                )
+            )
+
+        for index, shot in enumerate(opening_shots):
+            if not isinstance(shot, dict):
+                continue
+            shot_asset_id = _as_text(shot.get("asset_id")).strip()
+            evidence = _as_text(shot.get("meaning_match_source")).strip()
+            if not evidence or f"asset_evidence:{shot_asset_id}" not in evidence or "narration_fragment:" not in evidence:
+                issues.append(
+                    _issue(
+                        "HOOK_SHOT_MEANING_EVIDENCE_MISSING",
+                        f"Hook shots[{index}] must bind its asset and spoken narration fragment as meaning evidence.",
+                        scene_id=_as_text(first_beat.get("id") or "scene_01"),
+                    )
+                )
     return issues
 
 
@@ -1077,11 +1152,23 @@ def _validate_one_shot_visual_edit_contract(edit_recipe: dict[str, Any]) -> list
         if beat_index == 0:
             if size != "hero-calm":
                 issues.append(_issue("HOOK_CAPTION_SIZE_INVALID", "The opening caption must use hero-calm.", scene_id=scene_id))
-        elif size not in ONE_SHOT_CAPTION_SIZES - {"hero-calm"}:
+        elif size != ONE_SHOT_BODY_CAPTION_SIZE:
             issues.append(
                 _issue(
-                    "ONE_SHOT_CAPTION_SIZE_INVALID",
-                    "Non-hook one-shot captions must use small, medium, or large.",
+                    "ONE_SHOT_BODY_CAPTION_SIZE_INCONSISTENT",
+                    "Non-hook one-shot captions must keep the medium body size instead of shrinking during the story.",
+                    scene_id=scene_id,
+                )
+            )
+        try:
+            minimum_font_px = float(layout.get("min_font_px"))
+        except (TypeError, ValueError):
+            minimum_font_px = 0.0
+        if beat_index > 0 and minimum_font_px < MIN_ONE_SHOT_BODY_CAPTION_FONT_PX:
+            issues.append(
+                _issue(
+                    "ONE_SHOT_BODY_CAPTION_SIZE_INCONSISTENT",
+                    f"Non-hook one-shot captions need at least {MIN_ONE_SHOT_BODY_CAPTION_FONT_PX}px.",
                     scene_id=scene_id,
                 )
             )
@@ -1109,6 +1196,52 @@ def _validate_one_shot_visual_edit_contract(edit_recipe: dict[str, Any]) -> list
                     scene_id=scene_id,
                 )
             )
+        elif isinstance(emphasis, list) and len(emphasis) == 1:
+            keyword = _compact_text(emphasis[0]).casefold()
+            matching_chunk = None
+            keyword_index = -1
+            for chunk in caption_chunks if isinstance(caption_chunks, list) else []:
+                if not isinstance(chunk, dict):
+                    continue
+                display_text = _as_text(chunk.get("display_text") or chunk.get("text"))
+                compact_display = _compact_text(display_text).casefold()
+                candidate_index = compact_display.find(keyword)
+                if keyword and candidate_index >= 0:
+                    matching_chunk = chunk
+                    keyword_index = candidate_index
+                    break
+            try:
+                accent_start = float(accent.get("start_sec"))
+                chunk_start = float(matching_chunk["start_sec"])
+                chunk_end = float(matching_chunk["end_sec"])
+                compact_display = _compact_text(
+                    matching_chunk.get("display_text") or matching_chunk.get("text")
+                ).casefold()
+                estimated_onset = chunk_start + (chunk_end - chunk_start) * (
+                    keyword_index / max(len(compact_display), 1)
+                )
+            except (KeyError, TypeError, ValueError):
+                issues.append(
+                    _issue(
+                        "CAPTION_ACCENT_VOICE_SYNC_INVALID",
+                        "Caption accent needs an absolute start_sec bound to the chunk containing its spoken keyword.",
+                        scene_id=scene_id,
+                    )
+                )
+            else:
+                if (
+                    accent_start < chunk_start - 0.001
+                    or accent_start > chunk_end + 0.001
+                    or accent_start < estimated_onset - CAPTION_ACCENT_ONSET_EARLY_TOLERANCE_SEC
+                    or accent_start > estimated_onset + CAPTION_ACCENT_ONSET_LATE_TOLERANCE_SEC
+                ):
+                    issues.append(
+                        _issue(
+                            "CAPTION_ACCENT_VOICE_SYNC_INVALID",
+                            "Caption accent start_sec must follow the estimated spoken onset of its keyword.",
+                            scene_id=scene_id,
+                        )
+                    )
 
         for shot_index, shot in enumerate(shots):
             if not isinstance(shot, dict):
@@ -1247,6 +1380,21 @@ def _validate_review_emphasis_contract(
     else:
         if end <= start or start < beat_start - 0.001 or end > beat_end + 0.001:
             issues.append(_issue("REVIEW_EMPHASIS_TIME_INVALID", "Review emphasis timing must stay inside the review beat."))
+        try:
+            draw_duration = float(emphasis["draw_duration_sec"])
+        except (KeyError, TypeError, ValueError):
+            draw_duration = 0.0
+        if (
+            start - beat_start > MAX_REVIEW_UNDERLINE_START_DELAY_SEC + 0.001
+            or draw_duration <= 0
+            or draw_duration > MAX_REVIEW_UNDERLINE_DRAW_SEC + 0.001
+        ):
+            issues.append(
+                _issue(
+                    "REVIEW_EMPHASIS_NOT_IMMEDIATE",
+                    "The review underline must begin with the review scene and finish drawing within 0.20 seconds.",
+                )
+            )
 
     segments = emphasis.get("segments")
     if not isinstance(segments, list) or not 1 <= len(segments) <= 3:
@@ -1278,7 +1426,7 @@ def _validate_caption_chunks(beat: dict[str, Any], scene_id: str) -> list[dict[s
         issues.append(
             _issue(
                 "CAPTION_CHUNK_DENSITY_EXCESSIVE",
-                "A beat may use at most three contextual caption phrases.",
+                "A beat may use at most four contextual caption phrases.",
                 scene_id=scene_id,
             )
         )
@@ -1304,6 +1452,28 @@ def _validate_caption_chunks(beat: dict[str, Any], scene_id: str) -> list[dict[s
         if not isinstance(chunk, dict) or not _as_text(chunk.get("text")).strip():
             issues.append(_issue("CAPTION_CHUNKS_INVALID", f"caption_chunks[{index}] needs text.", scene_id=scene_id))
             continue
+        chunk_text = _as_text(chunk.get("text")).strip()
+        if re.search(r"[.!?。！？]\s*\S", chunk_text):
+            issues.append(
+                _issue(
+                    "CAPTION_CHUNK_SENTENCE_BOUNDARY_INVALID",
+                    f"caption_chunks[{index}] must end when a spoken sentence ends.",
+                    scene_id=scene_id,
+                )
+            )
+        display_text = chunk.get("display_text")
+        if display_text is not None:
+            digit_words = str.maketrans({"0": "영", "1": "일", "2": "이", "3": "삼", "4": "사", "5": "오", "6": "육", "7": "칠", "8": "팔", "9": "구"})
+            spoken_key = re.sub(r"[^0-9A-Za-z가-힣]", "", _as_text(chunk.get("text"))).translate(digit_words).casefold()
+            display_key = re.sub(r"[^0-9A-Za-z가-힣]", "", _as_text(display_text)).translate(digit_words).casefold()
+            if not display_key or display_key != spoken_key:
+                issues.append(
+                    _issue(
+                        "CAPTION_DISPLAY_TEXT_MISMATCH",
+                        f"caption_chunks[{index}].display_text may normalize number glyphs and spacing only.",
+                        scene_id=scene_id,
+                    )
+                )
         readable_chars = len(re.sub(r"[^0-9A-Za-z가-힣]", "", _as_text(chunk.get("text"))))
         if len(chunks) > 1 and readable_chars < MIN_CONTEXTUAL_CAPTION_CHARS:
             issues.append(

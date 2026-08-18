@@ -6,6 +6,10 @@ edit recipe의 `asset_evidence`는 각 `asset_roles` 항목의 주 역할을 `ev
 
 실측(`measurement`)과 공정(`installation_process`)은 리뷰 원문이나 대본이 해당 사실을 주장할 때만 사용 증거가 필수입니다. 소스에 고가치 증거가 있지만 쓰지 않으면 `unused_reason`을 기록합니다. 이 계약을 어기면 `HOOK_RESULT_NOT_FULLY_VISIBLE`, `CLAIM_EVIDENCE_MISSING`, `UNUSED_HIGH_VALUE_EVIDENCE_REASON_MISSING`으로 실패합니다.
 
+사진 shot이 8개 이상인 긴 편집은 사용 가능한 비리뷰 근거 자산 중 최소
+`min(6, 사용 가능 자산 수, ceil(사진 shot 수 / 2))`개를 쓰는지 검사합니다. 부족하면
+`PHOTO_VARIETY_LOW` 경고를 내지만, 이야기와 무관한 사진 사용을 강제하지는 않습니다.
+
 ```json
 {"asset_evidence":{"after_main":{"evidence_class":"installed_result","visual_quality":{"full_product_visible":true}},"before_entry":{"evidence_class":"before_state"},"review_capture":{"evidence_class":"review_capture"},"measure_width":{"evidence_class":"measurement","unused_reason":"리뷰와 대본에 실측 주장이 없어 보조 소스로만 보존"}}}
 ```
@@ -144,15 +148,19 @@ scale 차이 0.05, 좌우 총 24px, 상하 총 20px입니다.
 
 각 beat의 `caption_emphasis`는 정확히 한 단어/구절이고 `caption_accent.enabled: true`,
 `caption_layout.theme: white`를 사용합니다. 키워드 크기는 본문과 동일합니다. 첫 훅은
-`hero-calm 58px`, 이후에는 `small 36px`, `medium 46px`, `large 62px` 중 하나를 씁니다.
-`caption_accent.delay_ms`의 production 기본값은 520ms이고 허용 범위는 `520~650ms`입니다.
-기존 recipe가 더 작은 값을 갖더라도 renderer는 520ms로 올려 사진 전환 후에 pop을
-시작합니다. pop 길이는 420ms이며 브라우저 실제 시간이 아니라 영상 시간에 결속됩니다.
-모든 one-shot beat는 내레이션 음성 전문을 연속으로 덮는 `caption_chunks` 1~3개를
-가집니다. 최대 3개이며, 여러 chunk를 쓸 때 각 문구는 공백·문장부호 제외 최소 8자이고
+`hero-calm 58px`, 이후 본문·proof·CTA는 모두 `medium 46px`입니다.
+`caption_accent.start_sec`는 강조 단어가 포함된 chunk 안의 절대 영상 시각이며 단어 위치로
+산정한 발화 예상 시점에 결속합니다. chunk 시작 고정 delay는 production 증거가 아닙니다.
+pop 길이는 420ms이며 브라우저 실제 시간이 아니라 영상 시간에 결속됩니다.
+모든 one-shot beat는 내레이션 음성 전문을 연속으로 덮는 `caption_chunks` 1~4개를
+가집니다. 최대 4개이며, 여러 chunk를 쓸 때 각 문구는 공백·문장부호 제외 최소 7자이고
 합친 문구는 narration과 같아야 합니다. 시간은 beat를 빈틈·겹침 없이 덮고 최종 음성의
-실제 문장 경계에 맞춥니다. 자막 DOM은 1080x1920 기준 `y=220~1470` 안에 있어야 하며
+실제 문장 경계에 맞춥니다. 문장 종결부호 뒤에 다음 문장 조각을 같은 chunk로 붙이지
+않습니다. 자막 DOM은 1080x1920 기준 `y=220~1470` 안에 있어야 하며
 명시·자동 줄바꿈을 합친 실제 화면 줄 수가 3줄 이상이면 실패합니다.
+TTS 발음을 위한 `text`와 공식 제품 표기가 다를 때만 `display_text`를 사용합니다. 숫자와
+띄어쓰기를 정규화한 결과가 같아야 하며, 예를 들어 음성 `초슬림 삼 연동 중문`은 화면에
+`초슬림 3연동중문`으로 표시할 수 있습니다.
 
 ```json
 {
@@ -172,14 +180,21 @@ scale 차이 0.05, 좌우 총 24px, 상하 총 20px입니다.
     "caption_layout": {"size": "hero-calm", "theme": "white"},
     "caption_chunks": [{
       "text": "완성 결과를 먼저 보여드립니다.",
+      "display_text": "완성 결과를 먼저 보여드립니다.",
       "start_sec": 0.0,
       "end_sec": 1.3
     }],
     "caption_emphasis": ["완성 결과"],
-    "caption_accent": {"enabled": true, "delay_ms": 520}
+    "caption_accent": {"enabled": true, "start_sec": 0.05}
   }]
 }
 ```
+
+설치 결과 훅의 첫 3개 shot은 `caption_chunks` 3개와 순서대로 1:1 대응해야 하며,
+각 쌍의 `start_sec`와 `end_sec`가 같아야 합니다. 각 shot의
+`meaning_match_source`에는 `asset_evidence:<asset_id>`와
+`narration_fragment:<해당 주장>`을 함께 기록합니다. 이 결속이 없으면 사진 순서는
+맞아도 음성 의미가 다른 화면 위로 넘어갈 수 있으므로 preflight에서 실패합니다.
 
 `review_proof` beat의 밑줄은 원본 이미지를 바꾸지 않는 overlay입니다. `quote`는
 planning의 `review_source.text`에 실제 포함되어야 하고 시간은 해당 beat 안에, 최대
@@ -191,6 +206,7 @@ planning의 `review_source.text`에 실제 포함되어야 하고 시간은 해�
     "quote": "원문에 실제 있는 인용",
     "start_sec": 18.3,
     "end_sec": 20.3,
+    "draw_duration_sec": 0.15,
     "segments": [{"left_pct": 12, "top_pct": 54, "width_pct": 70}]
   }
 }
@@ -228,6 +244,8 @@ one-shot edit의 audio plan에는 공식 TTS 입력과 최종 voice hash, 실제
 HTML 생성 후 `html_artifact_evidence.json`은 index.html과 실제 image/voice/font 입력,
 gate receipt의 hash를 기록합니다. `HTML_APPROVAL.json`은 그 HTML과 artifact evidence에
 결속되어야 하며 legacy boolean만으로 render를 승인하지 않습니다.
+`MP4_RENDER_APPROVAL.json`은 별도 사용자 렌더 승인을 현재 HTML과 HTML approval
+SHA-256에 결속합니다.
 
 render 후 `render_post_qa_report.json`은 대상 MP4와 사용한 sync manifest의 상대경로,
 bytes, SHA-256을 기록합니다. hash 없는 legacy QA pass는 `unknown`으로 남깁니다.
@@ -237,8 +255,11 @@ bytes, SHA-256을 기록합니다. hash 없는 legacy QA pass는 `unknown`으로
 ```powershell
 python scripts/produce_review_v2.py preflight --package "<package>" --planning "<planning.json>" --edit "<edit.json>" --privacy-manifest "<privacy.json>" --sync-manifest "<package>/sync_manifest.json"
 python scripts/produce_review_v2.py html --package "<package>" --planning "<planning.json>" --edit "<edit.json>" --privacy-manifest "<privacy.json>" --sync-manifest "<package>/sync_manifest.json"
+python scripts/produce_review_v2.py html-approval-record --package "<package>" --html "<preview>/index.html" --approved-by "<user>" --evidence-reference "<explicit HTML approval>"
+python scripts/produce_review_v2.py render-approval-record --package "<package>" --html "<preview>/index.html" --approved-by "<user>" --evidence-reference "<explicit MP4 approval>"
 python scripts/produce_review_v2.py render-start --package "<package>" --html "<preview>/index.html" --privacy-manifest "<privacy.json>" --sync-manifest "<package>/sync_manifest.json" --out "<package>/<id>_final_render_YYYYMMDD_upload_10mbps.mp4"
 python scripts/produce_review_v2.py render-status --package "<package>" --job-id "<job-id>"
+python scripts/produce_review_v2.py post-render-qa --package "<package>" --job-id "<job-id>"
 ```
 
 내부 `reels_qa`, HTML builder, renderer 직접 호출은 production 증거가 아닙니다.

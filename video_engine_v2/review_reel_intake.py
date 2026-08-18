@@ -21,6 +21,8 @@ from tempfile import NamedTemporaryFile
 from typing import Any
 from uuid import uuid4
 
+from PIL import Image, ImageChops, ImageDraw, UnidentifiedImageError
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 METADATA_FILENAME = "CANONICAL_PACKAGE_METADATA.json"
@@ -94,6 +96,7 @@ SANITIZING_ACTIONS = frozenset({"crop", "blur", "mask", "replace"})
 MASKING_INFEASIBLE_CATEGORIES = frozenset(
     {"risk_covers_essential_subject", "sanitization_failed", "source_integrity_constraint"}
 )
+REVIEW_CAPTURE_MAX_MASK_AREA_RATIO = 0.12
 
 
 class IntakeViolation(ValueError):
@@ -811,6 +814,50 @@ def resolve_active_package(output_root: str | Path) -> CanonicalPackage:
     return CanonicalPackage(package_dir, image_dir, metadata, reused_existing=True)
 
 
+def _assert_expected_content_id(package: CanonicalPackage, expected_content_id: str) -> None:
+    expected = str(expected_content_id).strip()
+    actual = str(package.metadata.get("content_id") or "").strip()
+    if not expected or expected != actual:
+        raise IntakeViolation("ACTIVE_PACKAGE_CONTENT_ID_MISMATCH")
+
+
+def active_package_status(output_root: str | Path) -> dict[str, Any]:
+    """Return the active canonical identity and its next safe production action."""
+
+    package = resolve_active_package(output_root)
+    lifecycle_state = str(package.metadata.get("lifecycle_state") or "unknown")
+    from video_engine_v2.package_state import map_legacy_package
+
+    evidence_state = map_legacy_package(package.package_dir)
+    if evidence_state.get("final_delivery_complete") is True:
+        next_action = "no_action_final_delivery_complete"
+    elif evidence_state.get("render_complete") is True:
+        next_action = "inspect_post_render_frames_then_run_render_review_record"
+    elif evidence_state.get("render_artifact_present") is True:
+        next_action = "inspect_render_job_then_run_post_render_qa"
+    elif (package.package_dir / "MP4_RENDER_APPROVAL.json").is_file():
+        next_action = "start_or_check_durable_render_job"
+    elif (package.package_dir / "HTML_APPROVAL.json").is_file():
+        next_action = "wait_for_explicit_mp4_approval_then_record_it"
+    elif lifecycle_state == "photo_intake_pending":
+        next_action = "place_photos_then_run_photo_review"
+    elif lifecycle_state == "photo_reviewed":
+        next_action = "prepare_planning_script_tts"
+    else:
+        next_action = "inspect_package_state_before_mutation"
+    return {
+        "workflow": "review_reel_production",
+        "content_id": str(package.metadata.get("content_id") or ""),
+        "lifecycle_state": lifecycle_state,
+        "package": str(package.package_dir),
+        "image_directory": str(package.image_dir),
+        "render_complete": evidence_state.get("render_complete", "unknown"),
+        "qa_reviewed": evidence_state.get("qa_reviewed", "unknown"),
+        "final_delivery_complete": evidence_state.get("final_delivery_complete", "unknown"),
+        "next_action": next_action,
+    }
+
+
 def _file_evidence(path: Path, *, relative_to: Path) -> dict[str, Any]:
     return {
         "relative_path": path.resolve().relative_to(relative_to.resolve()).as_posix(),
@@ -948,6 +995,99 @@ def _validate_photo_decision_v2(decision: dict[str, Any]) -> None:
         or any(not isinstance(value, bool) for value in visual_quality.values())
     ):
         raise IntakeViolation("PHOTO_VISUAL_QUALITY_INVALID")
+
+
+def _validate_review_capture_integrity(
+    *,
+    decision: dict[str, Any],
+    source_file: Path,
+    selected_file: Path,
+) -> None:
+    """Prove that a selected review screenshot keeps the user's composition.
+
+    Review screenshots are evidence, not generic B-roll.  Sanitization may only
+    alter small, declared identifier regions; cropping, resizing, reframing, or
+    changing pixels elsewhere would remove review context and is rejected.
+    """
+
+    if "review_capture" not in decision.get("evidence_classes", ()):
+        return
+
+    integrity = decision.get("review_capture_integrity")
+    if not isinstance(integrity, dict):
+        raise IntakeViolation("REVIEW_CAPTURE_INTEGRITY_MISSING")
+    if integrity.get("composition_preserved") is not True:
+        raise IntakeViolation("REVIEW_CAPTURE_COMPOSITION_CHANGED")
+    if integrity.get("pre_masked_identifiers_preserved") is not True:
+        raise IntakeViolation("REVIEW_CAPTURE_PREMASKED_ID_TOUCHED")
+
+    remediation_action = decision.get("remediation", {}).get("action")
+    if remediation_action not in {"none", "mask", "blur"}:
+        raise IntakeViolation("REVIEW_CAPTURE_CROP_FORBIDDEN")
+
+    regions = integrity.get("localized_mask_regions")
+    if not isinstance(regions, list):
+        raise IntakeViolation("REVIEW_CAPTURE_MASK_REGION_INVALID")
+    if remediation_action == "none" and regions:
+        raise IntakeViolation("REVIEW_CAPTURE_MASK_REGION_INVALID")
+    if remediation_action in {"mask", "blur"} and not regions:
+        raise IntakeViolation("REVIEW_CAPTURE_MASK_REGION_INVALID")
+
+    try:
+        with Image.open(source_file) as source_image, Image.open(selected_file) as selected_image:
+            source_format = source_image.format
+            selected_format = selected_image.format
+            source = source_image.convert("RGB")
+            selected = selected_image.convert("RGB")
+    except (OSError, UnidentifiedImageError):
+        raise IntakeViolation("REVIEW_CAPTURE_IMAGE_INVALID") from None
+
+    if source.size != selected.size:
+        raise IntakeViolation("REVIEW_CAPTURE_COMPOSITION_CHANGED")
+    width, height = source.size
+    image_area = width * height
+    if image_area <= 0:
+        raise IntakeViolation("REVIEW_CAPTURE_IMAGE_INVALID")
+
+    allowed_categories = set(decision.get("privacy_risk_categories", ()))
+    mask_rectangles: list[tuple[int, int, int, int]] = []
+    declared_area = 0
+    for region in regions:
+        if not isinstance(region, dict) or region.get("category") not in allowed_categories:
+            raise IntakeViolation("REVIEW_CAPTURE_MASK_REGION_INVALID")
+        values = [region.get(key) for key in ("x_px", "y_px", "width_px", "height_px")]
+        if any(not isinstance(value, int) or isinstance(value, bool) for value in values):
+            raise IntakeViolation("REVIEW_CAPTURE_MASK_REGION_INVALID")
+        x, y, region_width, region_height = values
+        if (
+            x < 0
+            or y < 0
+            or region_width <= 0
+            or region_height <= 0
+            or x + region_width > width
+            or y + region_height > height
+        ):
+            raise IntakeViolation("REVIEW_CAPTURE_MASK_REGION_INVALID")
+        declared_area += region_width * region_height
+        mask_rectangles.append((x, y, x + region_width - 1, y + region_height - 1))
+    if declared_area / image_area > REVIEW_CAPTURE_MAX_MASK_AREA_RATIO:
+        raise IntakeViolation("REVIEW_CAPTURE_MASK_NOT_MINIMAL")
+
+    difference = ImageChops.difference(source, selected)
+    difference_draw = ImageDraw.Draw(difference)
+    for rectangle in mask_rectangles:
+        difference_draw.rectangle(rectangle, fill=(0, 0, 0))
+
+    if source_format == "PNG" and selected_format == "PNG":
+        changed_outside_mask = difference.getbbox() is not None
+    else:
+        # Lossy source formats can move a few edge pixels during re-encoding.
+        # Only a tiny amount of high-amplitude drift is tolerated outside the
+        # declared masks; geometric changes are already rejected above.
+        changed_pixels = sum(1 for pixel in difference.getdata() if max(pixel) > 24)
+        changed_outside_mask = changed_pixels > max(4, int(image_area * 0.0005))
+    if changed_outside_mask:
+        raise IntakeViolation("REVIEW_CAPTURE_COMPOSITION_CHANGED")
 
 
 def _record_photo_review(
@@ -1088,6 +1228,11 @@ def _record_photo_review(
             )
             if not selected_file.is_file():
                 raise IntakeViolation("PHOTO_SELECTION_SELECTED_ASSET_MISSING")
+            _validate_review_capture_integrity(
+                decision=decision,
+                source_file=expected_media[relative_path],
+                selected_file=selected_file,
+            )
             selected_paths.add(selected_file.relative_to(package_dir).as_posix())
     if decision_paths != set(expected_media):
         raise IntakeViolation("PHOTO_SELECTION_INCOMPLETE")
@@ -1287,6 +1432,7 @@ def _write_photo_review_rejection_receipt(
 def record_photo_review(
     *,
     output_root: str | Path,
+    expected_content_id: str | None = None,
     selection_path: str | Path,
     privacy_manifest_path: str | Path,
     now: datetime | None = None,
@@ -1295,6 +1441,8 @@ def record_photo_review(
 
     root = Path(output_root).resolve()
     try:
+        if expected_content_id is not None:
+            _assert_expected_content_id(resolve_active_package(root), expected_content_id)
         return _record_photo_review(
             output_root=root,
             selection_path=selection_path,
@@ -1326,15 +1474,18 @@ def _assert_one_shot_contract(planning_path: Path) -> None:
 def build_one_shot_html_commands(
     *,
     output_root: str | Path,
+    expected_content_id: str | None = None,
     planning_path: str | Path,
     edit_path: str | Path,
     privacy_manifest_path: str | Path,
 ) -> list[list[str]]:
     """Return only the two official, MP4-free one-shot production commands."""
 
+    package = resolve_active_package(output_root)
+    if expected_content_id is not None:
+        _assert_expected_content_id(package, expected_content_id)
     planning = Path(planning_path).resolve()
     _assert_one_shot_contract(planning)
-    package = resolve_active_package(output_root)
     edit = Path(edit_path).resolve()
     privacy = Path(privacy_manifest_path).resolve()
     sync_manifest = package.package_dir / "sync_manifest.json"
@@ -1361,6 +1512,7 @@ def build_one_shot_html_commands(
 def run_one_shot_html(
     *,
     output_root: str | Path,
+    expected_content_id: str | None = None,
     planning_path: str | Path,
     edit_path: str | Path,
     privacy_manifest_path: str | Path,
@@ -1369,6 +1521,7 @@ def run_one_shot_html(
 
     for command in build_one_shot_html_commands(
         output_root=output_root,
+        expected_content_id=expected_content_id,
         planning_path=planning_path,
         edit_path=edit_path,
         privacy_manifest_path=privacy_manifest_path,

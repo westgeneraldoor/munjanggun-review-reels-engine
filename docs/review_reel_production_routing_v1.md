@@ -131,13 +131,19 @@ python scripts/review_reel_intake.py create --output-root "output" --inventory "
 폴더를 훑어 선택하지 않는다. pointer와 metadata hash·package path·이미지 폴더가
 일치하지 않으면 중단한다.
 
+파일을 쓰는 다음 단계 전에는 활성 identity를 다시 확인한다.
+
+```powershell
+python scripts/review_reel_intake.py status --output-root "output"
+```
+
 ## 사진 후 one-shot HTML 연결
 
 사진을 넣은 뒤에는 먼저 모든 사진의 use/hold/exclude 결정과 privacy manifest를
 공식 intake에 기록한다. `STATUS.md`를 직접 수정해서는 안 된다.
 
 ```powershell
-python scripts/review_reel_intake.py photo-review --output-root "output" --selection "<package>/_work/photo_selection_private.json" --privacy-manifest "<package>/privacy_asset_manifest.json"
+python scripts/review_reel_intake.py photo-review --output-root "output" --expected-content-id "<status가 반환한 content_id>" --selection "<package>/_work/photo_selection_private.json" --privacy-manifest "<package>/privacy_asset_manifest.json"
 ```
 
 이 명령만 canonical metadata를 `photo_reviewed`로 전환하고 active pointer의 metadata
@@ -172,7 +178,7 @@ apply는 report hash와 package 트리 hash를 다시 검사하고 metadata·act
 `--one-shot-html`을 붙인다.
 
 ```powershell
-python scripts/review_reel_intake.py one-shot-html --output-root "output" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>"
+python scripts/review_reel_intake.py one-shot-html --output-root "output" --expected-content-id "<status가 반환한 content_id>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>"
 ```
 
 planning contract는 반드시 `review-reels-one-shot-v2`, `html_scope_authorized: true`,

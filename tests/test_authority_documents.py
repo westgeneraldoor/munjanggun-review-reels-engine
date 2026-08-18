@@ -8,6 +8,8 @@ from video_engine_v2.reels_qa import (
     CALM_HORIZONTAL_TRAVEL_PX,
     CALM_SCALE_DELTA,
     CALM_VERTICAL_TRAVEL_PX,
+    CAPTION_ACCENT_ONSET_EARLY_TOLERANCE_SEC,
+    CAPTION_ACCENT_ONSET_LATE_TOLERANCE_SEC,
     CAPTION_SAFE_BOTTOM_PX,
     CAPTION_SAFE_TOP_PX,
     HARD_CPS_LIMIT,
@@ -171,11 +173,11 @@ class AuthorityDocumentsTest(unittest.TestCase):
                 )
 
         render_rules = (ROOT / "docs/render_qa_rules_v2.md").read_text(encoding="utf-8")
-        self.assertIn("compatibility-only", render_rules)
+        self.assertIn("DIRECT_RENDER_DISABLED_USE_RENDER_START", render_rules)
         self.assertIn("queued -> running -> succeeded|failed", render_rules)
         self.assertIn("rendered_frames / expected_frames", render_rules)
         self.assertIn("RETRY_REQUIRES_NEW_OUTPUT", render_rules)
-        self.assertIn("--render-job", render_rules)
+        self.assertIn("post-render-qa", render_rules)
 
     def test_durable_render_implementation_has_detachment_and_evidence_anchors(self):
         orchestrator = (ROOT / "scripts/produce_review_v2.py").read_text(encoding="utf-8")
@@ -279,6 +281,15 @@ class AuthorityDocumentsTest(unittest.TestCase):
         self.assertIn(PHOTO_SELECTION_SCHEMA_VERSION, privacy)
         for anchor in ("맨발", "신발", "아파트 동 번호", "PHOTO_PRIVACY_CATEGORY_INVALID", "MASKING_FIRST_NOT_APPLIED"):
             self.assertIn(anchor, privacy)
+        for anchor in (
+            "사용자가 제공한 전체 구도",
+            "이미 `**`로 익명화",
+            "REVIEW_CAPTURE_CROP_FORBIDDEN",
+            "REVIEW_CAPTURE_COMPOSITION_CHANGED",
+            "REVIEW_CAPTURE_PREMASKED_ID_TOUCHED",
+        ):
+            self.assertIn(anchor, privacy)
+        self.assertIn("리뷰 캡처의 사용자 제공 구도", agents)
         for anchor in ("asset_evidence", "full_product_visible: true", "CLAIM_EVIDENCE_MISSING"):
             self.assertIn(anchor, recipe)
         for anchor in ("0.5초", "첫 3개 훅", "voice-review-record", "html-review-record"):
@@ -358,9 +369,20 @@ class AuthorityDocumentsTest(unittest.TestCase):
             "review_emphasis",
             "segments",
             "caption_layout.theme",
+            "caption_accent.start_sec",
+            "display_text",
+            "draw_duration_sec",
         ):
             with self.subTest(field=field):
                 self.assertIn(field, recipe)
+
+        for anchor in (
+            "본문은 `medium 46px`",
+            "강조 단어의 실제 발화 예상 시점",
+            "3연동중문",
+            "0.20초 안에",
+        ):
+            self.assertIn(anchor, visual)
 
         self.assertIn("생성 asset은 조건부 필드", recipe)
         self.assertRegex(
@@ -378,10 +400,9 @@ class AuthorityDocumentsTest(unittest.TestCase):
         self.assertIn(f"최소 {MIN_ONE_SHOT_FINAL_RESULT_SEC:.1f}초", combined)
         self.assertIn("cut → calm_dissolve → calm_dissolve", combined)
         self.assertIn(f"calm_dissolve {CALM_DISSOLVE_MS}ms", combined)
-        self.assertIn("small 36px", combined)
         self.assertIn("medium 46px", combined)
-        self.assertIn("large 62px", combined)
         self.assertIn("hero-calm 58px", combined)
+        self.assertIn("뒤로 갈수록 `small`로 축소하지 않습니다", combined)
         self.assertIn(f"scale 차이 {CALM_SCALE_DELTA:.2f}", combined)
         self.assertIn(f"좌우 총 {CALM_HORIZONTAL_TRAVEL_PX}px", combined)
         self.assertIn(f"상하 총 {CALM_VERTICAL_TRAVEL_PX}px", combined)
@@ -405,7 +426,8 @@ class AuthorityDocumentsTest(unittest.TestCase):
         self.assertIn("한 방향", combined)
         self.assertIn("일정 속도", combined)
         self.assertIn("투명도만", combined)
-        self.assertIn("520~650ms", combined)
+        self.assertIn(f"{CAPTION_ACCENT_ONSET_EARLY_TOLERANCE_SEC:.2f}초 이상 빠르", combined)
+        self.assertIn(f"{CAPTION_ACCENT_ONSET_LATE_TOLERANCE_SEC:.2f}초 이상 늦", combined)
         self.assertIn("420ms", combined)
         self.assertIn("영상 시간", combined)
 

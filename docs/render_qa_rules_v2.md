@@ -62,9 +62,8 @@ cleanup 대상이 아닙니다.
 `RETRY_REQUIRES_NEW_OUTPUT`으로 시작 단계에서 차단합니다.
 
 `render-status`가 `succeeded`이고 현재 MP4의 bytes/SHA-256을 기록한 뒤에만
-`render-post-qa.mjs`로 넘어갑니다. 기존 동기식 `render`는 compatibility-only 로컬
-진단 경로로
-남기되, 에이전트 production 운영의 표준 진입점으로 사용하지 않습니다.
+공식 `post-render-qa`로 넘어갑니다. 기존 동기식 `render` 명령은 비활성화되어 있으며
+`DIRECT_RENDER_DISABLED_USE_RENDER_START`로 중단합니다.
 
 ```powershell
 python scripts/produce_review_v2.py render-start --package "<output review package>" --html "<html_preview>/index.html" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --out "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4"
@@ -136,6 +135,7 @@ STATUS.md의 mp4_allowed가 true인지 확인
 APPROVAL_LOG.md에 HTML 승인 범위가 기록되어 있는지 확인
 `scripts/produce_review_v2.py preflight`와 HTML artifact evidence가 유효한지 확인
 `HTML_APPROVAL.json`의 package/path/SHA-256이 현재 HTML과 정확히 같은지 확인
+`MP4_RENDER_APPROVAL.json`이 현재 HTML과 HTML approval SHA-256에 결속됐는지 확인
 사용자 기획 승인 없이 생성된 HTML이면 렌더 금지
 HTML에서 자막 위치/크기/가림 확인
 `docs/reels_privacy_asset_qa_rules_v1.md` 기준 privacy_review 또는 privacy_sanitization_report 확인
@@ -149,9 +149,11 @@ voice.mp3 실제 길이 확인
 조사나 단어 조각이 단독 줄로 떨어지면 렌더 금지
 자막의 실제 DOM 좌표가 1080x1920 기준 y=220~1470을 벗어나면 렌더 금지
 자막의 명시·자동 줄바꿈을 합친 실제 DOM 줄 수가 3줄 이상이면 렌더 금지
-one-shot 자막이 beat당 최대 3개를 넘거나, 여러 chunk 중 최소 8자 미만 문구가 있으면 렌더 금지
+one-shot 자막이 beat당 최대 4개를 넘거나, 여러 chunk 중 최소 7자 미만 문구가 있으면 렌더 금지
+끝난 문장 뒤에 다음 문장 조각을 같은 caption chunk로 붙이면 렌더 금지
 caption_chunks를 합친 내용이 음성 전문과 다르거나 beat 시간을 연속으로 덮지 않으면 렌더 금지
-포인트 pop이 chunk 시작 520~650ms 뒤가 아니거나 420ms 동안 한 번 재생되지 않으면 렌더 금지
+포인트 pop의 절대 start_sec가 해당 chunk의 강조 단어 발화 예상 시점보다 0.20초 이상 빠르거나 0.45초 이상 늦으면 렌더 금지
+포인트 pop이 420ms 동안 한 번 재생되지 않으면 렌더 금지
 HTML 재생·스크럽·렌더 프레임에서 같은 영상 시간의 포인트 위치가 다르면 렌더 금지
 모든 scene/beat의 asset + caption + narration 의미 일치 확인
 의미가 한 칸이라도 밀려 있으면 렌더 금지
@@ -198,16 +200,17 @@ total_voice_cps = 전체 narration_ref 공백 제외 글자수 / final_voice_dur
 렌더 후 자동 증거 생성:
 
 ```powershell
-node scripts/render-post-qa.mjs `
-  --mp4 "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4" `
+python scripts/produce_review_v2.py post-render-qa `
   --package "<output review package>" `
-  --sync-manifest "<output review package>/sync_manifest.json" `
-  --render-job "<output review package>/_work/render_jobs/<job-id>/render_job.json"
+  --job-id "<job-id>"
 ```
 
-일반 HTML 렌더는 `--render-job`이 없거나 job 상태가 `succeeded`가 아니거나 현재 MP4
-bytes/SHA-256이 다르면 post-render QA를 시작하지 않습니다. `_hyperframes_` 출력은
+오케스트레이터가 성공한 job에 결속된 MP4·sync manifest·render job 경로를 내부 Node
+검사기에 전달합니다. job 상태가 `succeeded`가 아니거나 현재 MP4 bytes/SHA-256이
+다르면 post-render QA를 시작하지 않습니다. `_hyperframes_` 출력은
 별도의 `hyperframes-render-gate.mjs` 승인 경로를 사용하므로 이 인자를 요구하지 않습니다.
+내부 검사는 `scripts/render-post-qa.mjs`가 담당하지만 일반 HTML 작업자는 경로를 직접
+조립해 호출하지 않습니다.
 
 이 스크립트는 아래를 자동으로 검사하고 기록합니다.
 

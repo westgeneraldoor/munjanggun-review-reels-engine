@@ -46,6 +46,9 @@ GitHub는 엔진 코드, 문서, 테스트만 관리합니다. 실제 고객 자
   `STATUS.md` 수동 수정은 승인 증거가 아니다.
 - 사진 검수, privacy manifest, 리뷰 원문 근거, 실제 리뷰 캡처, TTS/sync 및
   one-shot 구조 QA를 모두 통과해야 한다. 하나라도 실패하면 HTML을 만들지 않는다.
+- 리뷰 캡처의 사용자 제공 구도와 해상도는 증거의 일부다. 본문만 crop·확대하거나 이미
+  `**` 처리된 아이디를 다시 가리지 않고, 실제로 남은 주문번호 같은 식별 영역만 최소
+  마스킹한다. `review_capture_integrity` 검사 실패 시 HTML을 만들지 않는다.
 - 이 범위는 `generate.py`의 script/SRT/TTS 승인 게이트를 완화하지 않으며, MP4 권한도
   절대 포함하지 않는다. MP4는 기존 HTML 승인 및 별도 명시적 MP4 승인 기록이 계속 필요하다.
 
@@ -71,6 +74,11 @@ generic review-content/material-bank보다 항상 `review_reel_production`으로
 local-only source registry가 기존 번호를 스캔해 다음 미사용 세 자리 ID를 배정한다.
 같은 candidate는 최초 배정을 재사용하며, 깨진 registry나 identity 변경은 덮어쓰지
 않고 실패해야 한다.
+
+새 세션은 파일을 쓰기 전에 `review_reel_intake.py status --output-root "output"`으로
+활성 `content_id`와 package를 확인합니다. `photo-review`와 `one-shot-html`에는 그 값을
+`--expected-content-id`로 반드시 다시 넣습니다. 활성 pointer가 다른 리뷰를 가리키면
+`ACTIVE_PACKAGE_CONTENT_ID_MISMATCH`로 파일을 읽기 전에 중단해야 합니다.
 
 ## 포맷 상태
 
@@ -126,6 +134,12 @@ production gate를 바꾸지 않습니다. 상세 기준은 `docs/reels_format_s
 
 one-shot의 창작 기준은 `docs/review_reels_content_standard_v1.md`, 화면·모션 기준은
 `docs/review_reels_visual_edit_standard_v1.md`를 따른다.
+강조 pop은 chunk 시작 고정 지연이 아니라 강조 단어의 발화 시점에 결속하고, 첫 훅 뒤
+본문 자막은 medium 크기를 유지합니다. 발음용 `삼 연동 중문`은 화면에서 공식 제품명
+`3연동중문`으로 표시할 수 있으며 리뷰 밑줄은 장면 진입 즉시 짧게 그어져야 합니다.
+자막 chunk는 음성의 문장 끝에서 함께 끊고 끝난 문장 뒤에 다음 문장 조각을 붙이지 않습니다.
+완성→이전→완성 훅의 첫 3개 shot은 각각 하나의 완결된 음성·자막 주장과 같은 시간 경계를
+사용하고, shot별 사진 근거와 해당 발화 조각을 `meaning_match_source`로 결속합니다.
 `context`, `choice_turn`, 실측, 공정 설명은 고정 장면이 아니며 리뷰와 사진에 실제
 근거가 있을 때만 넣는다. 공식 음성은 Gemini TTS `Sulafat`이며 Windows SAPI 등
 임시 음성은 production HTML에 연결하지 않는다.
@@ -179,7 +193,11 @@ python scripts/produce_review_v2.py html --package "<output review package>" --p
 # 2.5. 모든 beat와 0.5초·첫 3개 훅 대표 프레임을 직접 본 뒤 기록
 python scripts/produce_review_v2.py html-review-record --package "<output review package>" --html "<html_preview>/index.html" --reviewer "<reviewer>" --evidence-reference "<review evidence>" --check hook_sequence_reviewed --check meaning_sync_reviewed --check caption_layout_reviewed --check privacy_reviewed --check review_capture_reviewed --check cta_reviewed
 
-# 3. 기록된 HTML 승인과 명시적 MP4 렌더 승인 후 독립 렌더 작업 시작
+# 2.6. 사용자의 HTML 승인과 별도 MP4 렌더 승인을 각각 현재 HTML 해시에 결속
+python scripts/produce_review_v2.py html-approval-record --package "<output review package>" --html "<html_preview>/index.html" --approved-by "<user>" --evidence-reference "<explicit HTML approval>"
+python scripts/produce_review_v2.py render-approval-record --package "<output review package>" --html "<html_preview>/index.html" --approved-by "<user>" --evidence-reference "<explicit MP4 render approval>"
+
+# 3. 두 승인이 기록된 뒤 독립 렌더 작업 시작 (`render` 직접 명령은 비활성)
 python scripts/produce_review_v2.py render-start --package "<output review package>" --html "<html_preview>/index.html" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --out "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4"
 
 # 4. 시작 명령이 반환한 job_id로 진행률/완료 증거 조회
@@ -208,6 +226,9 @@ artifact evidence SHA-256을 모두 가져야 합니다. 따라서 approval은 H
 아니라 artifact evidence에 기록된 image/voice/font dependency hash 전체에 결속됩니다.
 legacy의
 `html_approved_by_user: true`만으로는 render를 승인하지 않습니다.
+별도 MP4 승인도 공식 `render-approval-record`가 만든 `MP4_RENDER_APPROVAL.json`으로
+현재 HTML과 `HTML_APPROVAL.json` 해시에 결속합니다. `STATUS.md`나 `APPROVAL_LOG.md`를
+손으로 바꾼 것만으로는 렌더를 승인하지 않습니다.
 
 공식 HTML 생성 직후 `scripts/html-preview-qa.mjs`가 모든 beat 대표 프레임과
 `html_internal_qa_report.json`을 생성해야 합니다. 자동 검사가 통과해도
@@ -261,13 +282,22 @@ node scripts/hyperframes-render-gate.mjs --project "scratch/hf-pilot-<review-id>
 사용자의 명시적 MP4 렌더 승인 후에만 `--render-approved`를 붙입니다.
 생성된 HyperFrames 파일럿의 `npm run render` 직접 실행은 금지되며, 렌더는 반드시 `scripts/hyperframes-render-gate.mjs`를 통해서만 진행합니다.
 
-렌더 후 QA 증거 생성:
+표준 HTML 렌더 후 QA 증거 생성:
+
+```powershell
+python scripts/produce_review_v2.py post-render-qa --package "<output review package>" --job-id "<job-id>"
+```
+
+이 명령은 성공한 render job에서 MP4와 sync 경로를 직접 읽고 실제 report 경로를
+반환합니다. 경로를 수동 조립하거나 package 루트의 고정 report 이름을 가정하지 않습니다.
+
+HyperFrames 렌더 후 QA 증거 생성:
 
 ```powershell
 node scripts/render-post-qa.mjs --mp4 "<output review package>/<review-id>_final_render_YYYYMMDD_hyperframes_upload_10mbps.mp4" --package "<output review package>" --sync-manifest "<output review package>/sync_manifest.json"
 
 # 대표 프레임과 최종 영상의 자막·개인정보·리뷰 증거·음성 싱크를 직접 본 뒤 기록
-python scripts/produce_review_v2.py render-review-record --package "<output review package>" --mp4 "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4" --post-qa-report "<output review package>/render_post_qa_report.json" --reviewer "<reviewer>" --evidence-reference "<review evidence>" --check caption_layout_reviewed --check privacy_reviewed --check review_capture_reviewed --check voice_caption_visual_sync_reviewed --check hook_and_cta_reviewed
+python scripts/produce_review_v2.py render-review-record --package "<output review package>" --mp4 "<output review package>/<review-id>_final_render_YYYYMMDD_upload_10mbps.mp4" --post-qa-report "<post-render-qa가 반환한 report 경로>" --reviewer "<reviewer>" --evidence-reference "<review evidence>" --check caption_layout_reviewed --check privacy_reviewed --check review_capture_reviewed --check voice_caption_visual_sync_reviewed --check hook_and_cta_reviewed
 ```
 
 이 명령은 최종 승인자가 아니라 증거 기록자입니다.
