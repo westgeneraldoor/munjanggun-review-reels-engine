@@ -1087,8 +1087,22 @@ def validate_render_gate(
         raise GateViolation("SYNC_MANIFEST_STALE_OR_UNVERIFIED")
     planning_path = _ensure_inside(package, Path(planning_value), outside_code="SYNC_MANIFEST_STALE_OR_UNVERIFIED")
     edit_path = _ensure_inside(package, Path(edit_value), outside_code="SYNC_MANIFEST_STALE_OR_UNVERIFIED")
-    _validate_preflight(package, planning_path, edit_path, privacy_path)
-    _validate_sync_manifest(package, sync_path, planning_path, edit_path, privacy_path)
+    one_shot_html_contract = gate_inputs.get("one_shot_html_contract") is True
+    _validate_preflight(
+        package,
+        planning_path,
+        edit_path,
+        privacy_path,
+        allow_one_shot_html_contract=one_shot_html_contract,
+    )
+    _validate_sync_manifest(
+        package,
+        sync_path,
+        planning_path,
+        edit_path,
+        privacy_path,
+        expected_one_shot_html_contract=one_shot_html_contract,
+    )
     render_dependencies = _validate_render_dependency_binding(package, html, edit_path, engine_font_path)
     _require_html_manual_review(package, html)
     return {

@@ -319,16 +319,36 @@ class ProductionGateTests(unittest.TestCase):
         include_hash: bool = True,
         font_path: Path | None = None,
         repository_root: Path | None = None,
+        allow_one_shot_html_contract: bool = False,
     ):
-        self.create_valid_sync()
+        if allow_one_shot_html_contract:
+            create_sync_manifest(
+                package_dir=self.package,
+                planning_path=self.planning,
+                edit_path=self.edit,
+                privacy_manifest_path=self.privacy,
+                sync_manifest_path=self.sync,
+                allow_one_shot_html_contract=True,
+            )
+        else:
+            self.create_valid_sync()
         self.html.parent.mkdir()
         font_path = font_path or self.engine_font
         repository_root = repository_root or self.engine_root
+        edit_payload = json.loads(self.edit.read_text(encoding="utf-8"))
         asset_urls = {
-            "after_main": quote(Path(os.path.relpath(self.package / "assets" / "main.jpg", self.html.parent)).as_posix(), safe="/._-()"),
-            "voice": quote(Path(os.path.relpath(self.package / "voice.mp3", self.html.parent)).as_posix(), safe="/._-()"),
-            "font_body": quote(Path(os.path.relpath(font_path, self.html.parent)).as_posix(), safe="/._-()"),
+            asset_id: quote(
+                Path(os.path.relpath(self.package / "assets" / relative_path, self.html.parent)).as_posix(),
+                safe="/._-()",
+            )
+            for asset_id, relative_path in edit_payload["asset_roles"].items()
         }
+        asset_urls.update(
+            {
+                "voice": quote(Path(os.path.relpath(self.package / "voice.mp3", self.html.parent)).as_posix(), safe="/._-()"),
+                "font_body": quote(Path(os.path.relpath(font_path, self.html.parent)).as_posix(), safe="/._-()"),
+            }
+        )
         self.html.write_text(f"<!doctype html><script>const assetUrls = {json.dumps(asset_urls)};</script>", encoding="utf-8")
         html_receipt = validate_html_gate(
             package_dir=self.package,
@@ -336,6 +356,7 @@ class ProductionGateTests(unittest.TestCase):
             edit_path=self.edit,
             privacy_manifest_path=self.privacy,
             sync_manifest_path=self.sync,
+            allow_one_shot_html_contract=allow_one_shot_html_contract,
         )
         receipt_path = self.package / "_work" / "production_gates" / "html_gate_fixture.json"
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
@@ -414,6 +435,30 @@ class ProductionGateTests(unittest.TestCase):
         approval_path = self.package / "HTML_APPROVAL.json"
         approval_path.write_text(json.dumps(approval), encoding="utf-8")
         return artifact_path, approval_path
+
+    def test_render_gate_reuses_the_hash_bound_one_shot_contract_without_inventing_pd_approval(self):
+        self.write_one_shot_html_package()
+        (self.package / "STATUS.md").write_text(
+            "- photo_checked: true\n- pd_plan_approved: false\n- html_approved_by_user: true\n- mp4_allowed: true\n",
+            encoding="utf-8",
+        )
+        (self.package / "APPROVAL_LOG.md").write_text(
+            "- approved_scope: one-shot HTML preview approved\n- approved_scope: MP4 render approved\n",
+            encoding="utf-8",
+        )
+        self.write_bound_html_approval(allow_one_shot_html_contract=True)
+
+        receipt = validate_render_gate(
+            package_dir=self.package,
+            html_path=self.html,
+            output_path=self.output,
+            sync_manifest_path=self.sync,
+            privacy_manifest_path=self.privacy,
+            preset=FINAL_RENDER_PRESET,
+        )
+
+        self.assertEqual("render", receipt["action"])
+        self.assertFalse(self.output.exists())
 
     def refresh_approval_artifact_hash(self, artifact_path: Path, approval_path: Path):
         approval = json.loads(approval_path.read_text(encoding="utf-8"))
