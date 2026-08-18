@@ -133,6 +133,8 @@ one-shot의 창작 기준은 `docs/review_reels_content_standard_v1.md`, 화면�
 본문 자막은 medium 크기를 유지합니다. 발음용 `삼 연동 중문`은 화면에서 공식 제품명
 `3연동중문`으로 표시할 수 있으며 리뷰 밑줄은 장면 진입 즉시 짧게 그어져야 합니다.
 자막 chunk는 음성의 문장 끝에서 함께 끊고 끝난 문장 뒤에 다음 문장 조각을 붙이지 않습니다.
+완성→이전→완성 훅의 첫 3개 shot은 각각 하나의 완결된 음성·자막 주장과 같은 시간 경계를
+사용하고, shot별 사진 근거와 해당 발화 조각을 `meaning_match_source`로 결속합니다.
 `context`, `choice_turn`, 실측, 공정 설명은 고정 장면이 아니며 리뷰와 사진에 실제
 근거가 있을 때만 넣는다. 공식 음성은 Gemini TTS `Sulafat`이며 Windows SAPI 등
 임시 음성은 production HTML에 연결하지 않는다.

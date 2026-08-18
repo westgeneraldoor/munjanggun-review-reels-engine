@@ -275,6 +275,59 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
         self.assertIn("HOOK_SHOT_TOO_SHORT", codes)
         self.assertIn("HOOK_TRANSITION_SEQUENCE_INVALID", codes)
 
+    def test_contract_rejects_hook_visual_changes_that_cross_caption_claim_boundaries(self):
+        fixture = load_fixture()
+        fixture["edit"]["beats"][0]["caption_chunks"] = [
+            {
+                "text": "Clear now. Before blocked. Works now.",
+                "start_sec": 0.0,
+                "end_sec": 4.0,
+            },
+        ]
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("HOOK_SHOT_CAPTION_ALIGNMENT_INVALID", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_reports_malformed_hook_claim_times_without_crashing(self):
+        fixture = load_fixture()
+        fixture["edit"]["beats"][0]["caption_chunks"][1]["start_sec"] = "not-a-time"
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn("HOOK_SHOT_CAPTION_ALIGNMENT_INVALID", {issue["code"] for issue in result["issues"]})
+
+    def test_contract_requires_each_hook_shot_to_bind_meaning_evidence_to_its_asset(self):
+        for source in (None, "asset_evidence:after_main; narration_fragment:Before blocked."):
+            with self.subTest(source=source):
+                fixture = load_fixture()
+                shot = fixture["edit"]["beats"][0]["shots"][1]
+                if source is None:
+                    shot.pop("meaning_match_source", None)
+                else:
+                    shot["meaning_match_source"] = source
+
+                result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+                self.assertIn(
+                    "HOOK_SHOT_MEANING_EVIDENCE_MISSING",
+                    {issue["code"] for issue in result["issues"]},
+                )
+
+    def test_contract_warns_when_a_long_photo_edit_recycles_too_few_available_assets(self):
+        fixture = load_fixture()
+        repeated = fixture["edit"]["beats"][1]["shots"][0]["asset_id"]
+        for beat in fixture["edit"]["beats"][1:]:
+            for shot in beat["shots"]:
+                if shot["asset_id"] != "review_capture":
+                    shot["asset_id"] = repeated
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        variety = [issue for issue in result["issues"] if issue["code"] == "PHOTO_VARIETY_LOW"]
+        self.assertEqual(1, len(variety))
+        self.assertEqual("warn", variety[0]["severity"])
+
     def test_contract_keeps_review_proof_still(self):
         fixture = load_fixture()
         review = fixture["edit"]["beats"][6]

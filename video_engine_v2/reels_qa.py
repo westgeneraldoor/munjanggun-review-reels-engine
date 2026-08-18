@@ -925,6 +925,33 @@ def _validate_result_first_hook_contract(edit_recipe: dict[str, Any]) -> list[di
             )
         )
 
+    evidence = edit_recipe.get("asset_evidence") or {}
+    available_photo_assets = {
+        _as_text(asset_id).strip()
+        for asset_id, metadata in evidence.items()
+        if isinstance(metadata, dict)
+        and _as_text(metadata.get("evidence_class")).strip() != "review_capture"
+        and _as_text(asset_id).strip()
+    }
+    non_review_shots = [
+        shot
+        for beat in beats
+        for shot in beat.get("shots") or []
+        if isinstance(shot, dict) and _as_text(shot.get("asset_id")).strip() in available_photo_assets
+    ]
+    used_photo_assets = {_as_text(shot.get("asset_id")).strip() for shot in non_review_shots}
+    if len(non_review_shots) >= 8:
+        minimum_distinct = min(6, len(available_photo_assets), (len(non_review_shots) + 1) // 2)
+        if len(used_photo_assets) < minimum_distinct:
+            issues.append(
+                _issue(
+                    "PHOTO_VARIETY_LOW",
+                    "A long photo edit is recycling too few of the available narrative-safe assets: "
+                    f"used {len(used_photo_assets)}, expected at least {minimum_distinct} distinct photos.",
+                    severity="warn",
+                )
+            )
+
     contract = edit_recipe.get("hook_visual_contract")
     if not isinstance(contract, dict):
         return issues + [_issue("RESULT_FIRST_HOOK_MISSING", "hook_visual_contract is required.")]
@@ -944,6 +971,49 @@ def _validate_result_first_hook_contract(edit_recipe: dict[str, Any]) -> list[di
                 scene_id=_as_text(first_beat.get("id") or "scene_01"),
             )
         )
+
+    caption_chunks = first_beat.get("caption_chunks") or []
+    opening_shots = shots[:3] if isinstance(shots, list) else []
+    if len(opening_shots) == 3:
+        aligned = len(caption_chunks) == 3
+        if aligned:
+            for shot, chunk in zip(opening_shots, caption_chunks):
+                if not isinstance(shot, dict) or not isinstance(chunk, dict):
+                    aligned = False
+                    break
+                try:
+                    shot_start = float(shot["start_sec"])
+                    shot_end = float(shot["end_sec"])
+                    chunk_start = float(chunk["start_sec"])
+                    chunk_end = float(chunk["end_sec"])
+                except (KeyError, TypeError, ValueError):
+                    aligned = False
+                    break
+                if abs(shot_start - chunk_start) > 0.001 or abs(shot_end - chunk_end) > 0.001:
+                    aligned = False
+                    break
+        if not aligned:
+            issues.append(
+                _issue(
+                    "HOOK_SHOT_CAPTION_ALIGNMENT_INVALID",
+                    "Each result-before-result hook shot must match one complete spoken caption claim at the same times.",
+                    scene_id=_as_text(first_beat.get("id") or "scene_01"),
+                )
+            )
+
+        for index, shot in enumerate(opening_shots):
+            if not isinstance(shot, dict):
+                continue
+            shot_asset_id = _as_text(shot.get("asset_id")).strip()
+            evidence = _as_text(shot.get("meaning_match_source")).strip()
+            if not evidence or f"asset_evidence:{shot_asset_id}" not in evidence or "narration_fragment:" not in evidence:
+                issues.append(
+                    _issue(
+                        "HOOK_SHOT_MEANING_EVIDENCE_MISSING",
+                        f"Hook shots[{index}] must bind its asset and spoken narration fragment as meaning evidence.",
+                        scene_id=_as_text(first_beat.get("id") or "scene_01"),
+                    )
+                )
     return issues
 
 

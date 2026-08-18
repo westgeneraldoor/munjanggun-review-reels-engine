@@ -6,6 +6,10 @@ edit recipe의 `asset_evidence`는 각 `asset_roles` 항목의 주 역할을 `ev
 
 실측(`measurement`)과 공정(`installation_process`)은 리뷰 원문이나 대본이 해당 사실을 주장할 때만 사용 증거가 필수입니다. 소스에 고가치 증거가 있지만 쓰지 않으면 `unused_reason`을 기록합니다. 이 계약을 어기면 `HOOK_RESULT_NOT_FULLY_VISIBLE`, `CLAIM_EVIDENCE_MISSING`, `UNUSED_HIGH_VALUE_EVIDENCE_REASON_MISSING`으로 실패합니다.
 
+사진 shot이 8개 이상인 긴 편집은 사용 가능한 비리뷰 근거 자산 중 최소
+`min(6, 사용 가능 자산 수, ceil(사진 shot 수 / 2))`개를 쓰는지 검사합니다. 부족하면
+`PHOTO_VARIETY_LOW` 경고를 내지만, 이야기와 무관한 사진 사용을 강제하지는 않습니다.
+
 ```json
 {"asset_evidence":{"after_main":{"evidence_class":"installed_result","visual_quality":{"full_product_visible":true}},"before_entry":{"evidence_class":"before_state"},"review_capture":{"evidence_class":"review_capture"},"measure_width":{"evidence_class":"measurement","unused_reason":"리뷰와 대본에 실측 주장이 없어 보조 소스로만 보존"}}}
 ```
@@ -185,6 +189,12 @@ TTS 발음을 위한 `text`와 공식 제품 표기가 다를 때만 `display_te
   }]
 }
 ```
+
+설치 결과 훅의 첫 3개 shot은 `caption_chunks` 3개와 순서대로 1:1 대응해야 하며,
+각 쌍의 `start_sec`와 `end_sec`가 같아야 합니다. 각 shot의
+`meaning_match_source`에는 `asset_evidence:<asset_id>`와
+`narration_fragment:<해당 주장>`을 함께 기록합니다. 이 결속이 없으면 사진 순서는
+맞아도 음성 의미가 다른 화면 위로 넘어갈 수 있으므로 preflight에서 실패합니다.
 
 `review_proof` beat의 밑줄은 원본 이미지를 바꾸지 않는 overlay입니다. `quote`는
 planning의 `review_source.text`에 실제 포함되어야 하고 시간은 해당 beat 안에, 최대
