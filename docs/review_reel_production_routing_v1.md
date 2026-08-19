@@ -50,6 +50,13 @@ review-content/material-bank 라우터는 위 상태를 가로챌 수 없다.
 공식 adapter가 canonical 필드로 바꾼다.
 
 ```powershell
+python scripts/review_reel_intake.py candidate-check `
+  --output-root "output" `
+  --reviews-root "reviews" `
+  --material-bank "reviews/material_bank/2026-07-29/candidate_top60_private.jsonl" `
+  --candidate-id "CAND-YYYYMMDD-NNNN"
+
+# candidate-check가 eligible_for_new_package: true를 반환한 뒤에만 실행
 python scripts/review_reel_intake.py create-from-material-bank `
   --output-root "output" `
   --reviews-root "reviews" `
@@ -62,6 +69,9 @@ python scripts/review_reel_intake.py create-from-material-bank `
 - `output/.review_reel_production/source_registry_private.json`이 기존 `reviews/`와
   `output/`의 번호를 스캔한 뒤 다음 미사용 번호를 배정한다.
 - 같은 candidate를 다시 실행하면 최초 번호·slug·source를 그대로 재사용한다.
+- source registry에 없어도 과거 `CAND-*` package 경로 또는 canonical metadata에서 사용
+  흔적이 발견되면 `CANDIDATE_LEGACY_PACKAGE_PRESENT`로 차단한다. 이 경우 legacy를
+  고치지 말고 다른 후보를 선택하거나 별도 legacy-resolution 결정을 받는다.
 - registry JSON이 깨졌거나 같은 candidate의 원문/주문/리뷰 ID가 바뀌면 덮어쓰지
   않고 하드 실패한다.
 - 원문은 `reviews/production_registry/<ID>_<slug>.txt`에 local-only로 고정되고,
@@ -150,6 +160,11 @@ python scripts/review_reel_intake.py status --output-root "output"
 python scripts/review_reel_intake.py workflow-next --output-root "output"
 python scripts/review_reel_intake.py explain-error --code "<GATE_CODE>"
 ```
+
+Git worktree에는 Git에서 제외된 `reviews/`와 `output/`이 자동 복제되지 않는다. 고객자료
+production은 저장된 로컬 프로젝트에서 실행하거나, 사용자가 지정한 원본 로컬 절대경로를
+위 공식 명령에 넣는다. PATH에 `python`이 없으면 Codex 번들 workspace dependency가
+제공하는 Python 실행경로를 사용한다.
 
 ## 사진 후 one-shot HTML 연결
 

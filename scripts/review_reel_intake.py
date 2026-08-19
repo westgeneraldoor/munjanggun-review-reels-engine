@@ -17,6 +17,7 @@ from video_engine_v2.review_reel_intake import (  # noqa: E402
     active_package_status,
     create_canonical_package,
     create_canonical_package_from_material_bank,
+    inspect_material_bank_candidate,
     record_photo_review,
     route_user_command,
     run_one_shot_html,
@@ -60,6 +61,14 @@ def build_parser() -> argparse.ArgumentParser:
     material.add_argument("--material-bank", required=True, help="private candidate JSONL")
     material.add_argument("--candidate-id", required=True)
     material.add_argument("--content-slug", required=True)
+    candidate_check = commands.add_parser(
+        "candidate-check",
+        help="Read-only check for official or legacy use before selecting a candidate",
+    )
+    candidate_check.add_argument("--output-root", required=True)
+    candidate_check.add_argument("--reviews-root", required=True)
+    candidate_check.add_argument("--material-bank", required=True, help="private candidate JSONL")
+    candidate_check.add_argument("--candidate-id", required=True)
     photo_review = commands.add_parser(
         "photo-review",
         help="Bind complete photo decisions and privacy evidence to the active package",
@@ -98,6 +107,19 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "workflow-next":
             print(json.dumps(workflow_next(args.output_root), ensure_ascii=False))
+            return 0
+        if args.command == "candidate-check":
+            print(
+                json.dumps(
+                    inspect_material_bank_candidate(
+                        output_root=args.output_root,
+                        reviews_root=args.reviews_root,
+                        material_bank_path=args.material_bank,
+                        candidate_id=args.candidate_id,
+                    ),
+                    ensure_ascii=False,
+                )
+            )
             return 0
         if args.command in {"create", "create-from-material-bank"}:
             if args.command == "create":

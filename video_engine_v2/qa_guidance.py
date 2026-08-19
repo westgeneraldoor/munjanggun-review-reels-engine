@@ -4,6 +4,10 @@ from typing import Any
 
 
 ERROR_GUIDANCE: dict[str, dict[str, str]] = {
+    "CANDIDATE_LEGACY_PACKAGE_PRESENT": {
+        "authority": "docs/review_reel_production_routing_v1.md",
+        "how_to_fix": "Do not allocate this candidate as a new numeric package. Preserve the legacy package, select another eligible candidate, or request an explicit legacy-resolution decision.",
+    },
     "ACTIVE_PACKAGE_CONTENT_ID_MISMATCH": {
         "authority": "docs/review_reel_production_routing_v1.md",
         "how_to_fix": "Run workflow-next, confirm the active content_id, and repeat the command with that exact --expected-content-id. Do not edit the pointer by hand.",

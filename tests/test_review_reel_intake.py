@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from PIL import Image, ImageDraw
 
+from video_engine_v2.qa_guidance import explain_error
 from video_engine_v2.reels_qa import validate_review_reels_one_shot_contract
 from video_engine_v2.review_reel_intake import (
     IntakeViolation,
@@ -18,6 +19,7 @@ from video_engine_v2.review_reel_intake import (
     build_one_shot_html_commands,
     create_canonical_package,
     create_canonical_package_from_material_bank,
+    inspect_material_bank_candidate,
     record_photo_review,
     resolve_active_package,
     route_user_command,
@@ -237,6 +239,202 @@ class ReviewReelIntakeTests(unittest.TestCase):
             )
         )
         self.assertEqual([record["content_id"] for record in registry["records"]], ["006", "007"])
+
+    def test_material_bank_candidate_with_legacy_output_is_not_reported_or_allocated_as_new(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        candidate_id = "CAND-20300102-0001"
+        material_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-FIXTURE-1",
+                    "review_id": "REVIEW-FIXTURE-1",
+                    "order_id": "ORDER-FIXTURE-1",
+                    "review_text": "Legacy fixture review.",
+                    "candidate_id": candidate_id,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        legacy_package = (
+            self.output_root
+            / "inbox_20291231"
+            / f"{candidate_id}_legacy_html_20291231_235959"
+        )
+        legacy_package.mkdir(parents=True)
+
+        inspection = inspect_material_bank_candidate(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+        )
+
+        self.assertFalse(inspection["eligible_for_new_package"])
+        self.assertEqual(inspection["status"], "legacy_package_present")
+        self.assertEqual(inspection["blocker_code"], "CANDIDATE_LEGACY_PACKAGE_PRESENT")
+        self.assertEqual(
+            inspection["legacy_package_relative_paths"],
+            [f"inbox_20291231/{legacy_package.name}"],
+        )
+
+        with self.assertRaisesRegex(IntakeViolation, "CANDIDATE_LEGACY_PACKAGE_PRESENT"):
+            create_canonical_package_from_material_bank(
+                output_root=self.output_root,
+                reviews_root=self.root / "reviews",
+                material_bank_path=material_bank,
+                candidate_id=candidate_id,
+                content_slug="중복금지",
+                now=self.now,
+            )
+
+        state_dir = self.output_root / ".review_reel_production"
+        self.assertFalse((state_dir / "source_registry_private.json").exists())
+        self.assertFalse((state_dir / "material_bank_inventory_private.json").exists())
+        self.assertFalse(any(self.output_root.glob("[0-9][0-9][0-9]_*")))
+
+    def test_material_bank_candidate_with_official_binding_reuses_it_even_if_legacy_output_exists(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        candidate_id = "CAND-20300102-0001"
+        material_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-FIXTURE-1",
+                    "review_id": "REVIEW-FIXTURE-1",
+                    "order_id": "ORDER-FIXTURE-1",
+                    "review_text": "Official fixture review.",
+                    "candidate_id": candidate_id,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        first = create_canonical_package_from_material_bank(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+            content_slug="공식패키지",
+            now=self.now,
+        )
+        (self.output_root / "inbox_legacy" / f"{candidate_id}_old").mkdir(parents=True)
+
+        inspection = inspect_material_bank_candidate(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+        )
+        repeated = create_canonical_package_from_material_bank(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+            content_slug="다른이름",
+            now=self.now,
+        )
+
+        self.assertFalse(inspection["eligible_for_new_package"])
+        self.assertEqual(inspection["status"], "official_binding_exists")
+        self.assertEqual(inspection["existing_content_id"], first.metadata["content_id"])
+        self.assertEqual(repeated.package_dir, first.package_dir)
+        self.assertTrue(repeated.reused_existing)
+
+    def test_material_bank_candidate_used_as_legacy_related_review_is_also_blocked(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        related_candidate = "CAND-20300102-0002"
+        material_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-FIXTURE-2",
+                    "review_id": "REVIEW-FIXTURE-2",
+                    "order_id": "ORDER-FIXTURE-1",
+                    "review_text": "Related follow-up fixture review.",
+                    "candidate_id": related_candidate,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        legacy_package = (
+            self.output_root
+            / "inbox_20291231"
+            / "CAND-20300102-0001_primary_legacy"
+        )
+        legacy_package.mkdir(parents=True)
+        (legacy_package / "planning_recipe.json").write_text(
+            json.dumps(
+                {
+                    "review_source": {
+                        "source_reference": (
+                            "material-bank#CAND-20300102-0001; "
+                            f"same-order follow-up #{related_candidate}"
+                        )
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        inspection = inspect_material_bank_candidate(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=related_candidate,
+        )
+
+        self.assertFalse(inspection["eligible_for_new_package"])
+        self.assertEqual(inspection["status"], "legacy_package_present")
+        self.assertEqual(
+            inspection["legacy_package_relative_paths"],
+            [f"inbox_20291231/{legacy_package.name}"],
+        )
+
+    def test_candidate_check_cli_and_error_guidance_explain_legacy_blocker(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        candidate_id = "CAND-20300102-0001"
+        material_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-FIXTURE-1",
+                    "review_id": "REVIEW-FIXTURE-1",
+                    "order_id": "ORDER-FIXTURE-1",
+                    "review_text": "Legacy fixture review.",
+                    "candidate_id": candidate_id,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (self.output_root / "inbox_20291231" / f"{candidate_id}_old").mkdir(parents=True)
+        script = Path(__file__).resolve().parents[1] / "scripts" / "review_reel_intake.py"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "candidate-check",
+                "--output-root",
+                str(self.output_root),
+                "--reviews-root",
+                str(self.root / "reviews"),
+                "--material-bank",
+                str(material_bank),
+                "--candidate-id",
+                candidate_id,
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["blocker_code"], "CANDIDATE_LEGACY_PACKAGE_PRESENT")
+        guidance = explain_error("CANDIDATE_LEGACY_PACKAGE_PRESENT")
+        self.assertTrue(guidance["known"])
+        self.assertIn("legacy", guidance["how_to_fix"].lower())
 
     def test_invalid_material_bank_registry_is_not_silently_replaced(self):
         material_bank = self.root / "candidate_top60_private.jsonl"
@@ -1421,8 +1619,9 @@ class ReviewReelIntakeTests(unittest.TestCase):
         ):
             completed = workflow_next(self.output_root)
         self.assertIsNone(completed["next_command"])
-        self.assertEqual(completed["new_production_action"], "select_material_bank_candidate_then_create")
-        self.assertIn("create-from-material-bank", completed["new_production_command_template"])
+        self.assertEqual(completed["new_production_action"], "select_then_check_material_bank_candidate")
+        self.assertIn("candidate-check", completed["new_production_command_template"])
+        self.assertNotIn("create-from-material-bank", completed["new_production_command_template"])
 
         approval_status = {
             **photo_reviewed_status,

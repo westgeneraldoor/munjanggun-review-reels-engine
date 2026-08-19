@@ -117,6 +117,8 @@ It also resolves the active package for the one-shot request below; it never
 provides an MP4 render route.
 
 ```powershell
+python scripts/review_reel_intake.py candidate-check --output-root "output" --reviews-root "reviews" --material-bank "<candidate_top60_private.jsonl>" --candidate-id "<selected CAND-*>"
+# Run create only when candidate-check returns eligible_for_new_package: true.
 python scripts/review_reel_intake.py create-from-material-bank --output-root "output" --reviews-root "reviews" --material-bank "<candidate_top60_private.jsonl>" --candidate-id "<selected CAND-*>" --content-slug "<event-focused slug>"
 ```
 
@@ -124,6 +126,8 @@ The private source registry scans existing `reviews/` and `output/` IDs, assigns
 the next unused three-digit ID, and reuses that binding on every retry. Invalid
 registry data or changed source identity is a hard failure, never a silent
 reset.
+Legacy `CAND-*` package evidence also blocks a new allocation even when the
+newer source registry has no binding for that candidate.
 
 For an explicit user instruction equivalent to `사진 다 넣었어. HTML까지 가자`, a
 review-reel package may use the HTML-only one-shot route. It never grants MP4

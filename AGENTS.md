@@ -75,6 +75,17 @@ local-only source registry가 기존 번호를 스캔해 다음 미사용 세 �
 같은 candidate는 최초 배정을 재사용하며, 깨진 registry나 identity 변경은 덮어쓰지
 않고 실패해야 한다.
 
+후보를 신규 제작 대상으로 제시하거나 `create-from-material-bank`를 실행하기 전에는
+반드시 공식 `candidate-check`를 먼저 실행한다. 새 source registry에 미배정이어도
+과거 `CAND-*` legacy package가 남아 있으면 이미 사용한 후보이므로
+`CANDIDATE_LEGACY_PACKAGE_PRESENT`로 차단하고, legacy 산출물은 수정하지 않는다.
+
+Codex Git worktree에는 Git에서 제외된 `reviews/`·`output/`이 복제되지 않는다. 고객자료를
+쓰는 production 세션은 저장된 로컬 프로젝트에서 실행하거나 사용자가 지정한 원본
+`reviews`·`output`·material-bank 절대경로를 공식 CLI에 넣는다. worktree에 자료가 없다는
+이유만으로 원본 부재를 단정하지 않는다. 셸 PATH에 `python`이 없으면 Codex 번들 workspace
+dependency를 먼저 불러 그 Python 실행경로로 같은 공식 CLI를 실행하며 내부 모듈로 우회하지 않는다.
+
 `릴스`, `숏폼`, `쇼츠`, `리뷰 영상`은 이 저장소에서 같은 review-reel 제작 의도로
 라우팅한다. `HTML 승인. MP4 렌더도 진행해` 같은 문장은 승인 완료가 아니라
 `html_approval_and_mp4_render_intent_requested`로만 분류하며, 실제 권한은 아래 공식

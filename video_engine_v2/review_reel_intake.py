@@ -535,6 +535,143 @@ def _material_record_key(candidate_id: str) -> str:
     return f"material-bank::{candidate_id}"
 
 
+def _candidate_legacy_package_paths(output_root: Path, candidate_id: str) -> list[Path]:
+    """Return pre-registry package directories that already used a candidate.
+
+    Older packages were allowed to expose ``CAND-*`` in their directory name and
+    were never imported into the newer source registry.  They remain immutable
+    evidence, but must still prevent the same review from being allocated as a
+    new numeric package.
+    """
+
+    if not candidate_id.startswith(_CANDIDATE_PREFIX):
+        raise IntakeViolation("CANDIDATE_REFERENCE_INVALID")
+    if not output_root.is_dir():
+        return []
+
+    package_dirs: list[Path] = [
+        path
+        for path in output_root.iterdir()
+        if path.is_dir()
+        and (_CONTENT_PREFIX.match(path.name) or path.name.startswith(_CANDIDATE_PREFIX))
+    ]
+    for inbox in output_root.glob("inbox_*"):
+        if inbox.is_dir():
+            package_dirs.extend(path for path in inbox.iterdir() if path.is_dir())
+
+    matches: dict[str, Path] = {}
+    for package_dir in package_dirs:
+        name_matches = package_dir.name == candidate_id or package_dir.name.startswith(
+            f"{candidate_id}_"
+        )
+        metadata_matches = False
+        metadata_path = package_dir / METADATA_FILENAME
+        if metadata_path.is_file():
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                metadata = None
+            if isinstance(metadata, dict):
+                review_source = metadata.get("review_source")
+                metadata_matches = isinstance(review_source, dict) and (
+                    review_source.get("candidate_reference") == candidate_id
+                )
+        evidence_mentions_candidate = False
+        if not name_matches and not metadata_matches:
+            candidate_bytes = candidate_id.encode("utf-8")
+            for evidence_path in package_dir.iterdir():
+                if (
+                    not evidence_path.is_file()
+                    or evidence_path.suffix.lower() not in {".json", ".md", ".txt"}
+                ):
+                    continue
+                try:
+                    if candidate_bytes in evidence_path.read_bytes():
+                        evidence_mentions_candidate = True
+                        break
+                except OSError:
+                    continue
+        if name_matches or metadata_matches or evidence_mentions_candidate:
+            matches[str(package_dir.resolve()).casefold()] = package_dir.resolve()
+    return sorted(matches.values(), key=lambda path: str(path).casefold())
+
+
+def inspect_material_bank_candidate(
+    *,
+    output_root: str | Path,
+    reviews_root: str | Path,
+    material_bank_path: str | Path,
+    candidate_id: str,
+) -> dict[str, Any]:
+    """Read-only eligibility check before selecting a material-bank candidate."""
+
+    root = Path(output_root).resolve()
+    local_reviews = Path(reviews_root).resolve()
+    bank_path = Path(material_bank_path).resolve()
+    selected = _read_jsonl_record(bank_path, candidate_id=candidate_id)
+    identity = _material_identity(selected)
+    registry = _load_source_registry(root / POINTER_DIRECTORY / SOURCE_REGISTRY_FILENAME)
+    official_matches = [
+        record
+        for record in registry["records"]
+        if isinstance(record, dict) and record.get("candidate_reference") == candidate_id
+    ]
+    if len(official_matches) > 1:
+        raise IntakeViolation("SOURCE_REGISTRY_RECORD_NOT_UNIQUE")
+    legacy_paths = _candidate_legacy_package_paths(root, candidate_id)
+    relative_legacy_paths = [
+        path.relative_to(root).as_posix() for path in legacy_paths
+    ]
+    result: dict[str, Any] = {
+        "workflow": "review_reel_production",
+        "candidate_id": candidate_id,
+        "inventory_id": identity["inventory_id"],
+        "review_article_id": identity["review_article_id"],
+        "eligible_for_new_package": False,
+        "legacy_package_relative_paths": relative_legacy_paths,
+    }
+    if official_matches:
+        binding = official_matches[0]
+        if binding.get("identity") != identity:
+            raise IntakeViolation("SOURCE_REGISTRY_IDENTITY_CONFLICT")
+        result.update(
+            {
+                "status": "official_binding_exists",
+                "existing_content_id": _required_text(
+                    binding, "content_id", "CONTENT_ID_MISSING"
+                ),
+                "existing_content_slug": _safe_slug(
+                    _required_text(binding, "content_slug", "CONTENT_SLUG_MISSING")
+                ),
+                "next_action": "reuse_existing_official_binding",
+            }
+        )
+        return result
+    if legacy_paths:
+        result.update(
+            {
+                "status": "legacy_package_present",
+                "blocker_code": "CANDIDATE_LEGACY_PACKAGE_PRESENT",
+                "next_action": "select_a_different_candidate_or_request_legacy_resolution",
+            }
+        )
+        return result
+    result.update(
+        {
+            "status": "eligible",
+            "eligible_for_new_package": True,
+            "next_action": "confirm_candidate_and_content_slug_then_create",
+            "create_command_template": (
+                "python scripts/review_reel_intake.py create-from-material-bank "
+                f'--output-root "{root}" --reviews-root "{local_reviews}" '
+                f'--material-bank "{bank_path}" --candidate-id "{candidate_id}" '
+                '--content-slug "<content-slug>"'
+            ),
+        }
+    )
+    return result
+
+
 def create_canonical_package_from_material_bank(
     *,
     output_root: str | Path,
@@ -583,6 +720,8 @@ def create_canonical_package_from_material_bank(
                 _required_text(binding, "content_slug", "CONTENT_SLUG_MISSING")
             )
         else:
+            if _candidate_legacy_package_paths(root, candidate_id):
+                raise IntakeViolation("CANDIDATE_LEGACY_PACKAGE_PRESENT")
             content_id = _next_content_id(
                 output_root=root,
                 reviews_root=local_reviews,
@@ -1033,11 +1172,11 @@ def workflow_next(output_root: str | Path) -> dict[str, Any]:
         guidance["approval_required"] = True
         guidance["required_inputs"] = ["explicit_user_mp4_approval", "current_html"]
     elif action == "no_action_final_delivery_complete":
-        guidance["new_production_action"] = "select_material_bank_candidate_then_create"
+        guidance["new_production_action"] = "select_then_check_material_bank_candidate"
         guidance["new_production_command_template"] = (
-            f'python scripts/review_reel_intake.py create-from-material-bank --output-root "{root}" '
+            f'python scripts/review_reel_intake.py candidate-check --output-root "{root}" '
             '--reviews-root "<reviews>" --material-bank "<candidate_top60_private.jsonl>" '
-            '--candidate-id "<CAND-id>" --content-slug "<content-slug>"'
+            '--candidate-id "<CAND-id>"'
         )
     elif action in {
         "start_or_check_durable_render_job",
