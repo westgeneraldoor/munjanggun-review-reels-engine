@@ -135,7 +135,8 @@ class ManualReviewEvidenceTests(unittest.TestCase):
             "--evidence-reference", "fixture-task",
             *sum((["--check", value] for value in (
                 "hook_sequence_reviewed", "meaning_sync_reviewed", "caption_layout_reviewed",
-                "privacy_reviewed", "review_capture_reviewed", "cta_reviewed",
+                "privacy_reviewed", "review_capture_reviewed",
+                "review_underline_alignment_reviewed", "cta_reviewed",
             )), []),
         )
 
@@ -171,7 +172,8 @@ class ManualReviewEvidenceTests(unittest.TestCase):
             "--evidence-reference", "fixture-task",
             *sum((["--check", value] for value in (
                 "hook_sequence_reviewed", "meaning_sync_reviewed", "caption_layout_reviewed",
-                "privacy_reviewed", "review_capture_reviewed", "cta_reviewed",
+                "privacy_reviewed", "review_capture_reviewed",
+                "review_underline_alignment_reviewed", "cta_reviewed",
             )), []),
         )
         self.assertEqual(review.returncode, 0, review.stderr)

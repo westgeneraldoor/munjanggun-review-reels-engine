@@ -17,6 +17,9 @@ HTML_REVIEW_CHECKS = frozenset(
         "caption_layout_reviewed",
         "privacy_reviewed",
         "review_capture_reviewed",
+        # 엔진은 캡처 이미지를 읽지 못한다. 밑줄이 인용한 그 줄 위에 실제로 놓였는지는
+        # 대표 프레임을 본 사람만 확인할 수 있다.
+        "review_underline_alignment_reviewed",
         "cta_reviewed",
     }
 )

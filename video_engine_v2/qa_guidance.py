@@ -48,6 +48,18 @@ ERROR_GUIDANCE: dict[str, dict[str, str]] = {
         "authority": "docs/review_reels_visual_edit_standard_v1.md",
         "how_to_fix": "Start the review underline as the review scene enters and finish the draw within 0.20 seconds.",
     },
+    "NARRATION_RHYTHM_MONOTONE": {
+        "authority": "docs/review_reels_content_standard_v1.md",
+        "how_to_fix": "Rewrite the body so at least one sentence lands far shorter than the rest, the way the golden sample cuts to a three-word beat between long ones. Do not chase ending variety; the same ending repeated is fine when the lengths move.",
+    },
+    "REVIEW_EMPHASIS_SEGMENT_TEXT_MISMATCH": {
+        "authority": "docs/review_reels_visual_edit_standard_v1.md",
+        "how_to_fix": "Open the review capture, see how many rendered lines the quote actually wraps onto, and give one segment per line. Each segment needs line_text holding that line's fragment, and joining them must reproduce the quote exactly.",
+    },
+    "REVIEW_EMPHASIS_SEGMENT_ORDER_INVALID": {
+        "authority": "docs/review_reels_visual_edit_standard_v1.md",
+        "how_to_fix": "Order underline segments top to bottom as the quote reads, each at its own line height. Repeated or rising top_pct values mean the coordinates were guessed.",
+    },
     "FINAL_RESULT_DWELL_INVALID": {
         "authority": "docs/review_reels_visual_edit_standard_v1.md",
         "how_to_fix": "End on the full installed-result asset and keep the final shot visible for the required dwell time.",

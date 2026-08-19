@@ -833,6 +833,8 @@ CAPTION_ACCENT_ONSET_EARLY_TOLERANCE_SEC = 0.20
 CAPTION_ACCENT_ONSET_LATE_TOLERANCE_SEC = 0.45
 MAX_REVIEW_UNDERLINE_START_DELAY_SEC = 0.10
 MAX_REVIEW_UNDERLINE_DRAW_SEC = 0.20
+# 렌더된 리뷰 캡처에서 한 줄 높이는 최소 이만큼은 떨어진다.
+MIN_REVIEW_UNDERLINE_LINE_GAP_PCT = 1.0
 CALM_DISSOLVE_MS = 380
 CALM_SCALE_DELTA = 0.05
 CALM_HORIZONTAL_TRAVEL_PX = 24
@@ -843,6 +845,10 @@ MAX_CONTEXTUAL_CAPTION_CHUNKS = 4
 MIN_CONTEXTUAL_CAPTION_CHARS = 7
 MIN_ONE_SHOT_HOOK_SHOT_SEC = 1.0
 MIN_ONE_SHOT_FINAL_RESULT_SEC = 2.5
+# D-028: 본문에서 가장 짧은 문장이 평균 대비 이 비율보다 길면 낭독처럼 들린다.
+# 118 골든은 0.36, 사람이 `군대식`이라고 지적한 120번은 0.77이었다.
+MAX_NARRATION_SHORTEST_RATIO = 0.75
+MIN_RHYTHM_SENTENCE_COUNT = 3
 
 SUPPORTED_TRANSITIONS = {
     "card_pop", "caption_swap", "cross_dissolve", "cut", "flash_glow", "glow",
@@ -1404,19 +1410,99 @@ def _validate_review_emphasis_contract(
     segments = emphasis.get("segments")
     if not isinstance(segments, list) or not 1 <= len(segments) <= 3:
         issues.append(_issue("REVIEW_EMPHASIS_SEGMENT_INVALID", "Review emphasis needs one to three underline segments."))
-    else:
-        for segment in segments:
-            try:
-                left = float(segment["left_pct"])
-                top = float(segment["top_pct"])
-                width = float(segment["width_pct"])
-            except (KeyError, TypeError, ValueError):
-                issues.append(_issue("REVIEW_EMPHASIS_SEGMENT_INVALID", "Underline segments need numeric left/top/width percentages."))
-                break
-            if left < 0 or top < 0 or width <= 0 or left + width > 100 or top > 100:
-                issues.append(_issue("REVIEW_EMPHASIS_SEGMENT_INVALID", "Underline segments must stay inside the review capture."))
-                break
+        return issues
+
+    geometry_ok = True
+    previous_top: float | None = None
+    for segment in segments:
+        try:
+            left = float(segment["left_pct"])
+            top = float(segment["top_pct"])
+            width = float(segment["width_pct"])
+        except (KeyError, TypeError, ValueError):
+            issues.append(_issue("REVIEW_EMPHASIS_SEGMENT_INVALID", "Underline segments need numeric left/top/width percentages."))
+            geometry_ok = False
+            break
+        if left < 0 or top < 0 or width <= 0 or left + width > 100 or top > 100:
+            issues.append(_issue("REVIEW_EMPHASIS_SEGMENT_INVALID", "Underline segments must stay inside the review capture."))
+            geometry_ok = False
+            break
+        # 캡처 안에서 인용문은 위에서 아래로 읽힌다. 같은 높이를 두 번 쓰거나
+        # 거슬러 올라가면 좌표를 눈대중으로 찍었다는 뜻이다.
+        if previous_top is not None and top <= previous_top + MIN_REVIEW_UNDERLINE_LINE_GAP_PCT - 0.001:
+            issues.append(
+                _issue(
+                    "REVIEW_EMPHASIS_SEGMENT_ORDER_INVALID",
+                    "Underline segments must move down the capture, one rendered line at a time.",
+                )
+            )
+            geometry_ok = False
+            break
+        previous_top = top
+
+    if not geometry_ok:
+        return issues
+
+    # 엔진은 캡처 이미지를 읽지 못하므로 top_pct가 맞는 줄인지 스스로 알 수 없다.
+    # 대신 segment마다 그 줄이 실제로 덮는 인용문 조각을 받아 적게 해서,
+    # 줄 수가 틀리면 (120번처럼 두 줄을 segment 하나로 처리하면) 반드시 걸리게 한다.
+    line_texts = [_as_text(segment.get("line_text")).strip() for segment in segments]
+    if not all(line_texts):
+        issues.append(
+            _issue(
+                "REVIEW_EMPHASIS_SEGMENT_TEXT_MISMATCH",
+                "Every underline segment needs line_text naming the quote fragment that rendered line covers.",
+            )
+        )
+    elif _compact_text("".join(line_texts)) != _compact_text(quote):
+        issues.append(
+            _issue(
+                "REVIEW_EMPHASIS_SEGMENT_TEXT_MISMATCH",
+                "Joining every segment line_text must reproduce review_emphasis.quote exactly, "
+                "so the underline covers the whole quote and nothing else.",
+            )
+        )
     return issues
+
+
+def _split_sentences(text: str) -> list[str]:
+    """마침표/물음표/느낌표 뒤에서 끊어 낭독 단위 문장을 얻는다."""
+    return [part.strip() for part in re.split(r"(?<=[.?!])\s+", _as_text(text).strip()) if part.strip()]
+
+
+def _validate_narration_rhythm(edit_recipe: dict[str, Any]) -> list[dict[str, Any]]:
+    """D-028: 본문 문장 길이가 균일하면 이야기가 아니라 낭독이 된다.
+
+    고정 문구인 CTA는 작가가 리듬을 만들 수 있는 자리가 아니므로 제외하고,
+    나머지 본문에 `확 짧은 한 문장`이 하나라도 있는지만 본다. 종결어미 반복은
+    기준이 되지 못한다. 118 골든은 같은 어미를 여섯 번 연속 쓰고도 좋게 읽힌다.
+    """
+
+    sentences: list[str] = []
+    for beat in edit_recipe.get("beats") or []:
+        if not isinstance(beat, dict) or _role(beat) == "cta":
+            continue
+        sentences.extend(_split_sentences(beat.get("narration_ref")))
+
+    lengths = [len(_compact_text(sentence)) for sentence in sentences]
+    lengths = [length for length in lengths if length > 0]
+    if len(lengths) < MIN_RHYTHM_SENTENCE_COUNT:
+        return []
+
+    mean_length = sum(lengths) / len(lengths)
+    if mean_length <= 0:
+        return []
+    shortest_ratio = min(lengths) / mean_length
+    if shortest_ratio <= MAX_NARRATION_SHORTEST_RATIO:
+        return []
+    return [
+        _issue(
+            "NARRATION_RHYTHM_MONOTONE",
+            "Every body sentence is nearly the same length, so the narration reads aloud instead of telling a story. "
+            "Add at least one short punch sentence "
+            f"(shortest/mean {shortest_ratio:.2f} must be {MAX_NARRATION_SHORTEST_RATIO} or less).",
+        )
+    ]
 
 
 def _validate_caption_chunks(beat: dict[str, Any], scene_id: str) -> list[dict[str, Any]]:
@@ -1561,6 +1647,7 @@ def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edi
     issues.extend(_validate_visual_evidence_contract(planning_recipe, edit_recipe))
     issues.extend(_validate_one_shot_visual_edit_contract(edit_recipe))
     issues.extend(_validate_review_emphasis_contract(planning_recipe, edit_recipe))
+    issues.extend(_validate_narration_rhythm(edit_recipe))
 
     writer_brief = planning_recipe.get("writer_brief") or {}
     required_writer_fields = (

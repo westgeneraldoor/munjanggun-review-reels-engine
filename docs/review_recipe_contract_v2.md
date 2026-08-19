@@ -266,3 +266,20 @@ python scripts/produce_review_v2.py post-render-qa --package "<package>" --job-i
 기존 recipe, MP4, frame은 덮어쓰지 않습니다.
 렌더 작업은 `_work/render_jobs/<job-id>/render_job.json`에 결속되며 `succeeded`와
 MP4 bytes/SHA-256이 함께 있어야 후속 post-render QA로 넘어갑니다.
+
+## 6. review_emphasis segment
+
+```json
+{
+  "review_emphasis": {
+    "quote": "외부 소음이 확실히 줄어들어 방음 효과를 체감하고 있습니다",
+    "segments": [
+      {"left_pct": 8, "top_pct": 61, "width_pct": 84, "line_text": "외부 소음이 확실히 줄어들어 방음 효과를"},
+      {"left_pct": 8, "top_pct": 65, "width_pct": 40, "line_text": "체감하고 있습니다"}
+    ]
+  }
+}
+```
+
+`line_text`를 모두 이은 결과가 `quote`와 다르면 `REVIEW_EMPHASIS_SEGMENT_TEXT_MISMATCH`로
+실패합니다. 상세 기준은 `docs/review_reels_visual_edit_standard_v1.md`를 따릅니다.

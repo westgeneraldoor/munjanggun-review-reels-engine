@@ -125,7 +125,9 @@ def _body_beat(
             "quote": review_quote,
             "start_sec": start + 0.05,
             "end_sec": end - 0.25,
-            "segments": [{"left_pct": 15, "top_pct": 62, "width_pct": 70}],
+            # 캡처에서 인용문이 실제로 몇 줄에 걸치는지 보고 줄 수만큼 segment를 나눈다.
+            # line_text를 모두 이으면 quote와 정확히 같아야 통과한다.
+            "segments": [{"left_pct": 15, "top_pct": 62, "width_pct": 70, "line_text": review_quote}],
             "draw_duration_sec": 0.15,
         }
     return beat

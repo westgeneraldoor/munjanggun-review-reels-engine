@@ -136,3 +136,16 @@ HTML은 1080x1920, 30fps production 설정과 동일한 레이아웃을 사용�
 6. 최종 MP4가 `docs/render_qa_rules_v2.md`의 codec·해상도·오디오·대표 프레임 QA를 통과하는가
 
 내부 builder나 renderer를 직접 실행하지 않고 `scripts/produce_review_v2.py`만 사용합니다.
+
+## 리뷰 밑줄 정렬 계약
+
+엔진은 리뷰 캡처 이미지를 읽지 못하므로 `top_pct`가 옳은 줄인지 스스로 알 수 없습니다.
+좌표를 눈대중으로 찍으면 엉뚱한 줄에 밑줄이 그어진 채 자동 QA를 전부 통과합니다.
+
+- 캡처에서 인용문이 **실제로 몇 줄에 걸치는지 보고 그 줄 수만큼** segment를 만든다.
+- segment마다 그 줄이 덮는 조각을 `line_text`에 적는다.
+  모두 이으면 `review_emphasis.quote`와 정확히 같아야 한다.
+- segment는 위에서 아래로, 한 줄 높이씩 내려간다. 같은 `top_pct`를 두 번 쓰거나
+  거슬러 올라가면 실패한다.
+- 좌표가 그 줄 위에 실제로 놓였는지는 대표 프레임을 본 사람만 확인할 수 있으므로
+  `--check review_underline_alignment_reviewed`가 HTML 검수 영수증에 필수다.

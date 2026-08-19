@@ -1165,7 +1165,7 @@ def workflow_next(output_root: str | Path) -> dict[str, Any]:
                     f'--html "{html_path}" --reviewer "<reviewer>" --evidence-reference "<evidence>" '
                     '--check hook_sequence_reviewed --check meaning_sync_reviewed '
                     '--check caption_layout_reviewed --check privacy_reviewed '
-                    '--check review_capture_reviewed --check cta_reviewed'
+                    '--check review_capture_reviewed --check review_underline_alignment_reviewed --check cta_reviewed'
                 )
                 return guidance
             guidance["next_action"] = "wait_for_explicit_html_approval_then_record_it"

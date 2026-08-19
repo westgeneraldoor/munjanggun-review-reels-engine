@@ -212,7 +212,7 @@ python scripts/produce_review_v2.py preflight --package "<output review package>
 python scripts/produce_review_v2.py html --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json"
 
 # 2.5. 모든 beat와 0.5초·첫 3개 훅 대표 프레임을 직접 본 뒤 기록
-python scripts/produce_review_v2.py html-review-record --package "<output review package>" --html "<html_preview>/index.html" --reviewer "<reviewer>" --evidence-reference "<review evidence>" --check hook_sequence_reviewed --check meaning_sync_reviewed --check caption_layout_reviewed --check privacy_reviewed --check review_capture_reviewed --check cta_reviewed
+python scripts/produce_review_v2.py html-review-record --package "<output review package>" --html "<html_preview>/index.html" --reviewer "<reviewer>" --evidence-reference "<review evidence>" --check hook_sequence_reviewed --check meaning_sync_reviewed --check caption_layout_reviewed --check privacy_reviewed --check review_capture_reviewed --check review_underline_alignment_reviewed --check cta_reviewed
 
 # 2.6. 사용자의 HTML 승인과 별도 MP4 렌더 승인을 각각 현재 HTML 해시에 결속
 python scripts/produce_review_v2.py html-approval-record --package "<output review package>" --html "<html_preview>/index.html" --approved-by "<user>" --evidence-reference "<explicit HTML approval>"
