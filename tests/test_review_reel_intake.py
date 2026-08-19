@@ -391,6 +391,73 @@ class ReviewReelIntakeTests(unittest.TestCase):
             [f"inbox_20291231/{legacy_package.name}"],
         )
 
+    def test_candidate_identity_requires_exact_shape_and_legacy_scan_uses_token_boundaries(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        candidate_id = "CAND-20300102-0001"
+        material_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-FIXTURE-1",
+                    "review_id": "REVIEW-FIXTURE-1",
+                    "order_id": "ORDER-FIXTURE-1",
+                    "review_text": "Boundary fixture review.",
+                    "candidate_id": candidate_id,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        legacy_package = self.output_root / "inbox_20291231" / "999_other_legacy"
+        legacy_package.mkdir(parents=True)
+        evidence = legacy_package / "planning_recipe.json"
+        evidence.write_text(
+            json.dumps({"source_reference": f"{candidate_id}9"}),
+            encoding="utf-8",
+        )
+
+        inspection = inspect_material_bank_candidate(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+        )
+        self.assertTrue(inspection["eligible_for_new_package"])
+
+        evidence.write_text(
+            json.dumps({"source_reference": f"material-bank#{candidate_id}; follow-up"}),
+            encoding="utf-8",
+        )
+        exact_inspection = inspect_material_bank_candidate(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+        )
+        self.assertEqual(exact_inspection["status"], "legacy_package_present")
+
+        malformed_bank = self.root / "malformed_candidate.jsonl"
+        malformed_id = "CAND-20300102-001"
+        malformed_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-BAD",
+                    "review_id": "REVIEW-BAD",
+                    "order_id": "ORDER-BAD",
+                    "review_text": "Malformed candidate fixture.",
+                    "candidate_id": malformed_id,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(IntakeViolation, "CANDIDATE_REFERENCE_INVALID"):
+            inspect_material_bank_candidate(
+                output_root=self.output_root,
+                reviews_root=self.root / "reviews",
+                material_bank_path=malformed_bank,
+                candidate_id=malformed_id,
+            )
+
     def test_candidate_check_cli_and_error_guidance_explain_legacy_blocker(self):
         material_bank = self.root / "candidate_top60_private.jsonl"
         candidate_id = "CAND-20300102-0001"

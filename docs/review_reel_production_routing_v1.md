@@ -166,6 +166,12 @@ production은 저장된 로컬 프로젝트에서 실행하거나, 사용자가 
 위 공식 명령에 넣는다. PATH에 `python`이 없으면 Codex 번들 workspace dependency가
 제공하는 Python 실행경로를 사용한다.
 
+fresh-session 복구의 R5 합격 여부는 실제 Terra 세션에서 실제 리뷰·사진을 제공한 뒤
+HTML 검수본까지 도달한 작업 턴을 사람이 센다. 자동 테스트는 모델의 재시도 횟수를
+측정하지 않는다. 자동 테스트는 라우팅과 scaffold/QA 구조 동기화만 검증한다. 실제
+Terra 세션의 콘텐츠 수정 재시도는 3회 이내여야 하며, 사용량 제한·PATH·worktree 자료
+연결처럼 콘텐츠 생성 전 발생한 환경 중단과 함께 PR 본문에 각각 기록한다.
+
 ## 사진 후 one-shot HTML 연결
 
 사진을 넣은 뒤에는 먼저 모든 사진의 use/hold/exclude 결정과 privacy manifest를

@@ -6,7 +6,7 @@ from video_engine_v2.reels_qa import validate_html_preflight, validate_review_re
 
 
 class RecipeScaffoldTests(unittest.TestCase):
-    def test_fresh_session_contract_reaches_html_preflight_shape_within_three_evaluations(self):
+    def test_fresh_session_contract_routes_and_reaches_html_preflight_shape_after_required_inputs(self):
         routed = review_reel_intake.route_user_command(
             "이 리뷰와 사진들로 신규 리뷰 숏폼 만들자. 사진 검수부터 HTML까지 진행해."
         )
@@ -21,9 +21,9 @@ class RecipeScaffoldTests(unittest.TestCase):
                 {"relative_path": "review.png", "evidence_classes": ["review_capture"], "visual_quality": {}},
             ],
         )
-        evaluations = [validate_html_preflight(planning, edit)]
+        initial_validation = validate_html_preflight(planning, edit)
         self.assertEqual(
-            {issue["code"] for issue in evaluations[0]["issues"]},
+            {issue["code"] for issue in initial_validation["issues"]},
             {"RECIPE_SCAFFOLD_INCOMPLETE"},
         )
 
@@ -41,10 +41,8 @@ class RecipeScaffoldTests(unittest.TestCase):
             scene["meaning_match_evidence"] = "review_source.text and selected photo evidence"
         edit["audio_plan"]["tts_text_sha256"] = "a" * 64
         edit["audio_plan"]["final_voice_sha256"] = "b" * 64
-        evaluations.append(validate_html_preflight(planning, edit))
-
-        self.assertTrue(evaluations[-1]["ok"], evaluations[-1]["issues"])
-        self.assertLessEqual(len(evaluations), 3)
+        completed_validation = validate_html_preflight(planning, edit)
+        self.assertTrue(completed_validation["ok"], completed_validation["issues"])
 
     def test_scaffold_cannot_be_marked_complete_while_placeholders_remain(self):
         planning, edit = review_reel_intake.build_recipe_scaffold(

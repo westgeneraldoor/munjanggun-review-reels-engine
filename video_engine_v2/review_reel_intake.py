@@ -41,6 +41,7 @@ _CONTENT_PREFIX = re.compile(r"^(\d{3})_")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _WINDOWS_UNSAFE_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _CANDIDATE_PREFIX = "CAND-"
+_CANDIDATE_ID = re.compile(r"^CAND-\d{8}-\d{4}$")
 _PHOTO_MEDIA_EXTENSIONS = {
     ".avif",
     ".bmp",
@@ -246,7 +247,7 @@ def _resolve_inventory_record(inventory_path: Path, record_key: str) -> tuple[di
 
     candidate_reference = record.get("candidate_reference")
     if candidate_reference is not None:
-        if not isinstance(candidate_reference, str) or not candidate_reference.startswith(_CANDIDATE_PREFIX):
+        if not isinstance(candidate_reference, str) or not _CANDIDATE_ID.fullmatch(candidate_reference):
             raise IntakeViolation("CANDIDATE_REFERENCE_INVALID")
         record["candidate_reference"] = candidate_reference
 
@@ -398,7 +399,7 @@ def _exclusive_allocation_lock(state_dir: Path):
 def _read_jsonl_record(path: Path, *, candidate_id: str) -> dict[str, Any]:
     if not path.is_file():
         raise IntakeViolation("MATERIAL_BANK_MISSING")
-    if not candidate_id.startswith(_CANDIDATE_PREFIX):
+    if not _CANDIDATE_ID.fullmatch(candidate_id):
         raise IntakeViolation("CANDIDATE_REFERENCE_INVALID")
     matches: list[dict[str, Any]] = []
     try:
@@ -440,7 +441,7 @@ def _load_source_registry(path: Path) -> dict[str, Any]:
         _safe_slug(_required_text(record, "content_slug", "SOURCE_REGISTRY_SLUG_INVALID"))
         if (
             not isinstance(candidate_reference, str)
-            or not candidate_reference.startswith(_CANDIDATE_PREFIX)
+            or not _CANDIDATE_ID.fullmatch(candidate_reference)
         ):
             raise IntakeViolation("SOURCE_REGISTRY_CANDIDATE_INVALID")
         if content_id in content_ids:
@@ -544,7 +545,7 @@ def _candidate_legacy_package_paths(output_root: Path, candidate_id: str) -> lis
     new numeric package.
     """
 
-    if not candidate_id.startswith(_CANDIDATE_PREFIX):
+    if not _CANDIDATE_ID.fullmatch(candidate_id):
         raise IntakeViolation("CANDIDATE_REFERENCE_INVALID")
     if not output_root.is_dir():
         return []
@@ -579,6 +580,9 @@ def _candidate_legacy_package_paths(output_root: Path, candidate_id: str) -> lis
         evidence_mentions_candidate = False
         if not name_matches and not metadata_matches:
             candidate_bytes = candidate_id.encode("utf-8")
+            candidate_token = re.compile(
+                rb"(?<![A-Za-z0-9])" + re.escape(candidate_bytes) + rb"(?![A-Za-z0-9])"
+            )
             for evidence_path in package_dir.iterdir():
                 if (
                     not evidence_path.is_file()
@@ -586,7 +590,7 @@ def _candidate_legacy_package_paths(output_root: Path, candidate_id: str) -> lis
                 ):
                     continue
                 try:
-                    if candidate_bytes in evidence_path.read_bytes():
+                    if candidate_token.search(evidence_path.read_bytes()):
                         evidence_mentions_candidate = True
                         break
                 except OSError:
