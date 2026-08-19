@@ -75,10 +75,20 @@ local-only source registry가 기존 번호를 스캔해 다음 미사용 세 �
 같은 candidate는 최초 배정을 재사용하며, 깨진 registry나 identity 변경은 덮어쓰지
 않고 실패해야 한다.
 
+`릴스`, `숏폼`, `쇼츠`, `리뷰 영상`은 이 저장소에서 같은 review-reel 제작 의도로
+라우팅한다. `HTML 승인. MP4 렌더도 진행해` 같은 문장은 승인 완료가 아니라
+`html_approval_and_mp4_render_intent_requested`로만 분류하며, 실제 권한은 아래 공식
+approval record가 현재 HTML 해시에 결속된 뒤에만 생긴다.
+
 새 세션은 파일을 쓰기 전에 `review_reel_intake.py status --output-root "output"`으로
 활성 `content_id`와 package를 확인합니다. `photo-review`와 `one-shot-html`에는 그 값을
 `--expected-content-id`로 반드시 다시 넣습니다. 활성 pointer가 다른 리뷰를 가리키면
 `ACTIVE_PACKAGE_CONTENT_ID_MISMATCH`로 파일을 읽기 전에 중단해야 합니다.
+각 공식 명령이 끝난 뒤에는 `review_reel_intake.py workflow-next --output-root "output"`을
+실행해 다음 합법 단계·필수 입력·승인 대기 여부를 확인합니다. 사진 검수 후에는
+`recipe-scaffold`로 현재 QA와 동기화된 planning/edit 골격을 만들고, 오류 코드는
+`explain-error --code "<CODE>"`로 해석합니다. scaffold의 `TODO`나 임시 voice hash가
+남아 있으면 HTML preflight로 진행할 수 없습니다.
 
 ## 포맷 상태
 
