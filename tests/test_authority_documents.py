@@ -486,6 +486,10 @@ class AuthorityDocumentsTest(unittest.TestCase):
         self.assertIn("not current routing authority", routing)
         self.assertIn("review_reel_production", command)
         self.assertIn("not a routing authority", dashboard)
+        self.assertIn("실제 Terra 세션", routing)
+        self.assertRegex(routing, r"자동 테스트는 모델의 재시도 횟수를\s+측정하지 않는다")
+        self.assertIn("3회 이내", routing)
+        self.assertIn("PR 본문", routing)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .qa_guidance import guidance_for_issue
+
 
 HARD_CPS_LIMIT = 9.0
 SOFT_CPS_LIMIT = 8.5
@@ -167,6 +169,9 @@ def _issue(code: str, message: str, *, scene_id: str | None = None, severity: st
     }
     if scene_id:
         issue["scene_id"] = scene_id
+    guidance = guidance_for_issue(code)
+    if guidance is not None:
+        issue["guidance"] = guidance
     return issue
 
 
@@ -1521,6 +1526,30 @@ def _validate_caption_chunks(beat: dict[str, Any], scene_id: str) -> list[dict[s
 def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edit_recipe: dict[str, Any]) -> dict[str, Any]:
     """Validate the HTML-only one-shot contract without granting MP4 authority."""
     issues: list[dict[str, Any]] = []
+    scaffold = planning_recipe.get("scaffold") or edit_recipe.get("scaffold")
+    if isinstance(scaffold, dict) and (
+        scaffold.get("status") != "complete" or scaffold.get("pending_fields")
+    ):
+        issues.append(
+            _issue(
+                "RECIPE_SCAFFOLD_INCOMPLETE",
+                "Complete every scaffold pending field and set scaffold.status to complete before production.",
+            )
+        )
+    elif isinstance(scaffold, dict):
+        serialized = json.dumps({"planning": planning_recipe, "edit": edit_recipe}, ensure_ascii=False)
+        audio_plan = edit_recipe.get("audio_plan") or {}
+        placeholder_hashes = {
+            _as_text(audio_plan.get("tts_text_sha256")).strip(),
+            _as_text(audio_plan.get("final_voice_sha256")).strip(),
+        }
+        if "TODO" in serialized or "0" * 64 in placeholder_hashes:
+            issues.append(
+                _issue(
+                    "RECIPE_SCAFFOLD_PLACEHOLDER_REMAINS",
+                    "A scaffold cannot become complete while TODO values or placeholder voice hashes remain.",
+                )
+            )
     contract = planning_recipe.get("workflow_contract") or {}
     if _as_text(contract.get("name")).strip() != ONE_SHOT_CONTRACT_NAME:
         issues.append(_issue("ONE_SHOT_CONTRACT_MISSING", f"workflow_contract.name must be {ONE_SHOT_CONTRACT_NAME}."))

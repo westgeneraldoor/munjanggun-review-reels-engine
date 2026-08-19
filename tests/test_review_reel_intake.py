@@ -11,16 +11,21 @@ from unittest.mock import patch
 
 from PIL import Image, ImageDraw
 
+from video_engine_v2.qa_guidance import explain_error
+from video_engine_v2.reels_qa import validate_review_reels_one_shot_contract
 from video_engine_v2.review_reel_intake import (
     IntakeViolation,
     active_package_status,
     build_one_shot_html_commands,
     create_canonical_package,
     create_canonical_package_from_material_bank,
+    inspect_material_bank_candidate,
     record_photo_review,
     resolve_active_package,
     route_user_command,
     run_one_shot_html,
+    workflow_next,
+    write_recipe_scaffold,
 )
 
 
@@ -92,6 +97,27 @@ class ReviewReelIntakeTests(unittest.TestCase):
                 routed = route_user_command(command)
                 self.assertEqual(routed["workflow"], "review_reel_production")
                 self.assertEqual(routed["state"], expected_state)
+
+    def test_exact_fresh_session_phrases_route_to_review_reel_production(self):
+        cases = {
+            "이 리뷰와 사진들로 신규 리뷰 숏폼 만들자. 사진 검수부터 HTML까지 진행해.": "selection_required",
+            "이 리뷰로 쇼츠 만들자": "selection_required",
+            "리뷰 영상 만들자": "selection_required",
+            "HTML 승인. MP4 렌더도 진행해.": "html_approval_and_mp4_render_intent_requested",
+        }
+
+        for command, expected_state in cases.items():
+            with self.subTest(command=command):
+                routed = route_user_command(command)
+                self.assertEqual(routed["workflow"], "review_reel_production")
+                self.assertEqual(routed["state"], expected_state)
+
+        approval_intent = route_user_command("HTML 승인. MP4 렌더도 진행해.")
+        self.assertEqual(
+            approval_intent["next_action"],
+            "resolve_active_package_then_record_hash_bound_approvals",
+        )
+        self.assertNotIn("approved", approval_intent)
 
     def test_generic_review_content_phrases_without_reel_intent_stay_generic(self):
         for command in ("리뷰 컨텐츠 만들어줘", "리뷰 콘텐츠 신규 발행하자", "리뷰 원문 정리해줘"):
@@ -213,6 +239,269 @@ class ReviewReelIntakeTests(unittest.TestCase):
             )
         )
         self.assertEqual([record["content_id"] for record in registry["records"]], ["006", "007"])
+
+    def test_material_bank_candidate_with_legacy_output_is_not_reported_or_allocated_as_new(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        candidate_id = "CAND-20300102-0001"
+        material_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-FIXTURE-1",
+                    "review_id": "REVIEW-FIXTURE-1",
+                    "order_id": "ORDER-FIXTURE-1",
+                    "review_text": "Legacy fixture review.",
+                    "candidate_id": candidate_id,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        legacy_package = (
+            self.output_root
+            / "inbox_20291231"
+            / f"{candidate_id}_legacy_html_20291231_235959"
+        )
+        legacy_package.mkdir(parents=True)
+
+        inspection = inspect_material_bank_candidate(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+        )
+
+        self.assertFalse(inspection["eligible_for_new_package"])
+        self.assertEqual(inspection["status"], "legacy_package_present")
+        self.assertEqual(inspection["blocker_code"], "CANDIDATE_LEGACY_PACKAGE_PRESENT")
+        self.assertEqual(
+            inspection["legacy_package_relative_paths"],
+            [f"inbox_20291231/{legacy_package.name}"],
+        )
+
+        with self.assertRaisesRegex(IntakeViolation, "CANDIDATE_LEGACY_PACKAGE_PRESENT"):
+            create_canonical_package_from_material_bank(
+                output_root=self.output_root,
+                reviews_root=self.root / "reviews",
+                material_bank_path=material_bank,
+                candidate_id=candidate_id,
+                content_slug="중복금지",
+                now=self.now,
+            )
+
+        state_dir = self.output_root / ".review_reel_production"
+        self.assertFalse((state_dir / "source_registry_private.json").exists())
+        self.assertFalse((state_dir / "material_bank_inventory_private.json").exists())
+        self.assertFalse(any(self.output_root.glob("[0-9][0-9][0-9]_*")))
+
+    def test_material_bank_candidate_with_official_binding_reuses_it_even_if_legacy_output_exists(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        candidate_id = "CAND-20300102-0001"
+        material_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-FIXTURE-1",
+                    "review_id": "REVIEW-FIXTURE-1",
+                    "order_id": "ORDER-FIXTURE-1",
+                    "review_text": "Official fixture review.",
+                    "candidate_id": candidate_id,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        first = create_canonical_package_from_material_bank(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+            content_slug="공식패키지",
+            now=self.now,
+        )
+        (self.output_root / "inbox_legacy" / f"{candidate_id}_old").mkdir(parents=True)
+
+        inspection = inspect_material_bank_candidate(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+        )
+        repeated = create_canonical_package_from_material_bank(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+            content_slug="다른이름",
+            now=self.now,
+        )
+
+        self.assertFalse(inspection["eligible_for_new_package"])
+        self.assertEqual(inspection["status"], "official_binding_exists")
+        self.assertEqual(inspection["existing_content_id"], first.metadata["content_id"])
+        self.assertEqual(repeated.package_dir, first.package_dir)
+        self.assertTrue(repeated.reused_existing)
+
+    def test_material_bank_candidate_used_as_legacy_related_review_is_also_blocked(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        related_candidate = "CAND-20300102-0002"
+        material_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-FIXTURE-2",
+                    "review_id": "REVIEW-FIXTURE-2",
+                    "order_id": "ORDER-FIXTURE-1",
+                    "review_text": "Related follow-up fixture review.",
+                    "candidate_id": related_candidate,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        legacy_package = (
+            self.output_root
+            / "inbox_20291231"
+            / "CAND-20300102-0001_primary_legacy"
+        )
+        legacy_package.mkdir(parents=True)
+        (legacy_package / "planning_recipe.json").write_text(
+            json.dumps(
+                {
+                    "review_source": {
+                        "source_reference": (
+                            "material-bank#CAND-20300102-0001; "
+                            f"same-order follow-up #{related_candidate}"
+                        )
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        inspection = inspect_material_bank_candidate(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=related_candidate,
+        )
+
+        self.assertFalse(inspection["eligible_for_new_package"])
+        self.assertEqual(inspection["status"], "legacy_package_present")
+        self.assertEqual(
+            inspection["legacy_package_relative_paths"],
+            [f"inbox_20291231/{legacy_package.name}"],
+        )
+
+    def test_candidate_identity_requires_exact_shape_and_legacy_scan_uses_token_boundaries(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        candidate_id = "CAND-20300102-0001"
+        material_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-FIXTURE-1",
+                    "review_id": "REVIEW-FIXTURE-1",
+                    "order_id": "ORDER-FIXTURE-1",
+                    "review_text": "Boundary fixture review.",
+                    "candidate_id": candidate_id,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        legacy_package = self.output_root / "inbox_20291231" / "999_other_legacy"
+        legacy_package.mkdir(parents=True)
+        evidence = legacy_package / "planning_recipe.json"
+        evidence.write_text(
+            json.dumps({"source_reference": f"{candidate_id}9"}),
+            encoding="utf-8",
+        )
+
+        inspection = inspect_material_bank_candidate(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+        )
+        self.assertTrue(inspection["eligible_for_new_package"])
+
+        evidence.write_text(
+            json.dumps({"source_reference": f"material-bank#{candidate_id}; follow-up"}),
+            encoding="utf-8",
+        )
+        exact_inspection = inspect_material_bank_candidate(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+        )
+        self.assertEqual(exact_inspection["status"], "legacy_package_present")
+
+        malformed_bank = self.root / "malformed_candidate.jsonl"
+        malformed_id = "CAND-20300102-001"
+        malformed_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-BAD",
+                    "review_id": "REVIEW-BAD",
+                    "order_id": "ORDER-BAD",
+                    "review_text": "Malformed candidate fixture.",
+                    "candidate_id": malformed_id,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(IntakeViolation, "CANDIDATE_REFERENCE_INVALID"):
+            inspect_material_bank_candidate(
+                output_root=self.output_root,
+                reviews_root=self.root / "reviews",
+                material_bank_path=malformed_bank,
+                candidate_id=malformed_id,
+            )
+
+    def test_candidate_check_cli_and_error_guidance_explain_legacy_blocker(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        candidate_id = "CAND-20300102-0001"
+        material_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-FIXTURE-1",
+                    "review_id": "REVIEW-FIXTURE-1",
+                    "order_id": "ORDER-FIXTURE-1",
+                    "review_text": "Legacy fixture review.",
+                    "candidate_id": candidate_id,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (self.output_root / "inbox_20291231" / f"{candidate_id}_old").mkdir(parents=True)
+        script = Path(__file__).resolve().parents[1] / "scripts" / "review_reel_intake.py"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "candidate-check",
+                "--output-root",
+                str(self.output_root),
+                "--reviews-root",
+                str(self.root / "reviews"),
+                "--material-bank",
+                str(material_bank),
+                "--candidate-id",
+                candidate_id,
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["blocker_code"], "CANDIDATE_LEGACY_PACKAGE_PRESENT")
+        guidance = explain_error("CANDIDATE_LEGACY_PACKAGE_PRESENT")
+        self.assertTrue(guidance["known"])
+        self.assertIn("legacy", guidance["how_to_fix"].lower())
 
     def test_invalid_material_bank_registry_is_not_silently_replaced(self):
         material_bank = self.root / "candidate_top60_private.jsonl"
@@ -598,6 +887,124 @@ class ReviewReelIntakeTests(unittest.TestCase):
         report_payload = json.loads(report.read_text(encoding="utf-8"))
         report_payload["checked_assets"].append(evidence)
         report.write_text(json.dumps(report_payload), encoding="utf-8")
+
+    def test_recipe_scaffold_writes_complete_revisioned_json_after_photo_review(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package, suffix="_revision_001")
+        selection_payload = json.loads(selection.read_text(encoding="utf-8"))
+        before = selection_payload["decisions"][1]
+        before["decision"] = "use"
+        before["reason"] = "Clear before-state evidence."
+        before["editorial_category"] = "selected_story_evidence"
+        before["evidence_classes"] = ["before_state"]
+        before_path = package.package_dir / before["relative_path"]
+        privacy_payload = json.loads(privacy.read_text(encoding="utf-8"))
+        before_evidence = {
+            "relative_path": before["relative_path"],
+            "bytes": before_path.stat().st_size,
+            "sha256": hashlib.sha256(before_path.read_bytes()).hexdigest(),
+        }
+        privacy_payload["selected_assets"].append(before_evidence)
+        privacy.write_text(json.dumps(privacy_payload), encoding="utf-8")
+        report = package.package_dir / privacy_payload["sanitization_report"]
+        report_payload = json.loads(report.read_text(encoding="utf-8"))
+        report_payload["checked_assets"].append(before_evidence)
+        report.write_text(json.dumps(report_payload), encoding="utf-8")
+        selection.write_text(json.dumps(selection_payload), encoding="utf-8")
+        self._add_sanitized_review_capture(package, selection, privacy)
+        record_photo_review(
+            output_root=self.output_root,
+            expected_content_id="004",
+            selection_path=selection,
+            privacy_manifest_path=privacy,
+            now=self.now,
+        )
+
+        result = write_recipe_scaffold(output_root=self.output_root, expected_content_id="004")
+
+        planning_path = Path(result["planning"])
+        edit_path = Path(result["edit"])
+        self.assertTrue(planning_path.is_file())
+        self.assertTrue(edit_path.is_file())
+        self.assertEqual(planning_path.parent.name, "revision_001")
+        self.assertEqual(result["next_action"], "complete_scaffold_content_then_generate_one_shot_tts")
+        planning = json.loads(planning_path.read_text(encoding="utf-8"))
+        edit = json.loads(edit_path.read_text(encoding="utf-8"))
+        self.assertEqual(planning["scaffold"]["source_photo_review_revision"], 1)
+        self.assertEqual(
+            edit["source"]["privacy_sanitization_report"],
+            "_work/privacy_sanitization_report_revision_001.json",
+        )
+        self.assertEqual(
+            {issue["code"] for issue in validate_review_reels_one_shot_contract(planning, edit)["issues"]},
+            {"RECIPE_SCAFFOLD_INCOMPLETE"},
+        )
+
+        for payload, path in ((planning, planning_path), (edit, edit_path)):
+            payload["scaffold"]["status"] = "complete"
+            payload["scaffold"]["pending_fields"] = []
+            path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        guidance = workflow_next(self.output_root)
+        self.assertEqual(guidance["next_action"], "repair_recipe_scaffold_qa_issues")
+        self.assertIn("RECIPE_SCAFFOLD_PLACEHOLDER_REMAINS", guidance["blocking_issue_codes"])
+
+        planning["analysis"] = {
+            "customer_problem": "현관 사용 불편",
+            "before_pain": "현관 동선 불편",
+            "after_change": "설치 후 동선 개선",
+            "customer_emotion": ["편안함"],
+        }
+        planning["writer_brief"]["one_line_story"] = "현관 동선이 설치 후 편해진 리뷰 이야기"
+        for scene in planning["scenes"]:
+            scene["meaning_match_evidence"] = "review_source.text and selected photo evidence"
+        edit["audio_plan"]["tts_text_sha256"] = "a" * 64
+        edit["audio_plan"]["final_voice_sha256"] = "b" * 64
+        planning_path.write_text(json.dumps(planning, ensure_ascii=False), encoding="utf-8")
+        edit_path.write_text(json.dumps(edit, ensure_ascii=False), encoding="utf-8")
+        guidance = workflow_next(self.output_root)
+        self.assertEqual(guidance["next_action"], "write_standard_script_from_completed_scaffold")
+
+        source = edit["source"]
+        script = package.package_dir / source["script"]
+        script.write_text("# fixture script\n", encoding="utf-8")
+        guidance = workflow_next(self.output_root)
+        self.assertEqual(guidance["next_action"], "generate_official_one_shot_tts")
+        self.assertIn("generate_one_shot_tts.py", guidance["next_command"])
+
+        for relative_path, content in (
+            (source["srt"], "1\n00:00:00,000 --> 00:00:01,000\nfixture\n"),
+            (source["voice"], "fixture voice"),
+            (source["tts_generation_report"], "{}"),
+        ):
+            target = package.package_dir / relative_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+        guidance = workflow_next(self.output_root)
+        self.assertEqual(guidance["next_action"], "listen_to_voice_then_record_review")
+        self.assertIsNone(guidance["next_command"])
+
+        manual_reviews = package.package_dir / "_work" / "manual_reviews"
+        manual_reviews.mkdir(parents=True)
+        (manual_reviews / "voice_review_fixture.json").write_text("{}", encoding="utf-8")
+        guidance = workflow_next(self.output_root)
+        self.assertEqual(guidance["next_action"], "run_one_shot_preflight")
+        self.assertIn("--one-shot-html", guidance["next_command"])
+
+        (package.package_dir / "sync_manifest.json").write_text("{}", encoding="utf-8")
+        guidance = workflow_next(self.output_root)
+        self.assertEqual(guidance["next_action"], "build_one_shot_html")
+
+        html = package.package_dir / "004_fixture_html_preview_v2" / "index.html"
+        html.parent.mkdir()
+        html.write_text("<!doctype html>", encoding="utf-8")
+        guidance = workflow_next(self.output_root)
+        self.assertEqual(guidance["next_action"], "inspect_html_frames_then_record_review")
+
+        (manual_reviews / "html_review_fixture.json").write_text("{}", encoding="utf-8")
+        guidance = workflow_next(self.output_root)
+        self.assertEqual(guidance["next_action"], "wait_for_explicit_html_approval_then_record_it")
+        self.assertTrue(guidance["approval_required"])
+        self.assertIsNone(guidance["next_command"])
 
     def test_photo_review_accepts_a_full_composition_review_capture_with_only_a_local_mask(self):
         package = self.create()
@@ -1239,6 +1646,61 @@ class ReviewReelIntakeTests(unittest.TestCase):
         self.assertEqual(status["qa_reviewed"], True)
         self.assertEqual(status["final_delivery_complete"], True)
         self.assertEqual(status["next_action"], "no_action_final_delivery_complete")
+
+    def test_workflow_next_centralizes_safe_commands_without_crossing_approval_gates(self):
+        package = self.create()
+
+        pending = workflow_next(self.output_root)
+
+        self.assertEqual(pending["next_action"], "place_photos_then_run_photo_review")
+        self.assertIsNone(pending["next_command"])
+        self.assertEqual(pending["required_inputs"], ["selection", "privacy_manifest"])
+        self.assertFalse(pending["approval_required"])
+
+        photo_reviewed_status = {
+            "workflow": "review_reel_production",
+            "content_id": "004",
+            "lifecycle_state": "photo_reviewed",
+            "package": str(package.package_dir),
+            "next_action": "prepare_planning_script_tts",
+        }
+        with patch(
+            "video_engine_v2.review_reel_intake.active_package_status",
+            return_value=photo_reviewed_status,
+        ):
+            scaffold = workflow_next(self.output_root)
+        self.assertEqual(scaffold["next_action"], "generate_recipe_scaffold")
+        self.assertEqual(
+            scaffold["next_command"],
+            f'python scripts/review_reel_intake.py recipe-scaffold --output-root "{self.output_root.resolve()}" --expected-content-id "004"',
+        )
+
+        completed_status = {
+            **photo_reviewed_status,
+            "final_delivery_complete": True,
+            "next_action": "no_action_final_delivery_complete",
+        }
+        with patch(
+            "video_engine_v2.review_reel_intake.active_package_status",
+            return_value=completed_status,
+        ):
+            completed = workflow_next(self.output_root)
+        self.assertIsNone(completed["next_command"])
+        self.assertEqual(completed["new_production_action"], "select_then_check_material_bank_candidate")
+        self.assertIn("candidate-check", completed["new_production_command_template"])
+        self.assertNotIn("create-from-material-bank", completed["new_production_command_template"])
+
+        approval_status = {
+            **photo_reviewed_status,
+            "next_action": "wait_for_explicit_mp4_approval_then_record_it",
+        }
+        with patch(
+            "video_engine_v2.review_reel_intake.active_package_status",
+            return_value=approval_status,
+        ):
+            approval = workflow_next(self.output_root)
+        self.assertTrue(approval["approval_required"])
+        self.assertIsNone(approval["next_command"])
 
     def test_photo_review_cli_rejects_stale_active_identity_before_reading_evidence(self):
         self.create()

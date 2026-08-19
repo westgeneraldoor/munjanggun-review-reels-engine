@@ -20,20 +20,27 @@
 `docs/archive/`와 과거 handoff/intake 메모는 **not current routing authority**이다.
 후보은행, AppSheet 요청, `CAND-*` 기록도 source evidence일 뿐 제작 시작 권한이 아니다.
 
-## 세 가지 사용자 명령과 상태 전이
+## 대표 사용자 명령과 상태 전이
 
 | 사용자 명령 | workflow | 상태 | 다음 행동 | 생성 금지 |
 |---|---|---|---|---|
 | `리뷰 릴스 만들자` | `review_reel_production` | `selection_required` | private material bank/registry에서 실제 record를 확인하고 선택을 받는다 | package, script, TTS, HTML, MP4 |
 | `리뷰 하나 골라 폴더 만들어줘` | `review_reel_production` | `canonical_package_create_requested` | 선택된 material-bank record를 local registry에 등록하고 canonical package를 만든다 | script, SRT, TTS, HTML, MP4 |
 | `사진 다 넣었어. HTML까지 가자` | `review_reel_production` | `one_shot_html_requested` | active pointer를 검증한 뒤 official one-shot HTML만 시도한다 | MP4, direct builder/renderer |
+| `이 리뷰로 쇼츠 만들자` / `리뷰 영상 만들자` | `review_reel_production` | `selection_required` | 릴스와 같은 canonical intake로 들어간다 | package, script, TTS, HTML, MP4 |
+| `HTML 승인. MP4 렌더도 진행해` | `review_reel_production` | `html_approval_and_mp4_render_intent_requested` | active package와 현재 HTML을 확인한 뒤 공식 승인 영수증을 각각 기록한다 | 라우팅 결과만으로 승인·렌더 |
 
 문장 안에 일반 `리뷰 콘텐츠` 표현이 같이 있어도 릴스 명령이 먼저다. generic
-review-content/material-bank 라우터는 위 세 상태를 가로챌 수 없다.
+review-content/material-bank 라우터는 위 상태를 가로챌 수 없다.
 띄어쓰기와 자연스러운 어미 차이도 같은 명령으로 본다. 예를 들어
 `리뷰릴스 만들자`, `리뷰 릴스 제작하자`, `리뷰 하나 골라서 폴더 만들어줘`,
 `리뷰 골라주고 폴더 만들어줘`, `사진 다 넣었어요 HTML까지 가자`는 각각 위 상태로
 동일하게 라우팅되어야 한다.
+
+`릴스`, `숏폼`, `쇼츠`, `리뷰 영상`은 동일한 제작 의도다. 단,
+`*_intent_requested`는 자연어 분류일 뿐 승인 증거가 아니다. HTML/MP4 권한은
+`html-approval-record`와 `render-approval-record`가 현재 artifact hash에 결속한
+영수증으로만 생긴다.
 
 ## 실제 material bank 연결과 번호 배정
 
@@ -43,6 +50,13 @@ review-content/material-bank 라우터는 위 세 상태를 가로챌 수 없다
 공식 adapter가 canonical 필드로 바꾼다.
 
 ```powershell
+python scripts/review_reel_intake.py candidate-check `
+  --output-root "output" `
+  --reviews-root "reviews" `
+  --material-bank "reviews/material_bank/2026-07-29/candidate_top60_private.jsonl" `
+  --candidate-id "CAND-YYYYMMDD-NNNN"
+
+# candidate-check가 eligible_for_new_package: true를 반환한 뒤에만 실행
 python scripts/review_reel_intake.py create-from-material-bank `
   --output-root "output" `
   --reviews-root "reviews" `
@@ -55,6 +69,9 @@ python scripts/review_reel_intake.py create-from-material-bank `
 - `output/.review_reel_production/source_registry_private.json`이 기존 `reviews/`와
   `output/`의 번호를 스캔한 뒤 다음 미사용 번호를 배정한다.
 - 같은 candidate를 다시 실행하면 최초 번호·slug·source를 그대로 재사용한다.
+- source registry에 없어도 과거 `CAND-*` package 경로 또는 canonical metadata에서 사용
+  흔적이 발견되면 `CANDIDATE_LEGACY_PACKAGE_PRESENT`로 차단한다. 이 경우 legacy를
+  고치지 말고 다른 후보를 선택하거나 별도 legacy-resolution 결정을 받는다.
 - registry JSON이 깨졌거나 같은 candidate의 원문/주문/리뷰 ID가 바뀌면 덮어쓰지
   않고 하드 실패한다.
 - 원문은 `reviews/production_registry/<ID>_<slug>.txt`에 local-only로 고정되고,
@@ -137,6 +154,24 @@ python scripts/review_reel_intake.py create --output-root "output" --inventory "
 python scripts/review_reel_intake.py status --output-root "output"
 ```
 
+모든 성공 단계 뒤에는 아래 단일 조회 명령으로 다음 합법 단계와 승인 대기를 확인한다.
+
+```powershell
+python scripts/review_reel_intake.py workflow-next --output-root "output"
+python scripts/review_reel_intake.py explain-error --code "<GATE_CODE>"
+```
+
+Git worktree에는 Git에서 제외된 `reviews/`와 `output/`이 자동 복제되지 않는다. 고객자료
+production은 저장된 로컬 프로젝트에서 실행하거나, 사용자가 지정한 원본 로컬 절대경로를
+위 공식 명령에 넣는다. PATH에 `python`이 없으면 Codex 번들 workspace dependency가
+제공하는 Python 실행경로를 사용한다.
+
+fresh-session 복구의 R5 합격 여부는 실제 Terra 세션에서 실제 리뷰·사진을 제공한 뒤
+HTML 검수본까지 도달한 작업 턴을 사람이 센다. 자동 테스트는 모델의 재시도 횟수를
+측정하지 않는다. 자동 테스트는 라우팅과 scaffold/QA 구조 동기화만 검증한다. 실제
+Terra 세션의 콘텐츠 수정 재시도는 3회 이내여야 하며, 사용량 제한·PATH·worktree 자료
+연결처럼 콘텐츠 생성 전 발생한 환경 중단과 함께 PR 본문에 각각 기록한다.
+
 ## 사진 후 one-shot HTML 연결
 
 사진을 넣은 뒤에는 먼저 모든 사진의 use/hold/exclude 결정과 privacy manifest를
@@ -156,6 +191,17 @@ selection 또는 privacy manifest 경로를 재사용하면 실패한다. 게이
 canonical 승인 상태를 바꾸지 않으며 `_work/photo_review_rejections/`의 hash-only 감사
 영수증으로만 남는다. 이 규칙은 새 재검수가 발생한 package부터 적용하며 과거 package를
 소급 개조하지 않는다.
+
+사진 검수 통과 뒤에는 고객자료가 없는 고정 샘플을 베끼지 않고, 현재 review/photo
+evidence에서 QA 동기화 scaffold를 생성한다.
+
+```powershell
+python scripts/review_reel_intake.py recipe-scaffold --output-root "output" --expected-content-id "<content_id>"
+```
+
+scaffold는 완전한 JSON 구조지만 의도적으로 `incomplete`다. 원문 기반 내용, 실제
+underline 좌표, 최종 TTS timing/hash를 채우고 `pending_fields`를 비우기 전에는
+`RECIPE_SCAFFOLD_INCOMPLETE` 또는 `RECIPE_SCAFFOLD_PLACEHOLDER_REMAINS`로 차단된다.
 
 ## 로컬 output 평탄화
 

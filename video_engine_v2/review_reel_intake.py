@@ -23,6 +23,8 @@ from uuid import uuid4
 
 from PIL import Image, ImageChops, ImageDraw, UnidentifiedImageError
 
+from .recipe_scaffold import build_recipe_scaffold
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 METADATA_FILENAME = "CANONICAL_PACKAGE_METADATA.json"
@@ -39,6 +41,7 @@ _CONTENT_PREFIX = re.compile(r"^(\d{3})_")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _WINDOWS_UNSAFE_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _CANDIDATE_PREFIX = "CAND-"
+_CANDIDATE_ID = re.compile(r"^CAND-\d{8}-\d{4}$")
 _PHOTO_MEDIA_EXTENSIONS = {
     ".avif",
     ".bmp",
@@ -131,6 +134,21 @@ def route_user_command(command: str) -> dict[str, str]:
     normalised = _normalise_command(command)
     compact = re.sub(r"\s+", "", normalised)
     if (
+        "mp4" in compact
+        and "렌더" in compact
+        and any(stem in compact for stem in ("진행", "시작", "해줘", "하자"))
+    ):
+        state = (
+            "html_approval_and_mp4_render_intent_requested"
+            if "html" in compact and "승인" in compact
+            else "mp4_render_intent_requested"
+        )
+        return {
+            "workflow": "review_reel_production",
+            "state": state,
+            "next_action": "resolve_active_package_then_record_hash_bound_approvals",
+        }
+    if (
         "사진" in compact
         and any(stem in compact for stem in ("넣었", "준비됐", "준비완료"))
         and "html" in compact
@@ -152,9 +170,10 @@ def route_user_command(command: str) -> dict[str, str]:
             "state": "canonical_package_create_requested",
             "next_action": "select_inventory_record",
         }
-    # `릴스`는 이 저장소에서 리뷰 릴스만 가리키므로, `리뷰`가 붙어 있지 않거나
-    # `이 리뷰로 릴스`처럼 사이에 조사가 끼어도 같은 명령으로 본다.
-    if "릴스" in compact and any(
+    # 이 저장소에서 릴스·숏폼·쇼츠·리뷰 영상 제작은 같은 공식 리뷰 릴스
+    # 파이프라인을 가리킨다. 자연어 표기가 달라도 generic 흐름으로 내리지 않는다.
+    review_reel_term = any(term in compact for term in ("릴스", "숏폼", "쇼츠", "리뷰영상"))
+    if review_reel_term and any(
         stem in compact for stem in ("만들", "제작", "시작", "진행", "발행", "해보", "하자", "가자")
     ):
         return {
@@ -228,7 +247,7 @@ def _resolve_inventory_record(inventory_path: Path, record_key: str) -> tuple[di
 
     candidate_reference = record.get("candidate_reference")
     if candidate_reference is not None:
-        if not isinstance(candidate_reference, str) or not candidate_reference.startswith(_CANDIDATE_PREFIX):
+        if not isinstance(candidate_reference, str) or not _CANDIDATE_ID.fullmatch(candidate_reference):
             raise IntakeViolation("CANDIDATE_REFERENCE_INVALID")
         record["candidate_reference"] = candidate_reference
 
@@ -380,7 +399,7 @@ def _exclusive_allocation_lock(state_dir: Path):
 def _read_jsonl_record(path: Path, *, candidate_id: str) -> dict[str, Any]:
     if not path.is_file():
         raise IntakeViolation("MATERIAL_BANK_MISSING")
-    if not candidate_id.startswith(_CANDIDATE_PREFIX):
+    if not _CANDIDATE_ID.fullmatch(candidate_id):
         raise IntakeViolation("CANDIDATE_REFERENCE_INVALID")
     matches: list[dict[str, Any]] = []
     try:
@@ -422,7 +441,7 @@ def _load_source_registry(path: Path) -> dict[str, Any]:
         _safe_slug(_required_text(record, "content_slug", "SOURCE_REGISTRY_SLUG_INVALID"))
         if (
             not isinstance(candidate_reference, str)
-            or not candidate_reference.startswith(_CANDIDATE_PREFIX)
+            or not _CANDIDATE_ID.fullmatch(candidate_reference)
         ):
             raise IntakeViolation("SOURCE_REGISTRY_CANDIDATE_INVALID")
         if content_id in content_ids:
@@ -517,6 +536,146 @@ def _material_record_key(candidate_id: str) -> str:
     return f"material-bank::{candidate_id}"
 
 
+def _candidate_legacy_package_paths(output_root: Path, candidate_id: str) -> list[Path]:
+    """Return pre-registry package directories that already used a candidate.
+
+    Older packages were allowed to expose ``CAND-*`` in their directory name and
+    were never imported into the newer source registry.  They remain immutable
+    evidence, but must still prevent the same review from being allocated as a
+    new numeric package.
+    """
+
+    if not _CANDIDATE_ID.fullmatch(candidate_id):
+        raise IntakeViolation("CANDIDATE_REFERENCE_INVALID")
+    if not output_root.is_dir():
+        return []
+
+    package_dirs: list[Path] = [
+        path
+        for path in output_root.iterdir()
+        if path.is_dir()
+        and (_CONTENT_PREFIX.match(path.name) or path.name.startswith(_CANDIDATE_PREFIX))
+    ]
+    for inbox in output_root.glob("inbox_*"):
+        if inbox.is_dir():
+            package_dirs.extend(path for path in inbox.iterdir() if path.is_dir())
+
+    matches: dict[str, Path] = {}
+    for package_dir in package_dirs:
+        name_matches = package_dir.name == candidate_id or package_dir.name.startswith(
+            f"{candidate_id}_"
+        )
+        metadata_matches = False
+        metadata_path = package_dir / METADATA_FILENAME
+        if metadata_path.is_file():
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                metadata = None
+            if isinstance(metadata, dict):
+                review_source = metadata.get("review_source")
+                metadata_matches = isinstance(review_source, dict) and (
+                    review_source.get("candidate_reference") == candidate_id
+                )
+        evidence_mentions_candidate = False
+        if not name_matches and not metadata_matches:
+            candidate_bytes = candidate_id.encode("utf-8")
+            candidate_token = re.compile(
+                rb"(?<![A-Za-z0-9])" + re.escape(candidate_bytes) + rb"(?![A-Za-z0-9])"
+            )
+            for evidence_path in package_dir.iterdir():
+                if (
+                    not evidence_path.is_file()
+                    or evidence_path.suffix.lower() not in {".json", ".md", ".txt"}
+                ):
+                    continue
+                try:
+                    if candidate_token.search(evidence_path.read_bytes()):
+                        evidence_mentions_candidate = True
+                        break
+                except OSError:
+                    continue
+        if name_matches or metadata_matches or evidence_mentions_candidate:
+            matches[str(package_dir.resolve()).casefold()] = package_dir.resolve()
+    return sorted(matches.values(), key=lambda path: str(path).casefold())
+
+
+def inspect_material_bank_candidate(
+    *,
+    output_root: str | Path,
+    reviews_root: str | Path,
+    material_bank_path: str | Path,
+    candidate_id: str,
+) -> dict[str, Any]:
+    """Read-only eligibility check before selecting a material-bank candidate."""
+
+    root = Path(output_root).resolve()
+    local_reviews = Path(reviews_root).resolve()
+    bank_path = Path(material_bank_path).resolve()
+    selected = _read_jsonl_record(bank_path, candidate_id=candidate_id)
+    identity = _material_identity(selected)
+    registry = _load_source_registry(root / POINTER_DIRECTORY / SOURCE_REGISTRY_FILENAME)
+    official_matches = [
+        record
+        for record in registry["records"]
+        if isinstance(record, dict) and record.get("candidate_reference") == candidate_id
+    ]
+    if len(official_matches) > 1:
+        raise IntakeViolation("SOURCE_REGISTRY_RECORD_NOT_UNIQUE")
+    legacy_paths = _candidate_legacy_package_paths(root, candidate_id)
+    relative_legacy_paths = [
+        path.relative_to(root).as_posix() for path in legacy_paths
+    ]
+    result: dict[str, Any] = {
+        "workflow": "review_reel_production",
+        "candidate_id": candidate_id,
+        "inventory_id": identity["inventory_id"],
+        "review_article_id": identity["review_article_id"],
+        "eligible_for_new_package": False,
+        "legacy_package_relative_paths": relative_legacy_paths,
+    }
+    if official_matches:
+        binding = official_matches[0]
+        if binding.get("identity") != identity:
+            raise IntakeViolation("SOURCE_REGISTRY_IDENTITY_CONFLICT")
+        result.update(
+            {
+                "status": "official_binding_exists",
+                "existing_content_id": _required_text(
+                    binding, "content_id", "CONTENT_ID_MISSING"
+                ),
+                "existing_content_slug": _safe_slug(
+                    _required_text(binding, "content_slug", "CONTENT_SLUG_MISSING")
+                ),
+                "next_action": "reuse_existing_official_binding",
+            }
+        )
+        return result
+    if legacy_paths:
+        result.update(
+            {
+                "status": "legacy_package_present",
+                "blocker_code": "CANDIDATE_LEGACY_PACKAGE_PRESENT",
+                "next_action": "select_a_different_candidate_or_request_legacy_resolution",
+            }
+        )
+        return result
+    result.update(
+        {
+            "status": "eligible",
+            "eligible_for_new_package": True,
+            "next_action": "confirm_candidate_and_content_slug_then_create",
+            "create_command_template": (
+                "python scripts/review_reel_intake.py create-from-material-bank "
+                f'--output-root "{root}" --reviews-root "{local_reviews}" '
+                f'--material-bank "{bank_path}" --candidate-id "{candidate_id}" '
+                '--content-slug "<content-slug>"'
+            ),
+        }
+    )
+    return result
+
+
 def create_canonical_package_from_material_bank(
     *,
     output_root: str | Path,
@@ -565,6 +724,8 @@ def create_canonical_package_from_material_bank(
                 _required_text(binding, "content_slug", "CONTENT_SLUG_MISSING")
             )
         else:
+            if _candidate_legacy_package_paths(root, candidate_id):
+                raise IntakeViolation("CANDIDATE_LEGACY_PACKAGE_PRESENT")
             content_id = _next_content_id(
                 output_root=root,
                 reviews_root=local_reviews,
@@ -855,6 +1016,276 @@ def active_package_status(output_root: str | Path) -> dict[str, Any]:
         "qa_reviewed": evidence_state.get("qa_reviewed", "unknown"),
         "final_delivery_complete": evidence_state.get("final_delivery_complete", "unknown"),
         "next_action": next_action,
+    }
+
+
+def workflow_next(output_root: str | Path) -> dict[str, Any]:
+    """Explain the next legal transition without fabricating missing inputs or approvals."""
+
+    root = Path(output_root).resolve()
+    status = dict(active_package_status(root))
+    content_id = str(status.get("content_id") or "")
+    package_value = status.get("package")
+    package = Path(str(package_value)).resolve() if package_value else None
+    action = str(status.get("next_action") or "")
+    guidance: dict[str, Any] = {
+        **status,
+        "approval_required": False,
+        "next_command": None,
+        "required_inputs": [],
+    }
+
+    if action == "place_photos_then_run_photo_review":
+        guidance["required_inputs"] = ["selection", "privacy_manifest"]
+        guidance["command_template"] = (
+            f'python scripts/review_reel_intake.py photo-review --output-root "{root}" '
+            f'--expected-content-id "{content_id}" --selection "<selection.json>" '
+            '--privacy-manifest "<privacy_asset_manifest.json>"'
+        )
+    elif action == "prepare_planning_script_tts":
+        scaffold_root = package / "_work" / "recipe_scaffolds" if package else None
+        revisions = sorted(scaffold_root.glob("revision_*")) if scaffold_root and scaffold_root.is_dir() else []
+        if not revisions:
+            guidance["next_action"] = "generate_recipe_scaffold"
+            guidance["next_command"] = (
+                f'python scripts/review_reel_intake.py recipe-scaffold --output-root "{root}" '
+                f'--expected-content-id "{content_id}"'
+            )
+        else:
+            revision = revisions[-1]
+            planning_paths = sorted(revision.glob("*_planning_recipe_scaffold.json"))
+            edit_paths = sorted(revision.glob("*_edit_recipe_scaffold.json"))
+            if len(planning_paths) != 1 or len(edit_paths) != 1:
+                guidance["next_action"] = "repair_recipe_scaffold_artifacts"
+                guidance["required_inputs"] = ["one_planning_scaffold", "one_edit_scaffold"]
+                return guidance
+            planning_path, edit_path = planning_paths[0].resolve(), edit_paths[0].resolve()
+            planning_payload = _read_json(
+                planning_path,
+                missing="RECIPE_SCAFFOLD_MISSING",
+                invalid="RECIPE_SCAFFOLD_INVALID",
+            )
+            edit_payload = _read_json(
+                edit_path,
+                missing="RECIPE_SCAFFOLD_MISSING",
+                invalid="RECIPE_SCAFFOLD_INVALID",
+            )
+            planning_state = planning_payload.get("scaffold") or {}
+            edit_state = edit_payload.get("scaffold") or {}
+            completed = all(
+                state.get("status") == "complete" and state.get("pending_fields") == []
+                for state in (planning_state, edit_state)
+            )
+            if not completed:
+                guidance["next_action"] = "complete_scaffold_content_then_write_standard_script"
+                guidance["required_inputs"] = ["review_grounded_content", "voice_timing", "standard_script"]
+                guidance["planning"] = str(planning_path)
+                guidance["edit"] = str(edit_path)
+                return guidance
+
+            from video_engine_v2.reels_qa import validate_review_reels_one_shot_contract
+
+            scaffold_qa = validate_review_reels_one_shot_contract(planning_payload, edit_payload)
+            blocking_issues = [
+                issue for issue in scaffold_qa.get("issues") or []
+                if isinstance(issue, dict) and issue.get("severity") == "fail"
+            ]
+            if blocking_issues:
+                guidance["next_action"] = "repair_recipe_scaffold_qa_issues"
+                guidance["blocking_issue_codes"] = [str(issue.get("code") or "") for issue in blocking_issues]
+                guidance["issues"] = blocking_issues
+                guidance["explain_command_template"] = (
+                    'python scripts/review_reel_intake.py explain-error --code "<issue-code>"'
+                )
+                return guidance
+
+            source = edit_payload.get("source") or {}
+            script_path = _inside(package, package / str(source.get("script") or ""), code="WORKFLOW_SCRIPT_PATH_INVALID")
+            srt_path = _inside(package, package / str(source.get("srt") or ""), code="WORKFLOW_SRT_PATH_INVALID")
+            voice_path = _inside(package, package / str(source.get("voice") or ""), code="WORKFLOW_VOICE_PATH_INVALID")
+            tts_report_path = _inside(
+                package,
+                package / str(source.get("tts_generation_report") or ""),
+                code="WORKFLOW_TTS_REPORT_PATH_INVALID",
+            )
+            if not script_path.is_file():
+                guidance["next_action"] = "write_standard_script_from_completed_scaffold"
+                guidance["required_inputs"] = ["standard_script"]
+                guidance["script"] = str(script_path)
+                return guidance
+            if not all(path.is_file() for path in (srt_path, voice_path, tts_report_path)):
+                guidance["next_action"] = "generate_official_one_shot_tts"
+                guidance["next_command"] = (
+                    f'python scripts/generate_one_shot_tts.py --package "{package}" '
+                    f'--planning "{planning_path}" --script "{script_path}"'
+                )
+                return guidance
+            manual_reviews = package / "_work" / "manual_reviews"
+            if not manual_reviews.is_dir() or not any(manual_reviews.glob("voice_review_*.json")):
+                guidance["next_action"] = "listen_to_voice_then_record_review"
+                guidance["required_inputs"] = ["reviewer", "voice_review_evidence"]
+                guidance["command_template"] = (
+                    f'python scripts/produce_review_v2.py voice-review-record --package "{package}" '
+                    f'--voice "{voice_path}" --srt "{srt_path}" --tts-report "{tts_report_path}" '
+                    '--reviewer "<reviewer>" --evidence-reference "<evidence>" '
+                    '--check pronunciation_clear --check tone_approved --check caption_sync_approved'
+                )
+                return guidance
+            photo_review = resolve_active_package(root).metadata.get("photo_review") or {}
+            privacy_evidence = photo_review.get("privacy_manifest") or {}
+            privacy_path = _inside(
+                package,
+                package / str(privacy_evidence.get("relative_path") or ""),
+                code="WORKFLOW_PRIVACY_MANIFEST_PATH_INVALID",
+            )
+            sync_path = package / "sync_manifest.json"
+            if not sync_path.is_file():
+                guidance["next_action"] = "run_one_shot_preflight"
+                guidance["next_command"] = (
+                    f'python scripts/produce_review_v2.py preflight --package "{package}" '
+                    f'--planning "{planning_path}" --edit "{edit_path}" --privacy-manifest "{privacy_path}" '
+                    f'--sync-manifest "{sync_path}" --one-shot-html'
+                )
+                return guidance
+            html_paths = sorted(package.glob("*_html_preview_v2/index.html"))
+            if not html_paths:
+                guidance["next_action"] = "build_one_shot_html"
+                guidance["next_command"] = (
+                    f'python scripts/produce_review_v2.py html --package "{package}" '
+                    f'--planning "{planning_path}" --edit "{edit_path}" --privacy-manifest "{privacy_path}" '
+                    f'--sync-manifest "{sync_path}" --one-shot-html'
+                )
+                return guidance
+            html_path = html_paths[-1].resolve()
+            if not any(manual_reviews.glob("html_review_*.json")):
+                guidance["next_action"] = "inspect_html_frames_then_record_review"
+                guidance["required_inputs"] = ["reviewer", "html_review_evidence"]
+                guidance["command_template"] = (
+                    f'python scripts/produce_review_v2.py html-review-record --package "{package}" '
+                    f'--html "{html_path}" --reviewer "<reviewer>" --evidence-reference "<evidence>" '
+                    '--check hook_sequence_reviewed --check meaning_sync_reviewed '
+                    '--check caption_layout_reviewed --check privacy_reviewed '
+                    '--check review_capture_reviewed --check cta_reviewed'
+                )
+                return guidance
+            guidance["next_action"] = "wait_for_explicit_html_approval_then_record_it"
+            guidance["approval_required"] = True
+            guidance["required_inputs"] = ["explicit_user_html_approval", "current_html"]
+            guidance["html"] = str(html_path)
+    elif action == "wait_for_explicit_mp4_approval_then_record_it":
+        guidance["approval_required"] = True
+        guidance["required_inputs"] = ["explicit_user_mp4_approval", "current_html"]
+    elif action == "no_action_final_delivery_complete":
+        guidance["new_production_action"] = "select_then_check_material_bank_candidate"
+        guidance["new_production_command_template"] = (
+            f'python scripts/review_reel_intake.py candidate-check --output-root "{root}" '
+            '--reviews-root "<reviews>" --material-bank "<candidate_top60_private.jsonl>" '
+            '--candidate-id "<CAND-id>"'
+        )
+    elif action in {
+        "start_or_check_durable_render_job",
+        "inspect_render_job_then_run_post_render_qa",
+        "inspect_post_render_frames_then_run_render_review_record",
+    }:
+        guidance["required_inputs"] = ["current_hash_bound_artifact_paths"]
+    else:
+        guidance["required_inputs"] = ["inspect_current_package_state"]
+    return guidance
+
+
+def write_recipe_scaffold(*, output_root: str | Path, expected_content_id: str) -> dict[str, Any]:
+    """Write one non-overwriting recipe starting point from current photo-review evidence."""
+
+    package = resolve_active_package(output_root)
+    _assert_expected_content_id(package, expected_content_id)
+    if package.metadata.get("lifecycle_state") != "photo_reviewed":
+        raise IntakeViolation("RECIPE_SCAFFOLD_REQUIRES_PHOTO_REVIEW")
+    photo_review = package.metadata.get("photo_review")
+    if not isinstance(photo_review, dict):
+        raise IntakeViolation("RECIPE_SCAFFOLD_PHOTO_REVIEW_EVIDENCE_MISSING")
+    _validated_photo_review_evidence_paths(package_dir=package.package_dir, records=[photo_review])
+    selection_evidence = photo_review.get("selection")
+    if not isinstance(selection_evidence, dict):
+        raise IntakeViolation("RECIPE_SCAFFOLD_PHOTO_REVIEW_EVIDENCE_MISSING")
+    selection_relative = selection_evidence.get("relative_path")
+    if not isinstance(selection_relative, str) or not selection_relative.strip():
+        raise IntakeViolation("RECIPE_SCAFFOLD_PHOTO_REVIEW_EVIDENCE_MISSING")
+    selection_path = _inside(
+        package.package_dir,
+        package.package_dir / selection_relative,
+        code="RECIPE_SCAFFOLD_PHOTO_REVIEW_EVIDENCE_MISSING",
+    )
+    selection = _read_json(
+        selection_path,
+        missing="RECIPE_SCAFFOLD_PHOTO_REVIEW_EVIDENCE_MISSING",
+        invalid="RECIPE_SCAFFOLD_PHOTO_REVIEW_EVIDENCE_INVALID",
+    )
+    selected_assets: list[dict[str, Any]] = []
+    for decision in selection.get("decisions") or []:
+        if not isinstance(decision, dict) or decision.get("decision") != "use":
+            continue
+        selected_relative = decision.get("selected_relative_path", decision.get("relative_path"))
+        selected_assets.append(
+            {
+                "relative_path": selected_relative,
+                "evidence_classes": list(decision.get("evidence_classes") or []),
+                "visual_quality": dict(decision.get("visual_quality") or {}),
+            }
+        )
+    try:
+        planning, edit = build_recipe_scaffold(
+            content_id=str(package.metadata.get("content_id") or ""),
+            review_text=str((package.metadata.get("review_source") or {}).get("text") or ""),
+            selected_assets=selected_assets,
+        )
+    except ValueError as error:
+        raise IntakeViolation(str(error)) from error
+
+    privacy_evidence = photo_review.get("privacy_manifest")
+    if not isinstance(privacy_evidence, dict) or not isinstance(privacy_evidence.get("relative_path"), str):
+        raise IntakeViolation("RECIPE_SCAFFOLD_PHOTO_REVIEW_EVIDENCE_MISSING")
+    privacy_path = _inside(
+        package.package_dir,
+        package.package_dir / privacy_evidence["relative_path"],
+        code="RECIPE_SCAFFOLD_PHOTO_REVIEW_EVIDENCE_MISSING",
+    )
+    privacy_manifest = _read_json(
+        privacy_path,
+        missing="RECIPE_SCAFFOLD_PHOTO_REVIEW_EVIDENCE_MISSING",
+        invalid="RECIPE_SCAFFOLD_PHOTO_REVIEW_EVIDENCE_INVALID",
+    )
+    sanitization_report = privacy_manifest.get("sanitization_report")
+    if not isinstance(sanitization_report, str) or not sanitization_report.strip():
+        raise IntakeViolation("RECIPE_SCAFFOLD_PRIVACY_REPORT_MISSING")
+    edit["source"]["privacy_sanitization_report"] = sanitization_report
+
+    revision = photo_review.get("revision")
+    if not isinstance(revision, int) or revision < 1:
+        revision = 1
+    scaffold_binding = {
+        "source_photo_review_revision": revision,
+        "source_selection_sha256": selection_evidence.get("sha256"),
+    }
+    planning["scaffold"].update(scaffold_binding)
+    edit["scaffold"].update(scaffold_binding)
+    parent = package.package_dir / "_work" / "recipe_scaffolds"
+    target = parent / "revision_001"
+    if target.exists():
+        raise IntakeViolation("RECIPE_SCAFFOLD_ALREADY_EXISTS")
+    pending = parent / f".revision_001.pending-{uuid4().hex}"
+    pending.mkdir(parents=True)
+    planning_path = pending / f"{package.metadata['content_id']}_planning_recipe_scaffold.json"
+    edit_path = pending / f"{package.metadata['content_id']}_edit_recipe_scaffold.json"
+    _atomic_write_json(planning_path, planning)
+    _atomic_write_json(edit_path, edit)
+    pending.rename(target)
+    return {
+        "workflow": "review_reel_production",
+        "state": "recipe_scaffold_ready",
+        "content_id": str(package.metadata.get("content_id") or ""),
+        "planning": str((target / planning_path.name).resolve()),
+        "edit": str((target / edit_path.name).resolve()),
+        "next_action": "complete_scaffold_content_then_generate_one_shot_tts",
     }
 
 
