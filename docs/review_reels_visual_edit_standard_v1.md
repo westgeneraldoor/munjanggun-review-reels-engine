@@ -149,3 +149,15 @@ HTML은 1080x1920, 30fps production 설정과 동일한 레이아웃을 사용�
   거슬러 올라가면 실패한다.
 - 좌표가 그 줄 위에 실제로 놓였는지는 대표 프레임을 본 사람만 확인할 수 있으므로
   `--check review_underline_alignment_reviewed`가 HTML 검수 영수증에 필수다.
+
+### 밑줄 좌표 픽셀 검증 (2026-08-19)
+
+게이트가 캡처의 행별 잉크 밀도로 글자 줄 위치를 찾아 `top_pct`를 대조한다.
+
+- 글자 띠 안을 지나면 `REVIEW_UNDERLINE_CROSSES_TEXT`. 밑줄은 글자 아래 여백에 둔다.
+- 위에 글자가 없는 빈 자리면 `REVIEW_UNDERLINE_NOT_UNDER_TEXT`.
+- 줄을 건너뛰거나 거슬러 올라가면 `REVIEW_UNDERLINE_LINES_NOT_CONSECUTIVE`.
+
+어떤 글자를 덮는지까지는 판정하지 않는다. 그것은 `line_text` 계약과
+`--check review_underline_alignment_reviewed` 사람 검수가 맡는다.
+

@@ -257,3 +257,29 @@ output/inbox_20260609/004_어려운시공_20260609_102346/004_difficult_installa
 - 시공후_2.jpg: 가족사진 액자
 - 시공후_3.jpg: 가족사진 액자
 ```
+
+## 마스킹 픽셀 검증 (2026-08-19)
+
+파일 이름에 `_masked`를 붙이는 것은 증거가 아니다. sanitization report는 무엇을 어디에
+가렸는지 적고, 게이트가 원본과 비교해 확인한다.
+
+```json
+"sanitized_assets": [
+  {
+    "relative_path": "_work/<id>_privacy_sanitized_assets/19_review_capture_order_number_masked.png",
+    "source_relative_path": "<id>_이미지/19_review_capture_raw.png",
+    "masked_regions": [
+      {"left_pct": 25, "top_pct": 10.5, "width_pct": 42, "height_pct": 7, "reason": "order_information"}
+    ]
+  }
+]
+```
+
+- 원본 사진 폴더 밖의 asset은 정의상 위생처리 산출물이므로 반드시 선언한다.
+  빠뜨리면 `SANITIZED_ASSET_NOT_DECLARED`로 막힌다.
+- 마스킹본은 원본과 **크기가 같아야** 한다. 자르거나 키우면 실패한다.
+- 바뀐 픽셀은 **선언한 영역 안에만** 있어야 한다. 가리면서 사진 전체를 보정하면 실패한다.
+- 가린 자리는 **국소 대비가 60% 이상 사라져야** 한다. 밝기만 옮기면 글자가 그대로
+  읽히므로 `SANITIZED_REGION_STILL_LEGIBLE`로 막힌다.
+- 원본은 패키지 안에 남긴다. 원본이 없으면 마스킹을 검증할 수 없다.
+

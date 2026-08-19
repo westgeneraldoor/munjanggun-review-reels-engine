@@ -13,6 +13,10 @@ from typing import Any
 from urllib.parse import quote
 
 from video_engine_v2.reels_qa import canonical_tts_input_sha256, build_sync_manifest, validate_html_preflight
+from video_engine_v2.capture_verification import (
+    verify_sanitized_asset,
+    verify_underline_segments,
+)
 from video_engine_v2.manual_review import HTML_REVIEW_CHECKS, VOICE_REVIEW_CHECKS
 
 
@@ -624,6 +628,137 @@ def _validate_edit_privacy_report_binding(package_dir: Path, edit_recipe: dict[s
         raise GateViolation("PRIVACY_REPORT_EDIT_MISMATCH")
 
 
+def _original_image_root(package_dir: Path) -> Path | None:
+    """사용자가 넣은 원본 사진 폴더.
+
+    edit recipe의 `source.image_dir`은 `.`일 수 있어 기준이 되지 못한다. 원본과
+    위생처리 산출물을 가르는 것은 canonical metadata가 지정한 이미지 폴더뿐이다.
+    """
+    metadata_path = package_dir / "CANONICAL_PACKAGE_METADATA.json"
+    if not metadata_path.is_file():
+        return None
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    name = metadata.get("image_directory_name") if isinstance(metadata, dict) else None
+    if not isinstance(name, str) or not name.strip():
+        return None
+    return _ensure_inside(package_dir, package_dir / name, outside_code="ASSET_OUTSIDE_PACKAGE")
+
+
+def _asset_root(package_dir: Path, edit_recipe: dict[str, Any]) -> Path | None:
+    source = edit_recipe.get("source") or {}
+    image_dir = source.get("image_dir") if isinstance(source, dict) else None
+    if not isinstance(image_dir, str) or not image_dir.strip():
+        return None
+    return _ensure_inside(package_dir, package_dir / image_dir, outside_code="ASSET_OUTSIDE_PACKAGE")
+
+
+def _validate_sanitized_asset_pixels(
+    package_dir: Path, edit_recipe: dict[str, Any], privacy_manifest: dict[str, Any]
+) -> None:
+    """마스킹했다는 선언을 픽셀로 확인한다.
+
+    지금까지는 sanitization report가 파일 경로와 해시만 담았다. 파일 이름에
+    `_masked`를 붙이고 아무것도 가리지 않아도 통과했다는 뜻이다. 원본 대비
+    무엇이 실제로 달라졌는지를 봐야 그 선언이 증거가 된다.
+    """
+
+    report_value = privacy_manifest.get("sanitization_report")
+    if not isinstance(report_value, str):
+        return
+    report_path = _ensure_inside(
+        package_dir, package_dir / report_value, outside_code="PRIVACY_REPORT_OUTSIDE_PACKAGE"
+    )
+    report = _read_json(report_path, missing_code="PRIVACY_REPORT_MISSING", invalid_code="PRIVACY_REPORT_INVALID")
+
+    declared = report.get("sanitized_assets")
+    if declared is None:
+        declared = []
+    if not isinstance(declared, list):
+        raise GateViolation("SANITIZED_ASSET_DECLARATION_INVALID")
+    by_path = {}
+    for item in declared:
+        if not isinstance(item, dict) or not isinstance(item.get("relative_path"), str):
+            raise GateViolation("SANITIZED_ASSET_DECLARATION_INVALID")
+        by_path[item["relative_path"]] = item
+
+    original_root = _original_image_root(package_dir)
+    for item in report.get("checked_assets") or []:
+        if not isinstance(item, dict):
+            continue
+        relative_path = item.get("relative_path")
+        if not isinstance(relative_path, str):
+            continue
+        asset_path = _ensure_inside(
+            package_dir, package_dir / relative_path, outside_code="PRIVACY_ASSET_OUTSIDE_PACKAGE"
+        )
+        # 원본 사진 폴더 밖에 있는 asset은 정의상 위생처리 산출물이다. 선언을 빠뜨려
+        # 검증을 건너뛰는 것을 막는다.
+        outside_image_dir = original_root is not None and original_root not in asset_path.parents
+        declaration = by_path.get(relative_path)
+        if declaration is None:
+            if outside_image_dir:
+                raise GateViolation("SANITIZED_ASSET_NOT_DECLARED")
+            continue
+
+        source_value = declaration.get("source_relative_path")
+        regions = declaration.get("masked_regions")
+        if not isinstance(source_value, str) or not isinstance(regions, list) or not regions:
+            raise GateViolation("SANITIZED_ASSET_DECLARATION_INVALID")
+        source_path = _ensure_inside(
+            package_dir, package_dir / source_value, outside_code="PRIVACY_ASSET_OUTSIDE_PACKAGE"
+        )
+        if not source_path.is_file():
+            raise GateViolation("SANITIZED_SOURCE_MISSING")
+        violations = verify_sanitized_asset(source_path, asset_path, regions)
+        if violations:
+            raise GateViolation(violations[0])
+
+
+def _validate_review_underline_pixels(package_dir: Path, edit_recipe: dict[str, Any]) -> None:
+    """밑줄 좌표가 실제 글자 줄 아래에 놓였는지 캡처를 열어 확인한다."""
+
+    beats = edit_recipe.get("beats")
+    if not isinstance(beats, list):
+        return
+    review_beat = next(
+        (
+            beat
+            for beat in beats
+            if isinstance(beat, dict)
+            and str(beat.get("narrative_role") or beat.get("phase") or "").strip() == "review_proof"
+        ),
+        None,
+    )
+    if review_beat is None:
+        return
+    emphasis = review_beat.get("review_emphasis")
+    if not isinstance(emphasis, dict):
+        return
+    segments = emphasis.get("segments")
+    if not isinstance(segments, list) or not segments:
+        return
+
+    image_root = _asset_root(package_dir, edit_recipe)
+    roles = edit_recipe.get("asset_roles")
+    if image_root is None or not isinstance(roles, dict):
+        return
+    asset_key = review_beat.get("asset_id") or review_beat.get("asset")
+    filename = roles.get(asset_key) if isinstance(asset_key, str) else None
+    if not isinstance(filename, str) or not filename.strip():
+        return
+    capture_path = _ensure_inside(
+        package_dir, image_root / filename, outside_code="ASSET_OUTSIDE_PACKAGE"
+    )
+    if not capture_path.is_file():
+        return
+    violations = verify_underline_segments(capture_path, segments)
+    if violations:
+        raise GateViolation(violations[0])
+
+
 def _validate_one_shot_audio_hashes(package_dir: Path, edit_recipe: dict[str, Any]) -> None:
     audio_plan = edit_recipe.get("audio_plan") or {}
     if not isinstance(audio_plan, dict):
@@ -791,6 +926,8 @@ def _validate_preflight(
     privacy_manifest = _validate_privacy_manifest(package_dir, privacy_manifest_path)
     _validate_privacy_asset_binding(_validate_edit_assets(package_dir, edit_recipe), privacy_manifest)
     _validate_edit_privacy_report_binding(package_dir, edit_recipe, privacy_manifest)
+    _validate_sanitized_asset_pixels(package_dir, edit_recipe, privacy_manifest)
+    _validate_review_underline_pixels(package_dir, edit_recipe)
     result = validate_html_preflight(
         planning_recipe,
         edit_recipe,

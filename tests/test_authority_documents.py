@@ -533,3 +533,43 @@ class NarrationRhythmAndUnderlineAuthorityTests(unittest.TestCase):
                 self.assertTrue(guidance["known"])
                 self.assertTrue(guidance["authority"])
                 self.assertTrue(guidance["how_to_fix"])
+
+
+class CapturePixelVerificationAuthorityTests(unittest.TestCase):
+    """픽셀 검증 기준도 살아있는 문서에 남아 있어야 한다."""
+
+    def test_privacy_standard_documents_the_masking_pixel_contract(self):
+        doc = (ROOT / "docs" / "reels_privacy_asset_qa_rules_v1.md").read_text(encoding="utf-8")
+
+        self.assertIn("sanitized_assets", doc)
+        self.assertIn("source_relative_path", doc)
+        self.assertIn("masked_regions", doc)
+        self.assertIn("SANITIZED_REGION_STILL_LEGIBLE", doc)
+
+    def test_visual_standard_documents_the_underline_pixel_contract(self):
+        doc = (ROOT / "docs" / "review_reels_visual_edit_standard_v1.md").read_text(encoding="utf-8")
+
+        self.assertIn("REVIEW_UNDERLINE_CROSSES_TEXT", doc)
+        self.assertIn("REVIEW_UNDERLINE_LINES_NOT_CONSECUTIVE", doc)
+
+    def test_every_pixel_gate_code_carries_central_fix_guidance(self):
+        from video_engine_v2.qa_guidance import explain_error
+
+        for code in (
+            "REVIEW_UNDERLINE_CROSSES_TEXT",
+            "REVIEW_UNDERLINE_NOT_UNDER_TEXT",
+            "REVIEW_UNDERLINE_LINES_NOT_CONSECUTIVE",
+            "SANITIZED_ASSET_NOT_DECLARED",
+            "SANITIZED_ASSET_DECLARATION_INVALID",
+            "SANITIZED_ASSET_UNCHANGED",
+            "SANITIZED_ASSET_CHANGE_OUTSIDE_REGION",
+            "SANITIZED_ASSET_GEOMETRY_CHANGED",
+            "SANITIZED_REGION_NOT_APPLIED",
+            "SANITIZED_REGION_STILL_LEGIBLE",
+            "SANITIZED_SOURCE_MISSING",
+        ):
+            with self.subTest(code=code):
+                guidance = explain_error(code)
+                self.assertTrue(guidance["known"])
+                self.assertTrue(guidance["authority"])
+                self.assertTrue(guidance["how_to_fix"])

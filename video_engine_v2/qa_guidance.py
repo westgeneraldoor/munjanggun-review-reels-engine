@@ -60,6 +60,50 @@ ERROR_GUIDANCE: dict[str, dict[str, str]] = {
         "authority": "docs/review_reels_visual_edit_standard_v1.md",
         "how_to_fix": "Order underline segments top to bottom as the quote reads, each at its own line height. Repeated or rising top_pct values mean the coordinates were guessed.",
     },
+    "REVIEW_UNDERLINE_CROSSES_TEXT": {
+        "authority": "docs/review_reels_visual_edit_standard_v1.md",
+        "how_to_fix": "top_pct is inside a glyph band, so the underline is drawn through the words instead of beneath them. Move it into the gap under that rendered line.",
+    },
+    "REVIEW_UNDERLINE_NOT_UNDER_TEXT": {
+        "authority": "docs/review_reels_visual_edit_standard_v1.md",
+        "how_to_fix": "top_pct sits in empty space with no text line above it. Place each segment just below the rendered line whose words it underlines.",
+    },
+    "REVIEW_UNDERLINE_LINES_NOT_CONSECUTIVE": {
+        "authority": "docs/review_reels_visual_edit_standard_v1.md",
+        "how_to_fix": "A wrapped quote occupies consecutive rendered lines. Order segments top to bottom with no line skipped and no line repeated.",
+    },
+    "SANITIZED_ASSET_NOT_DECLARED": {
+        "authority": "docs/reels_privacy_asset_qa_rules_v1.md",
+        "how_to_fix": "This asset lives outside the original photo folder, so it is a sanitization output. Add it to sanitization_report.sanitized_assets with source_relative_path and masked_regions.",
+    },
+    "SANITIZED_ASSET_DECLARATION_INVALID": {
+        "authority": "docs/reels_privacy_asset_qa_rules_v1.md",
+        "how_to_fix": "Each sanitized_assets entry needs relative_path, source_relative_path, and a non-empty masked_regions list of left/top/width/height percentages.",
+    },
+    "SANITIZED_ASSET_UNCHANGED": {
+        "authority": "docs/reels_privacy_asset_qa_rules_v1.md",
+        "how_to_fix": "The declared sanitized file is pixel-identical to its source. Apply the mask, or drop the sanitization claim and use the original.",
+    },
+    "SANITIZED_ASSET_CHANGE_OUTSIDE_REGION": {
+        "authority": "docs/reels_privacy_asset_qa_rules_v1.md",
+        "how_to_fix": "Pixels changed outside every declared region. Declare the region you actually covered, and do not recolor, recrop, or restyle the rest of the photo while masking.",
+    },
+    "SANITIZED_ASSET_GEOMETRY_CHANGED": {
+        "authority": "docs/reels_privacy_asset_qa_rules_v1.md",
+        "how_to_fix": "Masking must not resize or recrop the asset. Keep the source dimensions and cover the identifier in place.",
+    },
+    "SANITIZED_REGION_NOT_APPLIED": {
+        "authority": "docs/reels_privacy_asset_qa_rules_v1.md",
+        "how_to_fix": "A declared region is untouched in the sanitized file. Either mask it or remove it from masked_regions.",
+    },
+    "SANITIZED_REGION_STILL_LEGIBLE": {
+        "authority": "docs/reels_privacy_asset_qa_rules_v1.md",
+        "how_to_fix": "The covered area keeps most of its local contrast, so the identifier can still be read. Use a solid block or a much stronger blur.",
+    },
+    "SANITIZED_SOURCE_MISSING": {
+        "authority": "docs/reels_privacy_asset_qa_rules_v1.md",
+        "how_to_fix": "Keep the pre-masking original inside the package and point source_relative_path at it. Masking cannot be verified without the source.",
+    },
     "FINAL_RESULT_DWELL_INVALID": {
         "authority": "docs/review_reels_visual_edit_standard_v1.md",
         "how_to_fix": "End on the full installed-result asset and keep the final shot visible for the required dwell time.",
