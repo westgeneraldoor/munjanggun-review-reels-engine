@@ -30,12 +30,12 @@
 ## Format Status
 
 - v2: current production
-- v3: experimental
-- v3.1: experimental
+- v3: discontinued (2026-08-19)
+- v3.1: discontinued (2026-08-19)
 
-See `docs/reels_format_status_v1.md` for the distinct v3/v3.1 hypotheses,
-shared Instagram and Naver Clip engine, and the boundary that keeps experiments
-from changing v2 production rules.
+See `docs/reels_format_status_v1.md` for why v3 and v3.1 were stopped, the
+shared Instagram and Naver Clip engine, and the boundary that keeps v2
+production rules unchanged.
 
 ## Local Setup
 

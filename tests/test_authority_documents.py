@@ -218,8 +218,8 @@ class AuthorityDocumentsTest(unittest.TestCase):
 
         for text in texts.values():
             self.assertIn("v2: current production", text)
-            self.assertIn("v3: experimental", text)
-            self.assertIn("v3.1: experimental", text)
+            self.assertIn("v3: discontinued", text)
+            self.assertIn("v3.1: discontinued", text)
         self.assertIn("Instagram과 Naver Clip", texts["AGENTS.md"])
         self.assertIn("HyperFrames", texts["README.md"])
 

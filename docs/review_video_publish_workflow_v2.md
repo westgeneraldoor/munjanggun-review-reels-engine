@@ -56,7 +56,7 @@ Codex는 먼저 후보 리뷰를 고르거나, 사용자가 지정한 리뷰 번
 
 ## 패키지 상태 잠금 파일
 
-v3 운영부터 각 리뷰 패키지 루트에는 아래 두 파일을 둡니다.
+각 리뷰 패키지 루트에는 아래 두 파일을 둡니다.
 
 ```text
 STATUS.md
@@ -460,7 +460,7 @@ MP4 생성 수
 
 ## sync_manifest 생성 규칙
 
-v3 제작 루틴은 HTML 생성 전에 `sync_manifest.json`을 저장합니다.
+제작 루틴은 HTML 생성 전에 `sync_manifest.json`을 저장합니다.
 
 `sync_manifest.json`은 각 scene에 아래 값을 남겨야 합니다.
 

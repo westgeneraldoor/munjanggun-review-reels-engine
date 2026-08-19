@@ -104,13 +104,13 @@ approval record가 현재 HTML 해시에 결속된 뒤에만 생긴다.
 ## 포맷 상태
 
 - v2: current production
-- v3: experimental
-- v3.1: experimental
+- v3: discontinued (2026-08-19)
+- v3.1: discontinued (2026-08-19)
 
-Instagram과 Naver Clip은 공통 안전·제작 엔진을 쓰는 지원 채널입니다. v3/v3.1은
-각각의 가설을 검증하는 실험일 뿐 v2 production을 대체하지 않으며, D-026을 포함한
-production gate를 바꾸지 않습니다. 상세 기준은 `docs/reels_format_status_v1.md`를
-따릅니다.
+Instagram과 Naver Clip은 공통 안전·제작 엔진을 쓰는 지원 채널입니다. v3와 v3.1은
+성과 검증 전에 중단됐고 엔진 코드도 남아 있지 않으므로 새 제작에서 요청하거나
+복원하지 않습니다. 이미 만들어진 v3/v3.1 패키지는 기록으로 보존합니다. 상세 기준은
+`docs/reels_format_status_v1.md`를 따릅니다.
 
 ## 총괄 PD 팀 운영 방식
 

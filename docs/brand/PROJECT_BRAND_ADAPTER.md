@@ -26,10 +26,10 @@
 ## 3. 프로젝트 전용 출력 방식
 
 - v2: current production
-- v3: experimental
-- v3.1: experimental
+- v3: discontinued (2026-08-19)
+- v3.1: discontinued (2026-08-19)
 
-현재 production 출력은 v2다. `v3`과 `v3.1`은 서로 다른 실험이며, production 산출물·승인 경로를 대체하지 않는다. 상태와 가설은 `docs/reels_format_status_v1.md`에서 관리한다.
+현재 production 출력은 v2다. `v3`과 `v3.1`은 성과 검증 전에 중단됐고 production 산출물·승인 경로를 대체한 적이 없다. 중단 사유는 `docs/reels_format_status_v1.md`에서 관리한다.
 
 리뷰 릴스 1건의 표준 산출물은 아래 구조를 따른다.
 
