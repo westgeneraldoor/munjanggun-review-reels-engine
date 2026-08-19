@@ -35,11 +35,16 @@ def set_narration(fixture, sentences_by_role):
             beat["narration_ref"] = sentences_by_role[role]
 
 
-class NarrationRhythmTest(unittest.TestCase):
-    """D-028: 본문에 확 짧은 문장이 하나도 없으면 낭독이 된다."""
+class NarrationRhythmIsNotGatedTest(unittest.TestCase):
+    """문장 리듬을 하드 게이트로 만들면 훅이 조각난다. 실제로 그렇게 됐다.
 
-    # 120번이 실제로 만든 내레이션. 문장이 전부 17~27자로 균일하다.
-    MONOTONE = {
+    최단/평균 비율을 차단 조건으로 걸었더니 작가 모델은 글이 아니라 비율을 고쳤고,
+    가장 싸게 짧은 문장을 얻는 자리인 훅이 세 조각으로 쪼개졌다. 사장님 판정은
+    차단된 쪽이 더 낫다는 것이었다. 다시 게이트로 만들지 않도록 여기 고정한다.
+    """
+
+    # 비율 0.77. 예전 게이트가 막았고, 사람은 이쪽이 낫다고 했다.
+    BLOCKED_BUT_BETTER = {
         "event": "중문을 달고 나니, 설치 전과 비교해 외부 소음이 달라졌습니다.",
         "problem": "설치 전 현관은 이렇게 열려 있었습니다.",
         "resolution": "약속한 시간에 맞춰 방문해 깔끔하게 시공해 주셨습니다.",
@@ -47,40 +52,28 @@ class NarrationRhythmTest(unittest.TestCase):
         "review_proof": "외부 소음이 줄었다는 실제 후기입니다.",
     }
 
-    # 118 골든. `여기는 달랐습니다.`라는 9자 문장이 리듬을 만든다.
-    GOLDEN = {
-        "event": "새 집에 놓을 첫 중문, 견적마다 비싼 것부터 권하더군요.",
-        "problem": "리뷰를 하나하나 읽어가며 여러 곳을 찾았지만, 무조건 비싼 것만 추천했습니다.",
-        "resolution": "여기는 달랐습니다. 직접 재보더니, 가격이 아니라 우리 집에 맞는 걸 권했습니다.",
-        "felt_result": "소음 줄여달라는 부탁도 기꺼이 들어주셨고, 뒷정리까지 깔끔했습니다.",
-        "review_proof": "그 자리에서 놀랐다는 말이, 리뷰에 그대로 남아 있습니다.",
-    }
+    # 비율 0.51. 예전 게이트를 통과했고, 훅이 무슨 말인지 알 수 없다.
+    PASSED_BUT_WORSE = dict(
+        BLOCKED_BUT_BETTER,
+        event="하나하나 꼼꼼했습니다. 열려 있었습니다. 이렇게 달라졌습니다.",
+    )
 
-    def test_uniform_sentence_lengths_are_rejected_as_monotone_narration(self):
+    def assert_no_rhythm_verdict(self, narration):
         fixture = load_fixture()
-        set_narration(fixture, self.MONOTONE)
+        set_narration(fixture, narration)
 
         result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
 
-        self.assertIn("NARRATION_RHYTHM_MONOTONE", issue_codes(result))
+        self.assertFalse(
+            any(code.startswith("NARRATION_RHYTHM") for code in issue_codes(result)),
+            "문장 리듬은 자동 차단 대상이 아니다. docs/review_reels_content_standard_v1.md 참고.",
+        )
 
-    def test_golden_sample_rhythm_is_accepted(self):
-        fixture = load_fixture()
-        set_narration(fixture, self.GOLDEN)
+    def test_uniform_sentence_lengths_are_not_blocked_by_the_engine(self):
+        self.assert_no_rhythm_verdict(self.BLOCKED_BUT_BETTER)
 
-        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
-
-        self.assertNotIn("NARRATION_RHYTHM_MONOTONE", issue_codes(result))
-
-    def test_the_fixed_cta_wording_cannot_rescue_a_monotone_body(self):
-        """CTA는 고정 문구라 리듬 판정에서 제외한다."""
-        fixture = load_fixture()
-        set_narration(fixture, self.MONOTONE)
-        set_narration(fixture, {"cta": "네."})
-
-        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
-
-        self.assertIn("NARRATION_RHYTHM_MONOTONE", issue_codes(result))
+    def test_a_shredded_hook_gains_nothing_from_the_engine_either(self):
+        self.assert_no_rhythm_verdict(self.PASSED_BUT_WORSE)
 
 
 class ReviewUnderlineAlignmentTest(unittest.TestCase):

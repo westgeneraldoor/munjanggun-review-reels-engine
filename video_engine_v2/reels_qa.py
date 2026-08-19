@@ -845,10 +845,6 @@ MAX_CONTEXTUAL_CAPTION_CHUNKS = 4
 MIN_CONTEXTUAL_CAPTION_CHARS = 7
 MIN_ONE_SHOT_HOOK_SHOT_SEC = 1.0
 MIN_ONE_SHOT_FINAL_RESULT_SEC = 2.5
-# D-028: 본문에서 가장 짧은 문장이 평균 대비 이 비율보다 길면 낭독처럼 들린다.
-# 118 골든은 0.36, 사람이 `군대식`이라고 지적한 120번은 0.77이었다.
-MAX_NARRATION_SHORTEST_RATIO = 0.75
-MIN_RHYTHM_SENTENCE_COUNT = 3
 
 SUPPORTED_TRANSITIONS = {
     "card_pop", "caption_swap", "cross_dissolve", "cut", "flash_glow", "glow",
@@ -1470,41 +1466,6 @@ def _split_sentences(text: str) -> list[str]:
     return [part.strip() for part in re.split(r"(?<=[.?!])\s+", _as_text(text).strip()) if part.strip()]
 
 
-def _validate_narration_rhythm(edit_recipe: dict[str, Any]) -> list[dict[str, Any]]:
-    """D-028: 본문 문장 길이가 균일하면 이야기가 아니라 낭독이 된다.
-
-    고정 문구인 CTA는 작가가 리듬을 만들 수 있는 자리가 아니므로 제외하고,
-    나머지 본문에 `확 짧은 한 문장`이 하나라도 있는지만 본다. 종결어미 반복은
-    기준이 되지 못한다. 118 골든은 같은 어미를 여섯 번 연속 쓰고도 좋게 읽힌다.
-    """
-
-    sentences: list[str] = []
-    for beat in edit_recipe.get("beats") or []:
-        if not isinstance(beat, dict) or _role(beat) == "cta":
-            continue
-        sentences.extend(_split_sentences(beat.get("narration_ref")))
-
-    lengths = [len(_compact_text(sentence)) for sentence in sentences]
-    lengths = [length for length in lengths if length > 0]
-    if len(lengths) < MIN_RHYTHM_SENTENCE_COUNT:
-        return []
-
-    mean_length = sum(lengths) / len(lengths)
-    if mean_length <= 0:
-        return []
-    shortest_ratio = min(lengths) / mean_length
-    if shortest_ratio <= MAX_NARRATION_SHORTEST_RATIO:
-        return []
-    return [
-        _issue(
-            "NARRATION_RHYTHM_MONOTONE",
-            "Every body sentence is nearly the same length, so the narration reads aloud instead of telling a story. "
-            "Add at least one short punch sentence "
-            f"(shortest/mean {shortest_ratio:.2f} must be {MAX_NARRATION_SHORTEST_RATIO} or less).",
-        )
-    ]
-
-
 def _validate_caption_chunks(beat: dict[str, Any], scene_id: str) -> list[dict[str, Any]]:
     """D-027: 구절 자막을 이어붙이면 내레이션 전문과 글자까지 같아야 한다."""
     chunks = beat.get("caption_chunks")
@@ -1647,7 +1608,6 @@ def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edi
     issues.extend(_validate_visual_evidence_contract(planning_recipe, edit_recipe))
     issues.extend(_validate_one_shot_visual_edit_contract(edit_recipe))
     issues.extend(_validate_review_emphasis_contract(planning_recipe, edit_recipe))
-    issues.extend(_validate_narration_rhythm(edit_recipe))
 
     writer_brief = planning_recipe.get("writer_brief") or {}
     required_writer_fields = (

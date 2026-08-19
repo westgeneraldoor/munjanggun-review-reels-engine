@@ -499,13 +499,13 @@ if __name__ == "__main__":
 class NarrationRhythmAndUnderlineAuthorityTests(unittest.TestCase):
     """120번 실전에서 드러난 두 결함의 기준이 살아있는 문서에 남아 있어야 한다."""
 
-    def test_content_standard_defines_the_rhythm_gate_without_blaming_sentence_endings(self):
+    def test_content_standard_records_why_sentence_rhythm_is_not_gated(self):
         doc = (ROOT / "docs" / "review_reels_content_standard_v1.md").read_text(encoding="utf-8")
 
-        self.assertIn("D-028", doc)
-        self.assertIn("가장 짧은 문장이 평균 길이의 75%", doc)
-        # 종결어미 반복을 기준으로 삼으면 골든 샘플이 실패한다. 그 사실을 문서가 붙들어야 한다.
-        self.assertIn("종결어미 반복은 기준이 아닙니다", doc)
+        self.assertIn("게이트로 만들지 않는다", doc)
+        # 다시 자동화하려는 사람이 실패 사례를 그대로 볼 수 있어야 한다.
+        self.assertIn("하나하나 꼼꼼했습니다", doc)
+        self.assertIn("증상이지 원인이 아니며", doc)
 
     def test_visual_standard_requires_one_underline_segment_per_rendered_line(self):
         doc = (ROOT / "docs" / "review_reels_visual_edit_standard_v1.md").read_text(encoding="utf-8")
@@ -524,7 +524,6 @@ class NarrationRhythmAndUnderlineAuthorityTests(unittest.TestCase):
         from video_engine_v2.qa_guidance import explain_error
 
         for code in (
-            "NARRATION_RHYTHM_MONOTONE",
             "REVIEW_EMPHASIS_SEGMENT_TEXT_MISMATCH",
             "REVIEW_EMPHASIS_SEGMENT_ORDER_INVALID",
         ):
