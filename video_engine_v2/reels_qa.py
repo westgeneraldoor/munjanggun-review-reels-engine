@@ -833,6 +833,8 @@ CAPTION_ACCENT_ONSET_EARLY_TOLERANCE_SEC = 0.20
 CAPTION_ACCENT_ONSET_LATE_TOLERANCE_SEC = 0.45
 MAX_REVIEW_UNDERLINE_START_DELAY_SEC = 0.10
 MAX_REVIEW_UNDERLINE_DRAW_SEC = 0.20
+# 렌더된 리뷰 캡처에서 한 줄 높이는 최소 이만큼은 떨어진다.
+MIN_REVIEW_UNDERLINE_LINE_GAP_PCT = 1.0
 CALM_DISSOLVE_MS = 380
 CALM_SCALE_DELTA = 0.05
 CALM_HORIZONTAL_TRAVEL_PX = 24
@@ -1404,19 +1406,64 @@ def _validate_review_emphasis_contract(
     segments = emphasis.get("segments")
     if not isinstance(segments, list) or not 1 <= len(segments) <= 3:
         issues.append(_issue("REVIEW_EMPHASIS_SEGMENT_INVALID", "Review emphasis needs one to three underline segments."))
-    else:
-        for segment in segments:
-            try:
-                left = float(segment["left_pct"])
-                top = float(segment["top_pct"])
-                width = float(segment["width_pct"])
-            except (KeyError, TypeError, ValueError):
-                issues.append(_issue("REVIEW_EMPHASIS_SEGMENT_INVALID", "Underline segments need numeric left/top/width percentages."))
-                break
-            if left < 0 or top < 0 or width <= 0 or left + width > 100 or top > 100:
-                issues.append(_issue("REVIEW_EMPHASIS_SEGMENT_INVALID", "Underline segments must stay inside the review capture."))
-                break
+        return issues
+
+    geometry_ok = True
+    previous_top: float | None = None
+    for segment in segments:
+        try:
+            left = float(segment["left_pct"])
+            top = float(segment["top_pct"])
+            width = float(segment["width_pct"])
+        except (KeyError, TypeError, ValueError):
+            issues.append(_issue("REVIEW_EMPHASIS_SEGMENT_INVALID", "Underline segments need numeric left/top/width percentages."))
+            geometry_ok = False
+            break
+        if left < 0 or top < 0 or width <= 0 or left + width > 100 or top > 100:
+            issues.append(_issue("REVIEW_EMPHASIS_SEGMENT_INVALID", "Underline segments must stay inside the review capture."))
+            geometry_ok = False
+            break
+        # 캡처 안에서 인용문은 위에서 아래로 읽힌다. 같은 높이를 두 번 쓰거나
+        # 거슬러 올라가면 좌표를 눈대중으로 찍었다는 뜻이다.
+        if previous_top is not None and top <= previous_top + MIN_REVIEW_UNDERLINE_LINE_GAP_PCT - 0.001:
+            issues.append(
+                _issue(
+                    "REVIEW_EMPHASIS_SEGMENT_ORDER_INVALID",
+                    "Underline segments must move down the capture, one rendered line at a time.",
+                )
+            )
+            geometry_ok = False
+            break
+        previous_top = top
+
+    if not geometry_ok:
+        return issues
+
+    # 엔진은 캡처 이미지를 읽지 못하므로 top_pct가 맞는 줄인지 스스로 알 수 없다.
+    # 대신 segment마다 그 줄이 실제로 덮는 인용문 조각을 받아 적게 해서,
+    # 줄 수가 틀리면 (120번처럼 두 줄을 segment 하나로 처리하면) 반드시 걸리게 한다.
+    line_texts = [_as_text(segment.get("line_text")).strip() for segment in segments]
+    if not all(line_texts):
+        issues.append(
+            _issue(
+                "REVIEW_EMPHASIS_SEGMENT_TEXT_MISMATCH",
+                "Every underline segment needs line_text naming the quote fragment that rendered line covers.",
+            )
+        )
+    elif _compact_text("".join(line_texts)) != _compact_text(quote):
+        issues.append(
+            _issue(
+                "REVIEW_EMPHASIS_SEGMENT_TEXT_MISMATCH",
+                "Joining every segment line_text must reproduce review_emphasis.quote exactly, "
+                "so the underline covers the whole quote and nothing else.",
+            )
+        )
     return issues
+
+
+def _split_sentences(text: str) -> list[str]:
+    """마침표/물음표/느낌표 뒤에서 끊어 낭독 단위 문장을 얻는다."""
+    return [part.strip() for part in re.split(r"(?<=[.?!])\s+", _as_text(text).strip()) if part.strip()]
 
 
 def _validate_caption_chunks(beat: dict[str, Any], scene_id: str) -> list[dict[str, Any]]:

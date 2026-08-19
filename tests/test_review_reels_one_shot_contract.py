@@ -57,12 +57,15 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
 
     def add_review_emphasis(self, fixture, *, quote=None):
         review_beat = fixture["edit"]["beats"][6]
+        resolved_quote = quote or fixture["planning"]["review_source"]["review_quote_for_proof"]
         review_beat["review_emphasis"] = {
-            "quote": quote or fixture["planning"]["review_source"]["review_quote_for_proof"],
+            "quote": resolved_quote,
             "start_sec": 24.05,
             "end_sec": 26.2,
             "draw_duration_sec": 0.15,
-            "segments": [{"left_pct": 12.0, "top_pct": 54.0, "width_pct": 70.0}],
+            "segments": [
+                {"left_pct": 12.0, "top_pct": 54.0, "width_pct": 70.0, "line_text": resolved_quote}
+            ],
         }
 
     def test_anonymized_contract_passes_the_strict_html_preflight(self):
