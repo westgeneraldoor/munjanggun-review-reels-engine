@@ -190,10 +190,10 @@ TTS 발음을 위한 `text`와 공식 제품 표기가 다를 때만 `display_te
 }
 ```
 
-설치 결과 훅의 첫 3개 shot은 `caption_chunks` 3개와 순서대로 1:1 대응해야 하며,
-각 쌍의 `start_sec`와 `end_sec`가 같아야 합니다. 각 shot의
+설치 결과 훅의 첫 3개 shot은 `caption_chunks`와 1:1 대응할 필요가 없습니다. 한 완결된
+훅 문장이 세 사진을 가로지를 수 있습니다. 각 shot의
 `meaning_match_source`에는 `asset_evidence:<asset_id>`와
-`narration_fragment:<해당 주장>`을 함께 기록합니다. 이 결속이 없으면 사진 순서는
+`narration_fragment:<해당 문맥>`을 함께 기록합니다. 이 결속이 없으면 사진 순서는
 맞아도 음성 의미가 다른 화면 위로 넘어갈 수 있으므로 preflight에서 실패합니다.
 
 `review_proof` beat의 밑줄은 원본 이미지를 바꾸지 않는 overlay입니다. `quote`는

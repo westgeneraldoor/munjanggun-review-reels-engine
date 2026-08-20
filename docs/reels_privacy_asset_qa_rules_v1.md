@@ -282,4 +282,6 @@ output/inbox_20260609/004_어려운시공_20260609_102346/004_difficult_installa
 - 가린 자리는 **국소 대비가 60% 이상 사라져야** 한다. 밝기만 옮기면 글자가 그대로
   읽히므로 `SANITIZED_REGION_STILL_LEGIBLE`로 막힌다.
 - 원본은 패키지 안에 남긴다. 원본이 없으면 마스킹을 검증할 수 없다.
+- 이 검사는 HTML preflight까지 미루지 않고 공식 `photo-review`가 lifecycle을
+  `photo_reviewed`로 바꾸기 전에 먼저 실행한다. preflight에서도 같은 검사를 방어적으로 반복한다.
 

@@ -852,19 +852,8 @@ def validate_script(script_text: str) -> list[str]:
     if not close_section or "문장군 리뷰에서 가져왔어요" not in close_section.narration:
         fail("[CLOSE]에 '문장군 리뷰에서 가져왔어요' 앵커가 없습니다.")
 
-    # HOOK 상품명 금지 확인
-    # 제품 설명형 훅은 막되, "방묘문 고민 -> 중문 선택"처럼 선택 갈등 자체가 사건인 경우는 허용한다.
-    product_terms = ["중문", "도어", "문장군"]
-    choice_conflict_markers = [
-        "방묘문",
-        "대신",
-        "바꾼 이유",
-        "바꾼",
-        "고민",
-        "선택",
-        "왜",
-        "이유",
-    ]
+    # HOOK 브랜드명 금지 확인. 중문/도어는 고객 사건의 대상이므로 허용한다.
+    # 광고형 훅은 아래 질문/공감 패턴과 원문·claim 게이트가 별도로 차단한다.
     hook_text_parts = []
     if title_match:
         hook_text_parts.append(title_match.group(1))
@@ -873,13 +862,19 @@ def validate_script(script_text: str) -> list[str]:
         hook_text_parts.extend([hook_section.caption, hook_section.narration])
 
     hook_text = " ".join(hook_text_parts)
-    for word in product_terms:
-        if word in hook_text:
-            is_brand_term = word == "문장군"
-            is_choice_conflict = any(marker in hook_text for marker in choice_conflict_markers)
-            if not is_brand_term and is_choice_conflict:
-                continue
-            fail(f"HOOK 제목/자막/내레이션에 상품명 금지어가 있습니다: '{word}'")
+    if "문장군" in hook_text:
+        fail("HOOK 제목/자막/내레이션에 브랜드명 금지어가 있습니다: '문장군'")
+
+    # 제품명이 등장하는 고객 사건은 허용하되, 운영원칙이 금지한 종류·장점·가격
+    # 설명형 훅은 좁게 차단한다. 가격 걱정이나 선택 갈등 자체를 말하는 사건형 훅은
+    # 설명/비교/정리 어휘가 없으므로 이 규칙에 걸리지 않는다.
+    hook_explainer_patterns = [
+        r"(?:중문|도어)(?:의|\s)*(?:종류|장점).{0,20}?(?:\d+\s*가지|[한두세네]\s*가지|몇\s*가지|비교|설명|정리|알려|소개)",
+        r"(?:중문|도어)(?:의|\s)*가격.{0,20}?(?:얼마|비교|설명|정리|알려|소개)",
+    ]
+    for pattern in hook_explainer_patterns:
+        if re.search(pattern, hook_text):
+            fail(f"HOOK은 고객 사건이 아닌 제품 설명형으로 시작하면 안 됩니다: /{pattern}/")
 
     hook_fail_patterns = [
         r"하시죠\?",

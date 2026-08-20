@@ -124,7 +124,7 @@ def _normalise_command(command: str) -> str:
     return re.sub(r"[.?!]+", "", " ".join(command.casefold().split()))
 
 
-def route_user_command(command: str) -> dict[str, str]:
+def route_user_command(command: str, *, active_review_reel_package: bool = False) -> dict[str, str]:
     """Map a short Korean request to exactly one workflow state transition.
 
     Reel-specific phrases are checked before generic review-content phrases so a
@@ -133,14 +133,14 @@ def route_user_command(command: str) -> dict[str, str]:
 
     normalised = _normalise_command(command)
     compact = re.sub(r"\s+", "", normalised)
-    if (
-        "mp4" in compact
-        and "렌더" in compact
-        and any(stem in compact for stem in ("진행", "시작", "해줘", "하자"))
-    ):
+    html_approval_context = "html" in compact and "승인" in compact
+    render_requested = "렌더" in compact and any(
+        stem in compact for stem in ("진행", "시작", "해줘", "하자", "까지")
+    )
+    if render_requested and (active_review_reel_package or html_approval_context):
         state = (
             "html_approval_and_mp4_render_intent_requested"
-            if "html" in compact and "승인" in compact
+            if html_approval_context
             else "mp4_render_intent_requested"
         )
         return {
@@ -912,6 +912,7 @@ def create_canonical_package(
             "html_scope_authorized": False,
             "mp4_scope_authorized": False,
         },
+        "current_artifacts_contract": "review-reel-current-artifacts-v1",
     }
 
     collection.mkdir(parents=True, exist_ok=True)
@@ -920,6 +921,12 @@ def create_canonical_package(
     image_dir = pending_dir / image_name
     image_dir.mkdir()
     _atomic_write_json(pending_dir / METADATA_FILENAME, metadata)
+    from video_engine_v2.current_artifacts import CurrentArtifactsViolation, initialize_ledger
+
+    try:
+        initialize_ledger(pending_dir, now=clock, identity_dir=package_dir)
+    except CurrentArtifactsViolation as error:
+        raise IntakeViolation(str(error)) from error
     (pending_dir / ".source").write_text(_generation_source_key(source_path), encoding="utf-8")
     (pending_dir / "STATUS.md").write_text(
         "- photo_checked: false\n- pd_plan_approved: false\n- html_approved_by_user: false\n- mp4_allowed: false\n",
@@ -982,23 +989,157 @@ def _assert_expected_content_id(package: CanonicalPackage, expected_content_id: 
         raise IntakeViolation("ACTIVE_PACKAGE_CONTENT_ID_MISMATCH")
 
 
+def _evaluate_html_candidate(package: Path, html_path: Path) -> dict[str, Any]:
+    from video_engine_v2.production_gate import inspect_html_preview_chain
+
+    return inspect_html_preview_chain(package, html_path)
+
+
+def _bound_html_review_receipt(package: Path, html_path: Path, artifact_path: Path) -> Path | None:
+    from video_engine_v2.production_gate import find_current_html_manual_review
+
+    receipt = find_current_html_manual_review(package, html_path)
+    if receipt is None:
+        return None
+    if html_path.parent / "html_artifact_evidence.json" != artifact_path:
+        return None
+    return receipt
+
+
+def _html_approval_bound(package: Path, html_path: Path, artifact_path: Path) -> bool:
+    from video_engine_v2.production_gate import html_approval_is_current
+
+    if html_path.parent / "html_artifact_evidence.json" != artifact_path:
+        return False
+    return html_approval_is_current(package, html_path)
+
+
+def _mp4_approval_bound(package: Path, html_path: Path) -> bool:
+    from video_engine_v2.production_gate import mp4_approval_is_current
+
+    return mp4_approval_is_current(package, html_path)
+
+
+def _ledger_pointer_path(package: Path, ledger: dict[str, Any], kind: str) -> Path | None:
+    pointer = (ledger.get("pointers") or {}).get(kind)
+    if not isinstance(pointer, dict) or not isinstance(pointer.get("relative_path"), str):
+        return None
+    return (package / pointer["relative_path"]).resolve()
+
+
+def _select_current_html(package: Path) -> dict[str, Any]:
+    from video_engine_v2.current_artifacts import (
+        CurrentArtifactsViolation,
+        package_uses_ledger,
+        pointer_file,
+        require_enabled_ledger,
+    )
+
+    ledger: dict[str, Any] | None = None
+    if package_uses_ledger(package):
+        try:
+            ledger = require_enabled_ledger(package)
+            html_pointer = pointer_file(package, "html")
+        except CurrentArtifactsViolation as error:
+            return {
+                "status": "stale_html",
+                "html_status": "stale_html",
+                "stale_html_reason": str(error).lower(),
+            }
+        if html_pointer is None:
+            return {"status": "absent"}
+        expected_artifact = html_pointer.parent / "html_artifact_evidence.json"
+        expected_qa = html_pointer.parent / "html_internal_qa_report.json"
+        if (
+            _ledger_pointer_path(package, ledger, "html_artifact_evidence") != expected_artifact
+            or _ledger_pointer_path(package, ledger, "html_qa_report") != expected_qa
+        ):
+            return {
+                "status": "stale_html",
+                "html_status": "stale_html",
+                "stale_html_reason": "html_ledger_chain_incomplete",
+            }
+        candidates = [_evaluate_html_candidate(package, html_pointer)]
+    else:
+        candidates = [
+            _evaluate_html_candidate(package, html.resolve())
+            for html in sorted(package.glob("*_html_preview_v2/index.html"))
+        ]
+    if not candidates:
+        return {"status": "absent"}
+    valid = [item for item in candidates if item.get("status") == "valid"]
+    if not valid:
+        return {
+            "status": "stale_html",
+            "html_status": "stale_html",
+            "stale_html_reason": str(candidates[0].get("stale_html_reason") or "html_evidence_invalid"),
+            "stale_html_reasons": [
+                {
+                    "html_relative_path": item.get("html_relative_path"),
+                    "stale_html_reason": item.get("stale_html_reason"),
+                }
+                for item in candidates
+            ],
+        }
+    approval_bound = [item for item in valid if _html_approval_bound(package, item["html"], item["artifact_path"])]
+    review_bound = [
+        item for item in valid if _bound_html_review_receipt(package, item["html"], item["artifact_path"]) is not None
+    ]
+    if len(approval_bound) > 1 or (not approval_bound and len(valid) > 1 and len(review_bound) != 1):
+        return {
+            "status": "stale_html",
+            "html_status": "stale_html",
+            "stale_html_reason": "ambiguous_html_candidates",
+            "stale_html_reasons": [
+                {"html_relative_path": item.get("html_relative_path"), "stale_html_reason": "ambiguous_html_candidates"}
+                for item in valid
+            ],
+        }
+    current = approval_bound[0] if len(approval_bound) == 1 else review_bound[0] if len(review_bound) == 1 else valid[0]
+    review_path = _bound_html_review_receipt(package, current["html"], current["artifact_path"])
+    html_approved = _html_approval_bound(package, current["html"], current["artifact_path"])
+    mp4_approved = _mp4_approval_bound(package, current["html"])
+    if ledger is not None:
+        if _ledger_pointer_path(package, ledger, "html_manual_review") != review_path:
+            review_path = None
+        html_approval_path = _ledger_pointer_path(package, ledger, "html_approval")
+        if html_approval_path != (package / "HTML_APPROVAL.json").resolve():
+            html_approved = False
+        mp4_approval_path = _ledger_pointer_path(package, ledger, "mp4_render_approval")
+        if (
+            not html_approved
+            or mp4_approval_path != (package / "MP4_RENDER_APPROVAL.json").resolve()
+        ):
+            mp4_approved = False
+    current.update(
+        {
+            "html_status": "valid",
+            "manual_review_path": review_path,
+            "html_approved": html_approved,
+            "mp4_approved": mp4_approved,
+        }
+    )
+    return current
+
+
 def active_package_status(output_root: str | Path) -> dict[str, Any]:
     """Return the active canonical identity and its next safe production action."""
 
     package = resolve_active_package(output_root)
     lifecycle_state = str(package.metadata.get("lifecycle_state") or "unknown")
-    from video_engine_v2.package_state import map_legacy_package
+    from video_engine_v2.package_state import map_package_state
 
-    evidence_state = map_legacy_package(package.package_dir)
+    evidence_state = map_package_state(package.package_dir)
+    html_state = _select_current_html(package.package_dir)
     if evidence_state.get("final_delivery_complete") is True:
         next_action = "no_action_final_delivery_complete"
     elif evidence_state.get("render_complete") is True:
         next_action = "inspect_post_render_frames_then_run_render_review_record"
     elif evidence_state.get("render_artifact_present") is True:
         next_action = "inspect_render_job_then_run_post_render_qa"
-    elif (package.package_dir / "MP4_RENDER_APPROVAL.json").is_file():
+    elif html_state.get("status") == "valid" and html_state.get("mp4_approved"):
         next_action = "start_or_check_durable_render_job"
-    elif (package.package_dir / "HTML_APPROVAL.json").is_file():
+    elif html_state.get("status") == "valid" and html_state.get("html_approved"):
         next_action = "wait_for_explicit_mp4_approval_then_record_it"
     elif lifecycle_state == "photo_intake_pending":
         next_action = "place_photos_then_run_photo_review"
@@ -1043,6 +1184,42 @@ def workflow_next(output_root: str | Path) -> dict[str, Any]:
             '--privacy-manifest "<privacy_asset_manifest.json>"'
         )
     elif action == "prepare_planning_script_tts":
+        html_state = _select_current_html(package) if package else {"status": "absent"}
+        if html_state.get("status") == "valid":
+            html_path = Path(html_state["html"])
+            guidance["html"] = str(html_path)
+            guidance["html_status"] = "valid"
+            if html_state.get("manual_review_path") is None:
+                guidance["next_action"] = "inspect_html_frames_then_record_review"
+                guidance["required_inputs"] = ["reviewer", "html_review_evidence"]
+                guidance["command_template"] = (
+                    f'python scripts/produce_review_v2.py html-review-record --package "{package}" '
+                    f'--html "{html_path}" --reviewer "<reviewer>" --evidence-reference "<evidence>" '
+                    '--check hook_sequence_reviewed --check meaning_sync_reviewed '
+                    '--check caption_layout_reviewed --check privacy_reviewed '
+                    '--check review_capture_reviewed --check review_underline_alignment_reviewed --check cta_reviewed'
+                )
+                return guidance
+            if not html_state.get("html_approved"):
+                guidance["next_action"] = "wait_for_explicit_html_approval_then_record_it"
+                guidance["approval_required"] = True
+                guidance["required_inputs"] = ["explicit_user_html_approval", "current_html"]
+                return guidance
+            if not html_state.get("mp4_approved"):
+                guidance["next_action"] = "wait_for_explicit_mp4_approval_then_record_it"
+                guidance["approval_required"] = True
+                guidance["required_inputs"] = ["explicit_user_mp4_approval", "current_html"]
+                return guidance
+            guidance["next_action"] = "start_or_check_durable_render_job"
+            guidance["required_inputs"] = ["current_hash_bound_artifact_paths"]
+            return guidance
+        if html_state.get("status") == "stale_html":
+            guidance["next_action"] = "stale_html"
+            guidance["html_status"] = "stale_html"
+            guidance["stale_html_reason"] = html_state.get("stale_html_reason")
+            guidance["stale_html_reasons"] = html_state.get("stale_html_reasons")
+            guidance["required_inputs"] = ["current_html_artifact_evidence"]
+            return guidance
         scaffold_root = package / "_work" / "recipe_scaffolds" if package else None
         revisions = sorted(scaffold_root.glob("revision_*")) if scaffold_root and scaffold_root.is_dir() else []
         if not revisions:
@@ -1108,20 +1285,38 @@ def workflow_next(output_root: str | Path) -> dict[str, Any]:
                 package / str(source.get("tts_generation_report") or ""),
                 code="WORKFLOW_TTS_REPORT_PATH_INVALID",
             )
+            from video_engine_v2.current_artifacts import package_uses_ledger, read_ledger
+
+            ledger_mode = package_uses_ledger(package)
+            ledger = read_ledger(package) if ledger_mode else None
             if not script_path.is_file():
                 guidance["next_action"] = "write_standard_script_from_completed_scaffold"
                 guidance["required_inputs"] = ["standard_script"]
                 guidance["script"] = str(script_path)
                 return guidance
-            if not all(path.is_file() for path in (srt_path, voice_path, tts_report_path)):
+            tts_paths = {
+                "script": script_path,
+                "captions": srt_path,
+                "voice": voice_path,
+                "tts_report": tts_report_path,
+            }
+            tts_current = all(
+                _ledger_pointer_path(package, ledger, kind) == path
+                for kind, path in tts_paths.items()
+            ) if ledger is not None else all(path.is_file() for path in (srt_path, voice_path, tts_report_path))
+            if not tts_current:
                 guidance["next_action"] = "generate_official_one_shot_tts"
                 guidance["next_command"] = (
                     f'python scripts/generate_one_shot_tts.py --package "{package}" '
-                    f'--planning "{planning_path}" --script "{script_path}"'
+                    f'--planning "{planning_path}" --edit "{edit_path}" --script "{script_path}"'
                 )
                 return guidance
-            manual_reviews = package / "_work" / "manual_reviews"
-            if not manual_reviews.is_dir() or not any(manual_reviews.glob("voice_review_*.json")):
+            from video_engine_v2.production_gate import find_current_voice_manual_review
+
+            current_voice_review = find_current_voice_manual_review(package, edit_payload)
+            if ledger is not None and _ledger_pointer_path(package, ledger, "voice_manual_review") != current_voice_review:
+                current_voice_review = None
+            if current_voice_review is None:
                 guidance["next_action"] = "listen_to_voice_then_record_review"
                 guidance["required_inputs"] = ["reviewer", "voice_review_evidence"]
                 guidance["command_template"] = (
@@ -1138,11 +1333,35 @@ def workflow_next(output_root: str | Path) -> dict[str, Any]:
                 package / str(privacy_evidence.get("relative_path") or ""),
                 code="WORKFLOW_PRIVACY_MANIFEST_PATH_INVALID",
             )
-            sync_path = package / "sync_manifest.json"
-            if not sync_path.is_file():
+            if ledger is not None and _ledger_pointer_path(package, ledger, "privacy_manifest") != privacy_path:
+                guidance["next_action"] = "stale_current_artifacts"
+                guidance["stale_artifact_kind"] = "privacy_manifest"
+                guidance["required_inputs"] = ["rerun_photo_review_with_current_privacy_manifest"]
+                return guidance
+            sync_pointer = _ledger_pointer_path(package, ledger, "sync_manifest") if ledger is not None else None
+            sync_path = sync_pointer or package / "sync_manifest.json"
+            if (ledger is not None and sync_pointer is None) or not sync_path.is_file():
                 guidance["next_action"] = "run_one_shot_preflight"
                 guidance["next_command"] = (
                     f'python scripts/produce_review_v2.py preflight --package "{package}" '
+                    f'--planning "{planning_path}" --edit "{edit_path}" --privacy-manifest "{privacy_path}" '
+                    f'--sync-manifest "{sync_path}" --one-shot-html'
+                )
+                return guidance
+            if ledger_mode:
+                promoted_recipes = {
+                    "planning_recipe": planning_path,
+                    "edit_recipe": edit_path,
+                }
+                for kind, expected_path in promoted_recipes.items():
+                    if _ledger_pointer_path(package, ledger, kind) != expected_path:
+                        guidance["next_action"] = "stale_current_artifacts"
+                        guidance["stale_artifact_kind"] = kind
+                        guidance["required_inputs"] = ["rerun_preflight_with_current_recipes"]
+                        return guidance
+                guidance["next_action"] = "build_one_shot_html"
+                guidance["next_command"] = (
+                    f'python scripts/produce_review_v2.py html --package "{package}" '
                     f'--planning "{planning_path}" --edit "{edit_path}" --privacy-manifest "{privacy_path}" '
                     f'--sync-manifest "{sync_path}" --one-shot-html'
                 )
@@ -1760,6 +1979,15 @@ def _record_photo_review(
     if report_evidence != manifest_evidence:
         raise IntakeViolation("PRIVACY_REPORT_ASSET_MISMATCH")
 
+    # Fail at photo-review, not later at HTML preflight, when a sanitized
+    # output is undeclared or its pixels do not match the declared mask.
+    from video_engine_v2.production_gate import GateViolation, _validate_sanitized_asset_pixels
+
+    try:
+        _validate_sanitized_asset_pixels(package_dir, privacy)
+    except GateViolation as error:
+        raise IntakeViolation(str(error)) from error
+
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     if isinstance(previous_review, dict):
         previous_record = dict(previous_review)
@@ -1791,6 +2019,18 @@ def _record_photo_review(
         photo_review["supersedes_revision"] = revision - 1
         metadata["photo_review_history"] = history
     metadata["photo_review"] = photo_review
+    from video_engine_v2.current_artifacts import CurrentArtifactsViolation, record_current_artifacts
+
+    try:
+        record_current_artifacts(
+            package_dir,
+            producer="review_reel_intake.record_photo_review",
+            artifacts={"privacy_manifest": privacy_file},
+            revision_id=str(revision),
+            now=clock,
+        )
+    except CurrentArtifactsViolation as error:
+        raise IntakeViolation(str(error)) from error
     _atomic_write_json(package_dir / METADATA_FILENAME, metadata)
     _atomic_write_text(
         package_dir / "STATUS.md",

@@ -10,6 +10,7 @@ from unittest.mock import patch
 from video_engine_v2.render_job import (
     RenderJobError,
     create_job_record,
+    next_retry_output_path,
     read_job,
     refresh_progress,
     sha256_file,
@@ -62,6 +63,30 @@ class RenderJobRecordTest(unittest.TestCase):
         self.assertEqual(payload["bindings"]["output_path"], str(self.output.resolve()))
         self.assertEqual(payload["output_evidence"], None)
         self.assertEqual(payload["failure"], None)
+
+    def test_retry_output_uses_an_official_incrementing_attempt_name(self):
+        attempt_two = next_retry_output_path(self.output)
+        self.assertEqual(
+            attempt_two.name,
+            "118_demo_final_render_20260812_attempt02_upload_10mbps.mp4",
+        )
+        self.assertEqual(
+            next_retry_output_path(attempt_two).name,
+            "118_demo_final_render_20260812_attempt03_upload_10mbps.mp4",
+        )
+
+    def test_windows_chromium_entrypoints_share_the_software_render_fallback(self):
+        expected_flags = (
+            "--disable-gpu",
+            "--disable-gpu-compositing",
+            "--disable-features=UseSkiaRenderer,CanvasOopRasterization",
+        )
+        for relative_path in ("render_html_preview_v2.js", "scripts/html-preview-qa.mjs"):
+            source = (produce_review_v2.ROOT / relative_path).read_text(encoding="utf-8")
+            self.assertIn("process.platform", source)
+            self.assertIn("REVIEW_REEL_ALLOW_GPU", source)
+            for flag in expected_flags:
+                self.assertIn(flag, source)
 
     def test_public_cli_does_not_advertise_synchronous_render(self):
         script = produce_review_v2.ROOT / "scripts" / "produce_review_v2.py"
@@ -356,6 +381,32 @@ class RenderJobWorkerTest(unittest.TestCase):
         self.assertEqual(finished["output_evidence"]["bytes"], len(b"final mp4"))
         self.assertEqual(finished["output_evidence"]["sha256"], sha256_file(self.output))
         self.assertIn("renderer complete", Path(finished["log_path"]).read_text(encoding="utf-8"))
+
+    def test_ledger_enabled_worker_publishes_terminal_snapshot_and_upload_together(self):
+        from video_engine_v2.current_artifacts import SCHEMA_VERSION, initialize_ledger, read_ledger
+
+        (self.package / "CANONICAL_PACKAGE_METADATA.json").write_text(
+            json.dumps({"current_artifacts_contract": SCHEMA_VERSION}),
+            encoding="utf-8",
+        )
+
+        initialize_ledger(self.package)
+        job_path = self.create_job()
+        job = read_job(job_path)
+        script = (
+            "import pathlib, sys\n"
+            "out=pathlib.Path(sys.argv[1]); frames=pathlib.Path(sys.argv[2]); frames.mkdir()\n"
+            "[(frames / f'frame_{i:05d}.png').write_bytes(b'x') for i in range(1,4)]\n"
+            "out.write_bytes(b'final mp4')\n"
+        )
+        command = [sys.executable, "-c", script, str(self.output), job["frame_dir"]]
+
+        result = render_review_v2_job.run_job(job_path, command_builder=lambda _: command)
+
+        self.assertEqual(result, 0)
+        ledger = read_ledger(self.package)
+        self.assertTrue(ledger["pointers"]["render_job"]["relative_path"].endswith("render_job_succeeded.json"))
+        self.assertEqual(ledger["pointers"]["upload_mp4"]["relative_path"], self.output.name)
 
     def test_worker_failure_preserves_partial_frames_log_and_receipt(self):
         job_path = self.create_job()

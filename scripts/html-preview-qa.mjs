@@ -46,7 +46,15 @@ if (fs.existsSync(frameDir) || fs.existsSync(reportPath)) {
 }
 fs.mkdirSync(frameDir);
 
-const browser = await chromium.launch({ headless: true });
+const chromiumLaunchOptions = { headless: true };
+if (process.platform === "win32" && process.env.REVIEW_REEL_ALLOW_GPU !== "1") {
+  chromiumLaunchOptions.args = [
+    "--disable-gpu",
+    "--disable-gpu-compositing",
+    "--disable-features=UseSkiaRenderer,CanvasOopRasterization",
+  ];
+}
+const browser = await chromium.launch(chromiumLaunchOptions);
 const page = await browser.newPage({ viewport: { width: 1294, height: 960 }, deviceScaleFactor: 1 });
 const consoleErrors = [];
 page.on("pageerror", (error) => consoleErrors.push(String(error)));

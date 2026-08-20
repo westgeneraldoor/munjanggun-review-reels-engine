@@ -20,10 +20,14 @@ from video_engine_v2.manual_review import RENDER_REVIEW_CHECKS
 
 SCHEMA_VERSION = "1.0"
 UNKNOWN = "unknown"
+CANONICAL_METADATA_FILENAME = "CANONICAL_PACKAGE_METADATA.json"
 _PACKAGE_NAME = re.compile(r"^(?P<review_id>\d{1,5})(?:[_-]|$)")
 _BOOLEAN_LINE = re.compile(r"(?mi)^[ \t]*-?[ \t]*(?P<key>[a-z0-9_]+)[ \t]*:[ \t]*(?P<value>true|false)[ \t]*$")
 _APPROVAL_LINE = re.compile(r"(?mi)^[ \t]*-?[ \t]*(?P<key>approved_scope|not_approved)[ \t]*:[ \t]*(?P<value>.+?)[ \t]*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_SYNC_MANIFEST_NAME = re.compile(r"^(?:.+_)?sync_manifest(?:_[a-z0-9]+)*\.json$", re.IGNORECASE)
+_HISTORICAL_V31_PREVIEW = re.compile(r"(?:^|/)v3[._-]?1_preview\.html$|(?:^|/)v31_preview\.html$")
+_HISTORICAL_V3_PREVIEW = re.compile(r"(?:^|/)v3_preview\.html$")
 
 
 def _sha256(path: Path) -> str:
@@ -101,7 +105,7 @@ def _artifact_kind(path: Path) -> str | None:
         return "planning_recipe"
     if name.endswith("_edit_recipe.json") or name == "edit_recipe.json":
         return "edit_recipe"
-    if name == "sync_manifest.json":
+    if _SYNC_MANIFEST_NAME.fullmatch(name):
         return "sync_manifest"
     if name == "status.md":
         return "status"
@@ -129,6 +133,8 @@ def _artifact_kind(path: Path) -> str | None:
         return "voice"
     if name == "index.html" and any("html_preview" in part for part in parts):
         return "html_preview"
+    if name in {"v3_preview.html", "v31_preview.html", "v3.1_preview.html"}:
+        return "historical_preview"
     if name in {"privacy_asset_manifest.json", "privacy_manifest.json"}:
         return "privacy_manifest"
     return None
@@ -156,15 +162,21 @@ def _find_direct_file(package_dir: Path, name: str) -> Path | None:
     return path if path.is_file() else None
 
 
-def _infer_format(artifacts: list[dict[str, Any]]) -> tuple[str, str]:
-    paths = " ".join(artifact["relative_path"].lower() for artifact in artifacts)
-    if re.search(r"(?:v3[._-]?1|v31)", paths):
-        return "v3.1", "experimental"
-    if re.search(r"(?:^|[_./-])v3(?:[_./-]|$)", paths):
-        return "v3", "experimental"
-    if re.search(r"(?:^|[_./-])v2(?:[_./-]|$)", paths):
+def _infer_format(artifacts: list[dict[str, Any]], package_dir: Path) -> tuple[str, str]:
+    if (package_dir / CANONICAL_METADATA_FILENAME).is_file():
         return "v2", "production"
-    if re.search(r"(?:^|[_./-])v1(?:[_./-]|$)", paths):
+    paths = [artifact["relative_path"].replace("\\", "/").lower() for artifact in artifacts]
+    has_v2_production = any(
+        "html_preview_v2" in path or re.search(r"(?:^|[_./-])v2(?:[_./-]|$)", path)
+        for path in paths
+    )
+    if has_v2_production:
+        return "v2", "production"
+    if any(_HISTORICAL_V31_PREVIEW.search(path) for path in paths):
+        return "v3.1", "discontinued"
+    if any(_HISTORICAL_V3_PREVIEW.search(path) for path in paths):
+        return "v3", "discontinued"
+    if any(re.search(r"(?:^|[_./-])v1(?:[_./-]|$)", path) for path in paths):
         return "v1", "archived"
     return "legacy", "archived"
 
@@ -419,6 +431,214 @@ def _post_render_qa_evidence_state(
     return (True if bound_path is not None else UNKNOWN), historical_pass, bound_path, sorted(set(limitations))
 
 
+def _bound_sync_manifest_path(
+    artifacts: list[dict[str, Any]],
+    package_dir: Path,
+    *,
+    render_complete_mp4_relative_path: str | None,
+) -> Path | None:
+    if not render_complete_mp4_relative_path:
+        return None
+    upload_artifacts = {
+        artifact["relative_path"]: artifact for artifact in artifacts if artifact["kind"] == "upload_mp4"
+    }
+    sync_manifest_artifacts = {
+        artifact["relative_path"]: artifact for artifact in artifacts if artifact["kind"] == "sync_manifest"
+    }
+    for report in (artifact for artifact in artifacts if artifact["kind"] == "post_render_qa"):
+        payload = _read_json(package_dir / report["relative_path"])
+        if not payload or str(payload.get("auto_status", "")).lower() != "pass":
+            continue
+        candidate_path, limitation = _validate_hash_bound_post_render_report(
+            payload,
+            package_dir=package_dir,
+            upload_artifacts=upload_artifacts,
+            sync_manifest_artifacts=sync_manifest_artifacts,
+        )
+        if limitation or candidate_path != render_complete_mp4_relative_path:
+            continue
+        relative_path = payload.get("sync_manifest_relative_path")
+        if not isinstance(relative_path, str) or not relative_path.strip() or Path(relative_path).is_absolute():
+            continue
+        candidate = (package_dir / relative_path).resolve()
+        try:
+            candidate.relative_to(package_dir.resolve())
+        except ValueError:
+            continue
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def map_package_state(package_dir: Path, *, run_key: str | None = None) -> dict[str, Any]:
+    """Map a package using the ledger when enabled, otherwise the 1A evidence resolver."""
+    from video_engine_v2.current_artifacts import CurrentArtifactsViolation, package_uses_ledger, read_ledger
+
+    if not package_uses_ledger(package_dir):
+        return map_legacy_package(package_dir, run_key=run_key)
+    try:
+        ledger = read_ledger(package_dir)
+    except CurrentArtifactsViolation as error:
+        match = _PACKAGE_NAME.match(package_dir.name)
+        review_id = match.group("review_id").zfill(3) if match else "000"
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "state_source": "current_artifacts_ledger",
+            "review_id": review_id,
+            "run_id": f"ledger:{hashlib.sha256((run_key or package_dir.name).encode('utf-8')).hexdigest()[:16]}",
+            "format_version": "v2",
+            "format_status": "production",
+            "channel_targets": ["instagram", "naver_clip"],
+            "render_artifact_present": UNKNOWN,
+            "post_render_qa_pass_evidence_present": UNKNOWN,
+            "render_complete": UNKNOWN,
+            "render_complete_mp4_relative_path": UNKNOWN,
+            "render_evidence_limitations": [str(error)],
+            "qa_reviewed": UNKNOWN,
+            "final_delivery_complete": UNKNOWN,
+            "published": UNKNOWN,
+            "performance_observed": UNKNOWN,
+            "planning_approved": UNKNOWN,
+            "html_approved": UNKNOWN,
+            "mp4_render_approved": UNKNOWN,
+            "privacy_checked": UNKNOWN,
+            "sync_ok": UNKNOWN,
+            "final_voice_duration_sec": UNKNOWN,
+            "artifacts": [],
+            "legacy_evidence_sources": [],
+            "conflicts": [],
+            "unresolved_fields": [
+                "render_complete",
+                "qa_reviewed",
+                "final_delivery_complete",
+            ],
+            "state_confidence": "manual_required",
+        }
+    return _map_ledger_package(package_dir, ledger, run_key=run_key)
+
+
+def _map_ledger_package(package_dir: Path, ledger: dict[str, Any], *, run_key: str | None = None) -> dict[str, Any]:
+    match = _PACKAGE_NAME.match(package_dir.name)
+    if not match:
+        raise ValueError(f"Not a numeric review package: {package_dir}")
+    pointers = ledger["pointers"]
+    artifacts = [
+        {
+            "kind": kind,
+            "relative_path": pointer["relative_path"],
+            "bytes": pointer["bytes"],
+            "sha256": pointer["sha256"],
+        }
+        for kind, pointer in pointers.items()
+    ]
+    upload_artifacts = {}
+    sync_manifest_artifacts = {}
+    if "upload_mp4" in pointers:
+        upload_artifacts[pointers["upload_mp4"]["relative_path"]] = {
+            "kind": "upload_mp4",
+            **{key: pointers["upload_mp4"][key] for key in ("relative_path", "bytes", "sha256")},
+        }
+    if "sync_manifest" in pointers:
+        sync_manifest_artifacts[pointers["sync_manifest"]["relative_path"]] = {
+            "kind": "sync_manifest",
+            **{key: pointers["sync_manifest"][key] for key in ("relative_path", "bytes", "sha256")},
+        }
+    post_qa_pointer = pointers.get("post_render_qa")
+    render_complete: bool | str = UNKNOWN
+    historical_pass: bool | str = UNKNOWN
+    bound_mp4: str | None = None
+    limitations: list[str] = []
+    if post_qa_pointer:
+        payload = _read_json(package_dir / post_qa_pointer["relative_path"])
+        if str((payload or {}).get("auto_status", "")).lower() == "pass":
+            historical_pass = True
+        if payload:
+            candidate_path, limitation = _validate_hash_bound_post_render_report(
+                payload,
+                package_dir=package_dir,
+                upload_artifacts=upload_artifacts,
+                sync_manifest_artifacts=sync_manifest_artifacts,
+            )
+            if candidate_path is not None:
+                render_complete = True
+                bound_mp4 = candidate_path
+            elif limitation:
+                limitations.append(limitation)
+    qa_reviewed = _manual_qa_state(artifacts, package_dir, bound_mp4)
+    sync_ok: bool | str = UNKNOWN
+    duration: bool | str | float = UNKNOWN
+    if "sync_manifest" in pointers:
+        sync_manifest = _read_json(package_dir / pointers["sync_manifest"]["relative_path"])
+        if isinstance(sync_manifest, dict) and isinstance(sync_manifest.get("ok"), bool):
+            sync_ok = sync_manifest["ok"]
+        if isinstance(sync_manifest, dict):
+            audio = sync_manifest.get("audio") or {}
+            value = audio.get("final_voice_duration_sec", sync_manifest.get("final_voice_duration_sec"))
+            if isinstance(value, (int, float)) and value > 0:
+                duration = value
+    from video_engine_v2.production_gate import html_approval_is_current, mp4_approval_is_current
+
+    html_approved: bool | str = UNKNOWN
+    mp4_approved: bool | str = UNKNOWN
+    if "html" in pointers:
+        html_path = package_dir / pointers["html"]["relative_path"]
+        html_approval_pointer = pointers.get("html_approval")
+        html_approval_path = package_dir / "HTML_APPROVAL.json"
+        html_pointer_current = (
+            isinstance(html_approval_pointer, dict)
+            and (package_dir / html_approval_pointer["relative_path"]).resolve() == html_approval_path.resolve()
+        )
+        if html_pointer_current and html_approval_is_current(package_dir, html_path):
+            html_approved = True
+        mp4_approval_pointer = pointers.get("mp4_render_approval")
+        mp4_approval_path = package_dir / "MP4_RENDER_APPROVAL.json"
+        mp4_pointer_current = (
+            isinstance(mp4_approval_pointer, dict)
+            and (package_dir / mp4_approval_pointer["relative_path"]).resolve() == mp4_approval_path.resolve()
+        )
+        if html_approved is True and mp4_pointer_current and mp4_approval_is_current(package_dir, html_path):
+            mp4_approved = True
+    final_delivery = True if render_complete is True and qa_reviewed is True else UNKNOWN
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "state_source": "current_artifacts_ledger",
+        "review_id": match.group("review_id").zfill(3),
+        "run_id": f"ledger:{hashlib.sha256((run_key or package_dir.name).encode('utf-8')).hexdigest()[:16]}",
+        "format_version": "v2",
+        "format_status": "production",
+        "channel_targets": ["instagram", "naver_clip"],
+        "render_artifact_present": True if "upload_mp4" in pointers else UNKNOWN,
+        "post_render_qa_pass_evidence_present": historical_pass,
+        "render_complete": render_complete,
+        "render_complete_mp4_relative_path": bound_mp4 or UNKNOWN,
+        "render_evidence_limitations": limitations,
+        "qa_reviewed": qa_reviewed,
+        "final_delivery_complete": final_delivery,
+        "published": UNKNOWN,
+        "performance_observed": UNKNOWN,
+        "planning_approved": UNKNOWN,
+        "html_approved": html_approved,
+        "mp4_render_approved": mp4_approved,
+        "privacy_checked": True if "privacy_manifest" in pointers else UNKNOWN,
+        "sync_ok": sync_ok,
+        "final_voice_duration_sec": duration,
+        "artifacts": artifacts,
+        "legacy_evidence_sources": [],
+        "conflicts": [],
+        "unresolved_fields": [
+            field
+            for field in (
+                "render_complete",
+                "qa_reviewed",
+                "final_delivery_complete",
+            )
+            if (render_complete if field == "render_complete" else qa_reviewed if field == "qa_reviewed" else final_delivery)
+            == UNKNOWN
+        ],
+        "state_confidence": "ledger_evidence_backed" if final_delivery is True else "ledger_partial",
+    }
+
+
 def map_legacy_package(package_dir: Path, *, run_key: str | None = None) -> dict[str, Any]:
     """Map one existing package without modifying files inside it."""
     match = _PACKAGE_NAME.match(package_dir.name)
@@ -429,7 +649,6 @@ def map_legacy_package(package_dir: Path, *, run_key: str | None = None) -> dict
     artifact_kinds = {artifact["kind"] for artifact in artifacts}
     status_path = _find_direct_file(package_dir, "STATUS.md")
     approval_path = _find_direct_file(package_dir, "APPROVAL_LOG.md")
-    sync_path = _find_direct_file(package_dir, "sync_manifest.json")
     status_fields = _parse_boolean_fields(status_path) if status_path else {}
     approval_fields = _parse_approval_fields(approval_path) if approval_path else {"approved_scope": [], "not_approved": []}
     conflicts: list[dict[str, Any]] = []
@@ -449,6 +668,15 @@ def map_legacy_package(package_dir: Path, *, run_key: str | None = None) -> dict
         conflicts=conflicts,
     )
 
+    format_version, format_status = _infer_format(artifacts, package_dir)
+    render_complete, post_render_qa_pass_evidence_present, render_complete_mp4_relative_path, render_evidence_limitations = (
+        _post_render_qa_evidence_state(artifacts, package_dir)
+    )
+    sync_path = _bound_sync_manifest_path(
+        artifacts,
+        package_dir,
+        render_complete_mp4_relative_path=render_complete_mp4_relative_path,
+    ) or _find_direct_file(package_dir, "sync_manifest.json")
     sync_manifest = _read_json(sync_path) if sync_path else None
     sync_ok: bool | str = sync_manifest.get("ok") if isinstance(sync_manifest, dict) and isinstance(sync_manifest.get("ok"), bool) else UNKNOWN
     final_voice_duration = UNKNOWN
@@ -457,11 +685,6 @@ def map_legacy_package(package_dir: Path, *, run_key: str | None = None) -> dict
         duration = audio.get("final_voice_duration_sec", sync_manifest.get("final_voice_duration_sec"))
         if isinstance(duration, (int, float)) and duration > 0:
             final_voice_duration = duration
-
-    format_version, format_status = _infer_format(artifacts)
-    render_complete, post_render_qa_pass_evidence_present, render_complete_mp4_relative_path, render_evidence_limitations = (
-        _post_render_qa_evidence_state(artifacts, package_dir)
-    )
     qa_reviewed = _manual_qa_state(artifacts, package_dir, render_complete_mp4_relative_path)
     final_delivery_complete = True if render_complete is True and qa_reviewed is True else UNKNOWN
     state: dict[str, Any] = {
@@ -526,7 +749,7 @@ def scan_legacy_output(output_root: str | Path) -> dict[str, Any]:
     if not root.is_dir():
         raise ValueError(f"Output root does not exist: {root}")
     packages = [
-        map_legacy_package(path, run_key=_relative_path(root, path))
+        map_package_state(path, run_key=_relative_path(root, path))
         for path in _package_dirs_at_output_boundary(root)
     ]
     def count(field: str, value: bool | str) -> int:

@@ -147,13 +147,10 @@ def build_recipe_scaffold(
     quote = _first_review_quote(review_text)
     asset_roles, asset_evidence = _select_evidence_assets(selected_assets)
 
-    hook_parts = ("완성 결과를 보여줍니다.", "이전 문제를 확인합니다.", "완성 결과로 돌아옵니다.")
+    hook_text = "TODO_FROM_REVIEW: 중문 설치 뒤 왜 달라졌을까요?"
     hook_ranges = ((0.0, 1.3), (1.3, 2.6), (2.6, 4.0))
     hook_assets = ("installed_result", "before_state", "installed_result")
-    hook_chunks = [
-        {"text": text, "start_sec": start, "end_sec": end}
-        for text, (start, end) in zip(hook_parts, hook_ranges)
-    ]
+    hook_chunks = [{"text": hook_text, "start_sec": 0.0, "end_sec": 4.0}]
     hook_shots = [
         {
             "asset_id": asset,
@@ -162,9 +159,9 @@ def build_recipe_scaffold(
             "motion": "calm_push_in",
             "motion_reason": "Keep the result-before-result comparison calm and readable.",
             "transition_in": "cut" if index == 0 else "calm_dissolve",
-            "meaning_match_source": f"asset_evidence:{asset}; narration_fragment:{text}",
+            "meaning_match_source": f"asset_evidence:{asset}; narration_fragment:{hook_text}",
         }
-        for index, (asset, text, (start, end)) in enumerate(zip(hook_assets, hook_parts, hook_ranges))
+        for index, (asset, (start, end)) in enumerate(zip(hook_assets, hook_ranges))
     ]
 
     planning = {
@@ -198,13 +195,13 @@ def build_recipe_scaffold(
             "inferred_fields": [],
             "unsupported_story_elements": [],
         },
-        "hooks": [{"text": "어떤 변화가 생겼을까요?"}],
-        "selected_hook": {"text": "어떤 변화가 생겼을까요?"},
+        "hooks": [{"text": hook_text}],
+        "selected_hook": {"text": hook_text},
         "writer_brief": {
             "story_mode": "problem_solution",
             "one_line_story": "TODO_FROM_REVIEW",
-            "hook_candidates": [{"text": "어떤 변화가 생겼을까요?"}],
-            "recommended_hook": "어떤 변화가 생겼을까요?",
+            "hook_candidates": [{"text": hook_text}],
+            "recommended_hook": hook_text,
             "review_quote_for_proof": quote,
         },
         "photo_qa": {
@@ -216,7 +213,7 @@ def build_recipe_scaffold(
         "review_proof": {"source_capture_kind": "actual_review_capture"},
         "audio_sync": {"mode": "voice_aligned", "sync_checks": {"screen_ahead_of_voice": False}},
         "scenes": [
-            _scene("s01", "event", "installed_result", "customer_photo", " ".join(hook_parts)),
+            _scene("s01", "event", "installed_result", "customer_photo", hook_text),
             _scene("s02", "problem", "before_state", "customer_photo", "고객이 겪은 현관 문제를 리뷰 원문에서 정확히 작성합니다."),
             _scene("s03", "resolution", "installed_result", "customer_photo", "문제 해결 과정과 선택 이유를 리뷰 근거로 정확히 작성합니다."),
             _scene("s04", "felt_result", "installed_result", "customer_photo", "설치 뒤 고객이 실제로 느낀 변화를 리뷰 문장으로 작성합니다."),
@@ -225,7 +222,6 @@ def build_recipe_scaffold(
         ],
     }
 
-    hook_text = " ".join(hook_parts)
     hook_beat = {
         "id": "b01",
         "narrative_role": "event",
@@ -250,9 +246,9 @@ def build_recipe_scaffold(
             "align": "center",
             "theme": "white",
         },
-        "caption_focus_keywords": ["완성"],
-        "caption_emphasis": ["완성"],
-        "caption_accent": {"enabled": True, "style": "event", "start_sec": 0.0},
+        "caption_focus_keywords": ["중문"],
+        "caption_emphasis": ["중문"],
+        "caption_accent": {"enabled": True, "style": "event", "start_sec": 2.2},
         "narration_ref": hook_text,
         "meaning_match": True,
         "meaning_match_source": "planning_scene:s01",

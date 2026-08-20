@@ -61,6 +61,12 @@ cleanup 대상이 아닙니다.
 지원하지 않습니다. 같은 출력명의 부분 frame이 남아 있으면
 `RETRY_REQUIRES_NEW_OUTPUT`으로 시작 단계에서 차단합니다.
 
+실패한 첫 작업의 공식 재시도 이름은
+`*_final_render_YYYYMMDD_attempt02_upload_10mbps.mp4`이며 이후 `attempt03`처럼 증가합니다.
+`render-status`는 failed 상태에서 다음 `retry_output_path`를 반환합니다. Windows에서는
+Chromium의 `StagingBuffer`/GPU 불안정을 피하기 위해 기본적으로 software-render 인자를
+사용하며, 검증된 환경에서만 `REVIEW_REEL_ALLOW_GPU=1`로 GPU를 명시 허용합니다.
+
 `render-status`가 `succeeded`이고 현재 MP4의 bytes/SHA-256을 기록한 뒤에만
 공식 `post-render-qa`로 넘어갑니다. 기존 동기식 `render` 명령은 비활성화되어 있으며
 `DIRECT_RENDER_DISABLED_USE_RENDER_START`로 중단합니다.

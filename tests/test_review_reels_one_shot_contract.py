@@ -87,6 +87,24 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
 
         self.assertTrue(result["ok"], result["issues"])
 
+    def test_hook_allows_one_complete_caption_sentence_across_three_photo_shots(self):
+        fixture = load_fixture()
+        first = fixture["edit"]["beats"][0]
+        first["caption_chunks"] = [
+            {
+                "text": first["narration_ref"],
+                "start_sec": first["time"][0],
+                "end_sec": first["time"][1],
+            }
+        ]
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertNotIn(
+            "HOOK_SHOT_CAPTION_ALIGNMENT_INVALID",
+            {issue["code"] for issue in result["issues"]},
+        )
+
     def test_contract_rejects_camera_direction_changes_inside_one_beat(self):
         fixture = load_fixture()
         fixture["edit"]["beats"][0]["shots"][0]["motion"] = "calm_push_in"
@@ -278,7 +296,7 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
         self.assertIn("HOOK_SHOT_TOO_SHORT", codes)
         self.assertIn("HOOK_TRANSITION_SEQUENCE_INVALID", codes)
 
-    def test_contract_rejects_hook_visual_changes_that_cross_caption_claim_boundaries(self):
+    def test_contract_does_not_require_photo_changes_to_match_caption_boundaries(self):
         fixture = load_fixture()
         fixture["edit"]["beats"][0]["caption_chunks"] = [
             {
@@ -290,7 +308,9 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
 
         result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
 
-        self.assertIn("HOOK_SHOT_CAPTION_ALIGNMENT_INVALID", {issue["code"] for issue in result["issues"]})
+        codes = {issue["code"] for issue in result["issues"]}
+        self.assertNotIn("HOOK_SHOT_CAPTION_ALIGNMENT_INVALID", codes)
+        self.assertIn("CAPTION_CHUNK_SENTENCE_BOUNDARY_INVALID", codes)
 
     def test_contract_reports_malformed_hook_claim_times_without_crashing(self):
         fixture = load_fixture()
@@ -298,7 +318,7 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
 
         result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
 
-        self.assertIn("HOOK_SHOT_CAPTION_ALIGNMENT_INVALID", {issue["code"] for issue in result["issues"]})
+        self.assertIn("CAPTION_CHUNK_TIME_INVALID", {issue["code"] for issue in result["issues"]})
 
     def test_contract_requires_each_hook_shot_to_bind_meaning_evidence_to_its_asset(self):
         for source in (None, "asset_evidence:after_main; narration_fragment:Before blocked."):

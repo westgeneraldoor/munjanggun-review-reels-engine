@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from video_engine_v2.current_artifacts import CurrentArtifactsViolation  # noqa: E402
 from video_engine_v2.review_reel_intake import (  # noqa: E402
     IntakeViolation,
     active_package_status,
@@ -19,6 +20,7 @@ from video_engine_v2.review_reel_intake import (  # noqa: E402
     create_canonical_package_from_material_bank,
     inspect_material_bank_candidate,
     record_photo_review,
+    resolve_active_package,
     route_user_command,
     run_one_shot_html,
     workflow_next,
@@ -39,6 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     route = commands.add_parser("route", help="Classify a short user request without creating files")
     route.add_argument("--user-command", required=True)
+    route.add_argument("--output-root", help="Optional output root used only to detect an active review-reel package")
     explain = commands.add_parser("explain-error", help="Explain one known gate code and its safe repair")
     explain.add_argument("--code", required=True)
     status = commands.add_parser("status", help="Show the active canonical identity and next safe action")
@@ -97,7 +100,22 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "route":
-            print(json.dumps(route_user_command(args.user_command), ensure_ascii=False))
+            active_review_reel_package = False
+            if args.output_root:
+                try:
+                    resolve_active_package(args.output_root)
+                    active_review_reel_package = True
+                except IntakeViolation:
+                    active_review_reel_package = False
+            print(
+                json.dumps(
+                    route_user_command(
+                        args.user_command,
+                        active_review_reel_package=active_review_reel_package,
+                    ),
+                    ensure_ascii=False,
+                )
+            )
             return 0
         if args.command == "explain-error":
             print(json.dumps(explain_error(args.code), ensure_ascii=False))
@@ -190,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
             edit_path=args.edit,
             privacy_manifest_path=args.privacy_manifest,
         )
-    except IntakeViolation as error:
+    except (IntakeViolation, CurrentArtifactsViolation) as error:
         print(f"INTAKE_BLOCKED: {error}", file=sys.stderr)
         return 2
 

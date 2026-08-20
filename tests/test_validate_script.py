@@ -147,7 +147,7 @@ class ValidateScriptTest(unittest.TestCase):
 
         self.assertTrue(any("[HOOK]" in issue and "내레이션" in issue for issue in issues))
 
-    def test_rejects_product_terms_in_hook_title_and_caption(self):
+    def test_rejects_brand_term_in_hook_title_and_caption(self):
         script = VALID_SCRIPT.replace(
             "# 택배 가지러 나갔다가 고양이를 잃어버릴 뻔한 집사님",
             "# 문장군 중문 설치 후기",
@@ -159,7 +159,25 @@ class ValidateScriptTest(unittest.TestCase):
 
         issues = validate_script(script)
 
-        self.assertTrue(any("HOOK" in issue and "상품명" in issue for issue in issues))
+        self.assertTrue(any("HOOK" in issue and "브랜드명" in issue for issue in issues))
+
+    def test_allows_review_event_hook_that_names_the_product(self):
+        script = VALID_SCRIPT.replace(
+            "# 택배 가지러 나갔다가 고양이를 잃어버릴 뻔한 집사님",
+            "# 중문 설치 한 달 뒤, 집 분위기가 달라졌습니다",
+        ).replace(
+            "택배 가지러 나갔다가 고양이를 잃어버릴 뻔한 집사님",
+            "중문 설치 한 달 뒤, 집 분위기가 달라졌습니다",
+            1,
+        ).replace(
+            "택배 가지러 나갔다가 고양이를 잃어버릴 뻔한 집사님이 계세요.",
+            "중문 설치 한 달 뒤, 집 분위기가 달라졌습니다.",
+            1,
+        )
+
+        issues = validate_script(script)
+
+        self.assertFalse(any("HOOK" in issue and "금지어" in issue for issue in issues), issues)
 
     def test_allows_product_term_in_hook_when_it_is_part_of_choice_conflict(self):
         script = VALID_SCRIPT.replace(
@@ -179,6 +197,34 @@ class ValidateScriptTest(unittest.TestCase):
 
         self.assertFalse(any("HOOK" in issue and "상품명" in issue for issue in issues), issues)
 
+    def test_rejects_product_type_explainer_hook(self):
+        script = self._replace_hook("중문 종류 3가지 비교해드립니다")
+
+        issues = validate_script(script)
+
+        self.assertTrue(any("제품 설명형" in issue for issue in issues), issues)
+
+    def test_rejects_product_price_explainer_hook(self):
+        script = self._replace_hook("중문 가격 얼마인지 알려드립니다")
+
+        issues = validate_script(script)
+
+        self.assertTrue(any("제품 설명형" in issue for issue in issues), issues)
+
+    def test_rejects_product_benefit_explainer_hook(self):
+        script = self._replace_hook("중문 장점 세 가지를 정리해드립니다")
+
+        issues = validate_script(script)
+
+        self.assertTrue(any("제품 설명형" in issue for issue in issues), issues)
+
+    def test_allows_price_to_be_part_of_a_customer_event_hook(self):
+        script = self._replace_hook("중문 가격이 걱정됐던 집, 설치 뒤 생각이 달라졌습니다")
+
+        issues = validate_script(script)
+
+        self.assertFalse(any("제품 설명형" in issue for issue in issues), issues)
+
     def test_rejects_hook_empathy_question_ad_pattern(self):
         script = VALID_SCRIPT.replace(
             "택배 가지러 나갔다가 고양이를 잃어버릴 뻔한 집사님이 계세요.",
@@ -189,6 +235,21 @@ class ValidateScriptTest(unittest.TestCase):
         issues = validate_script(script)
 
         self.assertTrue(any("공감 질문형" in issue for issue in issues))
+
+    @staticmethod
+    def _replace_hook(hook: str) -> str:
+        return VALID_SCRIPT.replace(
+            "# 택배 가지러 나갔다가 고양이를 잃어버릴 뻔한 집사님",
+            f"# {hook}",
+        ).replace(
+            "택배 가지러 나갔다가 고양이를 잃어버릴 뻔한 집사님",
+            hook,
+            1,
+        ).replace(
+            "택배 가지러 나갔다가 고양이를 잃어버릴 뻔한 집사님이 계세요.",
+            hook,
+            1,
+        )
 
     def test_warns_hook_empathy_ad_phrase(self):
         script = VALID_SCRIPT.replace(
