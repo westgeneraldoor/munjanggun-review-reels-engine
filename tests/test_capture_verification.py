@@ -258,7 +258,7 @@ class GateAdapterTest(unittest.TestCase):
 
         with self.assertRaises(self.gate.GateViolation) as blocked:
             self.gate._validate_sanitized_asset_pixels(
-                self.package, {}, {"sanitization_report": "_work/report.json"}
+                self.package, {"sanitization_report": "_work/report.json"}
             )
 
         self.assertIn("SANITIZED_ASSET_NOT_DECLARED", str(blocked.exception))
@@ -270,7 +270,7 @@ class GateAdapterTest(unittest.TestCase):
         )
 
         self.gate._validate_sanitized_asset_pixels(
-            self.package, {}, {"sanitization_report": "_work/report.json"}
+            self.package, {"sanitization_report": "_work/report.json"}
         )
 
 if __name__ == "__main__":

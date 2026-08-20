@@ -26,8 +26,12 @@ class PackageStateTests(unittest.TestCase):
             path.write_text(content, encoding="utf-8")
         return path
 
-    def write_hash_bound_post_render_report(self, mp4: Path, **overrides):
-        sync_manifest = self.write("sync_manifest.json", json.dumps({"ok": True, "fixture": "bound"}))
+    def write_hash_bound_post_render_report(self, mp4: Path, *, sync_relative_path="sync_manifest.json", sync_payload=None, **overrides):
+        if sync_payload is None:
+            sync_payload = {"ok": True, "fixture": "bound"}
+        sync_manifest = self.package / sync_relative_path
+        if not sync_manifest.is_file():
+            sync_manifest = self.write(sync_relative_path, json.dumps(sync_payload))
         report = {
             "schema_version": "1.2",
             "generated_at": "2030-01-02T03:04:05Z",
@@ -355,12 +359,80 @@ class PackageStateTests(unittest.TestCase):
 
         state = scan_legacy_output(self.output_root)["packages"][0]
 
-        self.assertEqual(state["format_version"], "v3")
-        self.assertEqual(state["format_status"], "experimental")
+        self.assertEqual(state["format_version"], "legacy")
+        self.assertEqual(state["format_status"], "archived")
         self.assertIs(state["html_approved"], True)
         self.assertIs(state["mp4_render_approved"], False)
         conflict = next(item for item in state["conflicts"] if item["field"] == "mp4_render_approved")
         self.assertEqual(conflict["selected_evidence"], "APPROVAL_LOG.md")
+
+    def test_retry_filename_v3_does_not_reclassify_a_v2_package(self):
+        self.write("001_demo_v2_planning_recipe.json", "{}")
+        self.write("001_demo_v3_edit_recipe.json", "{}")
+        self.write("001_demo_v3_html_preview_v2/index.html", "<!doctype html>")
+        self.write("CANONICAL_PACKAGE_METADATA.json", json.dumps({"content_id": "001"}))
+
+        state = scan_legacy_output(self.output_root)["packages"][0]
+
+        self.assertEqual(state["format_version"], "v2")
+        self.assertEqual(state["format_status"], "production")
+
+    def test_historical_v3_preview_is_discontinued_not_experimental(self):
+        self.write(".source", "reviews/inbox/review_001.txt")
+        self.write("v3_preview.html", "<!doctype html>")
+
+        state = scan_legacy_output(self.output_root)["packages"][0]
+
+        self.assertEqual(state["format_version"], "v3")
+        self.assertEqual(state["format_status"], "discontinued")
+
+    def test_historical_v31_preview_is_discontinued_not_experimental(self):
+        self.write(".source", "reviews/inbox/review_001.txt")
+        self.write("v31_preview.html", "<!doctype html>")
+
+        state = scan_legacy_output(self.output_root)["packages"][0]
+
+        self.assertEqual(state["format_version"], "v3.1")
+        self.assertEqual(state["format_status"], "discontinued")
+
+    def test_anonymous_120_style_versioned_sync_is_current_when_hash_bound(self):
+        self.write("CANONICAL_PACKAGE_METADATA.json", json.dumps({"content_id": "001"}))
+        self.write("001_demo_v3_edit_recipe.json", "{}")
+        self.write("sync_manifest.json", json.dumps({"ok": True, "fixture": "unbound-generic"}))
+        self.write("sync_manifest_v7.json", json.dumps({"ok": True, "fixture": "unbound-higher"}))
+        mp4 = self.write("001_demo_v6_final_render_20300102_upload_10mbps.mp4", b"dummy-mp4")
+        report_path = self.write_hash_bound_post_render_report(
+            mp4,
+            sync_relative_path="sync_manifest_v6.json",
+            sync_payload={"ok": True, "audio": {"final_voice_duration_sec": 20.5}, "fixture": "bound-v6"},
+        )
+        self.write_render_manual_review(mp4, report_path)
+
+        state = scan_legacy_output(self.output_root)["packages"][0]
+
+        self.assertEqual(state["format_version"], "v2")
+        self.assertEqual(state["format_status"], "production")
+        self.assertIs(state["render_complete"], True)
+        self.assertIs(state["qa_reviewed"], True)
+        self.assertIs(state["final_delivery_complete"], True)
+        self.assertIs(state["sync_ok"], True)
+        self.assertEqual(state["final_voice_duration_sec"], 20.5)
+        self.assertEqual(state["render_complete_mp4_relative_path"], mp4.name)
+
+    def test_anonymous_120_style_versioned_sync_mismatch_stays_unknown(self):
+        mp4 = self.write("001_demo_v6_final_render_20300102_upload_10mbps.mp4", b"dummy-mp4")
+        self.write_hash_bound_post_render_report(
+            mp4,
+            sync_relative_path="sync_manifest_v6.json",
+            sync_payload={"ok": True, "fixture": "bound-v6"},
+        )
+        self.write("sync_manifest_v6.json", json.dumps({"ok": True, "fixture": "tampered"}))
+
+        state = scan_legacy_output(self.output_root)["packages"][0]
+
+        self.assertEqual(state["render_complete"], UNKNOWN)
+        self.assertEqual(state["final_delivery_complete"], UNKNOWN)
+        self.assertIn("post_render_qa_sync_manifest_hash_mismatch", state["render_evidence_limitations"])
 
     def test_run_ids_remain_distinct_when_legacy_package_names_repeat(self):
         self.write(".source", "reviews/inbox/review_001.txt")

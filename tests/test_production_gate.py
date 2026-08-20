@@ -67,6 +67,32 @@ class ProductionGateTests(unittest.TestCase):
         self.assertEqual(Path(self.font_tempdir.name).parent, ROOT)
         self.assertNotEqual(self.tempdir.name, self.font_tempdir.name)
 
+    def test_ledger_enabled_preflight_records_actual_sync_planning_and_edit_outputs(self):
+        from video_engine_v2.current_artifacts import (
+            SCHEMA_VERSION,
+            initialize_ledger,
+            read_ledger,
+            record_current_artifacts,
+        )
+
+        (self.package / "CANONICAL_PACKAGE_METADATA.json").write_text(
+            json.dumps({"current_artifacts_contract": SCHEMA_VERSION}),
+            encoding="utf-8",
+        )
+        initialize_ledger(self.package)
+        record_current_artifacts(
+            self.package,
+            producer="tests.photo_review",
+            artifacts={"privacy_manifest": self.privacy},
+        )
+
+        self.create_valid_sync()
+
+        pointers = read_ledger(self.package)["pointers"]
+        self.assertEqual(pointers["sync_manifest"]["relative_path"], self.sync.name)
+        self.assertEqual(pointers["planning_recipe"]["relative_path"], self.planning.name)
+        self.assertEqual(pointers["edit_recipe"]["relative_path"], self.edit.name)
+
     def write_valid_package(self):
         assets = self.package / "assets"
         assets.mkdir()
@@ -294,6 +320,31 @@ class ProductionGateTests(unittest.TestCase):
         planning["review_source"]["canonical_text_sha256"] = hashlib.sha256(review_text.encode("utf-8")).hexdigest()
         self.planning.write_text(json.dumps(planning), encoding="utf-8")
         self.edit.write_text(json.dumps(edit), encoding="utf-8")
+        timeline = [
+            {
+                "beat_id": str(beat.get("id") or ""),
+                "chunk_index": index,
+                "start_sec": chunk["start_sec"],
+                "end_sec": chunk["end_sec"],
+                "text": str(chunk.get("text") or "").strip(),
+                "display_text": str(chunk.get("display_text") or chunk.get("text") or "").strip(),
+            }
+            for beat in edit["beats"]
+            for index, chunk in enumerate(beat["caption_chunks"], start=1)
+        ]
+        from video_engine_v2.one_shot_tts import _srt_from_timeline
+
+        (self.package / edit["source"]["srt"]).write_text(_srt_from_timeline(timeline), encoding="utf-8")
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        report.update(
+            {
+                "caption_timeline_schema": "review-reel-voice-caption-timeline-v1",
+                "caption_timeline": timeline,
+                "edit_recipe_relative_path": self.edit.relative_to(self.package).as_posix(),
+                "edit_recipe_sha256": hashlib.sha256(self.edit.read_bytes()).hexdigest(),
+            }
+        )
+        report_path.write_text(json.dumps(report), encoding="utf-8")
         record_voice_review(
             package_dir=self.package,
             voice_path=self.package / "voice.mp3",
@@ -612,6 +663,36 @@ class ProductionGateTests(unittest.TestCase):
 
         self.assertIn("VOICE_MANUAL_REVIEW_MISSING", str(raised.exception))
         self.assertFalse(self.sync.exists())
+
+    def test_ledger_voice_review_ignores_newer_unpointed_orphan_receipt(self):
+        from video_engine_v2.current_artifacts import (
+            SCHEMA_VERSION,
+            initialize_ledger,
+            record_current_artifacts,
+        )
+        from video_engine_v2.production_gate import find_current_voice_manual_review
+
+        self.write_one_shot_html_package()
+        metadata_path = self.package / "CANONICAL_PACKAGE_METADATA.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["current_artifacts_contract"] = SCHEMA_VERSION
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        initialize_ledger(self.package)
+        edit = json.loads(self.edit.read_text(encoding="utf-8"))
+        receipt_dir = self.package / "_work" / "manual_reviews"
+        pointed_receipt = next(receipt_dir.glob("voice_review_*.json"))
+        record_current_artifacts(
+            self.package,
+            producer="tests.voice_review",
+            artifacts={"voice_manual_review": pointed_receipt},
+        )
+        orphan = receipt_dir / "voice_review_99999999T999999999999Z-orphan.json"
+        orphan.write_bytes(pointed_receipt.read_bytes())
+
+        self.assertEqual(
+            find_current_voice_manual_review(self.package, edit),
+            pointed_receipt,
+        )
 
     def test_one_shot_preflight_rejects_stale_tts_text_hash_without_writing_sync_manifest(self):
         self.write_one_shot_html_package()
@@ -976,6 +1057,21 @@ class ProductionGateTests(unittest.TestCase):
 
         self.assertEqual(receipt["html_sha256"], hashlib.sha256(self.html.read_bytes()).hexdigest())
         self.assertEqual(receipt["html_approval_path"], str(approval_path.resolve()))
+
+    def test_render_gate_accepts_official_retry_attempt_filename(self):
+        self.write_bound_html_approval()
+        retry_output = self.package / "001_demo_final_render_20300102_attempt02_upload_10mbps.mp4"
+
+        receipt = validate_render_gate(
+            package_dir=self.package,
+            html_path=self.html,
+            output_path=retry_output,
+            sync_manifest_path=self.sync,
+            privacy_manifest_path=self.privacy,
+            preset=FINAL_RENDER_PRESET,
+        )
+
+        self.assertEqual(receipt["output_path"], str(retry_output.resolve()))
 
     def test_render_gate_rejects_missing_hash_bound_html_manual_review(self):
         self.write_bound_html_approval()

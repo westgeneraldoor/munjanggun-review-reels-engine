@@ -28,6 +28,8 @@ from video_engine_v2.render_job import (  # noqa: E402
     RenderJobError,
     create_job_record,
     job_record_path,
+    next_retry_output_path,
+    publish_job_snapshot,
     read_job,
     refresh_progress,
     sha256_file,
@@ -45,6 +47,7 @@ from video_engine_v2.approval_evidence import (  # noqa: E402
     record_html_approval,
     record_render_approval,
 )
+from video_engine_v2.current_artifacts import CurrentArtifactsViolation  # noqa: E402
 
 
 def configure_utf8_output() -> None:
@@ -359,7 +362,21 @@ def main(argv: list[str] | None = None) -> int:
                 "--edit",
                 str(Path(args.edit).resolve()),
             ]
-            return subprocess.run(qa_command, cwd=ROOT).returncode
+            qa_result = subprocess.run(qa_command, cwd=ROOT)
+            if qa_result.returncode != 0:
+                return qa_result.returncode
+            from video_engine_v2.current_artifacts import record_current_artifacts
+
+            record_current_artifacts(
+                args.package,
+                producer="produce_review_v2.html",
+                artifacts={
+                    "html": html_path,
+                    "html_artifact_evidence": html_path.parent / "html_artifact_evidence.json",
+                    "html_qa_report": html_path.parent / "html_internal_qa_report.json",
+                },
+            )
+            return 0
         if args.command == "render-status":
             package = Path(args.package).resolve()
             job_path = job_record_path(package, args.job_id)
@@ -374,6 +391,7 @@ def main(argv: list[str] | None = None) -> int:
                     failure={"code": "WORKER_DID_NOT_START", "message": "worker did not record startup within 10 seconds"},
                     exit_code=2,
                 )
+                publish_job_snapshot(job_path, producer="produce_review_v2.render_status_stale")
             elif job["state"] == "running" and isinstance(job.get("worker_pid"), int) and not process_is_running(job["worker_pid"]):
                 progress = refresh_progress(job_path)
                 update_job(
@@ -384,7 +402,11 @@ def main(argv: list[str] | None = None) -> int:
                     failure={"code": "WORKER_EXITED_WITHOUT_STATUS", "message": "worker process ended before recording a terminal state"},
                     exit_code=2,
                 )
-            print(json.dumps(refresh_progress(job_path), ensure_ascii=False, indent=2))
+                publish_job_snapshot(job_path, producer="produce_review_v2.render_status_worker_exit")
+            status = refresh_progress(job_path)
+            if status.get("state") == "failed":
+                status["retry_output_path"] = str(next_retry_output_path(status["bindings"]["output_path"]))
+            print(json.dumps(status, ensure_ascii=False, indent=2))
             return 0
         if args.command == "post-render-qa":
             package = Path(args.package).resolve()
@@ -430,6 +452,14 @@ def main(argv: list[str] | None = None) -> int:
             report_path = report_dir / "render_post_qa_report.json"
             if not report_path.is_file():
                 raise RenderJobError("POST_RENDER_QA_REPORT_MISSING")
+            from video_engine_v2.current_artifacts import record_current_artifacts
+
+            record_current_artifacts(
+                package,
+                producer="produce_review_v2.post_render_qa",
+                artifacts={"post_render_qa": report_path},
+                attempt_id=args.job_id,
+            )
             print(
                 json.dumps(
                     {
@@ -495,7 +525,13 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         raise RenderJobError("DIRECT_RENDER_DISABLED_USE_RENDER_START")
-    except (GateViolation, RenderJobError, ManualReviewViolation, ApprovalEvidenceViolation) as error:
+    except (
+        GateViolation,
+        RenderJobError,
+        ManualReviewViolation,
+        ApprovalEvidenceViolation,
+        CurrentArtifactsViolation,
+    ) as error:
         print(f"GATE_BLOCKED: {error}", file=sys.stderr)
         return 2
 

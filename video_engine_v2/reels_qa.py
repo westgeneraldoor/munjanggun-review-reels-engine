@@ -979,35 +979,8 @@ def _validate_result_first_hook_contract(edit_recipe: dict[str, Any]) -> list[di
             )
         )
 
-    caption_chunks = first_beat.get("caption_chunks") or []
     opening_shots = shots[:3] if isinstance(shots, list) else []
     if len(opening_shots) == 3:
-        aligned = len(caption_chunks) == 3
-        if aligned:
-            for shot, chunk in zip(opening_shots, caption_chunks):
-                if not isinstance(shot, dict) or not isinstance(chunk, dict):
-                    aligned = False
-                    break
-                try:
-                    shot_start = float(shot["start_sec"])
-                    shot_end = float(shot["end_sec"])
-                    chunk_start = float(chunk["start_sec"])
-                    chunk_end = float(chunk["end_sec"])
-                except (KeyError, TypeError, ValueError):
-                    aligned = False
-                    break
-                if abs(shot_start - chunk_start) > 0.001 or abs(shot_end - chunk_end) > 0.001:
-                    aligned = False
-                    break
-        if not aligned:
-            issues.append(
-                _issue(
-                    "HOOK_SHOT_CAPTION_ALIGNMENT_INVALID",
-                    "Each result-before-result hook shot must match one complete spoken caption claim at the same times.",
-                    scene_id=_as_text(first_beat.get("id") or "scene_01"),
-                )
-            )
-
         for index, shot in enumerate(opening_shots):
             if not isinstance(shot, dict):
                 continue
@@ -1585,16 +1558,11 @@ def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edi
         )
     elif isinstance(scaffold, dict):
         serialized = json.dumps({"planning": planning_recipe, "edit": edit_recipe}, ensure_ascii=False)
-        audio_plan = edit_recipe.get("audio_plan") or {}
-        placeholder_hashes = {
-            _as_text(audio_plan.get("tts_text_sha256")).strip(),
-            _as_text(audio_plan.get("final_voice_sha256")).strip(),
-        }
-        if "TODO" in serialized or "0" * 64 in placeholder_hashes:
+        if "TODO" in serialized:
             issues.append(
                 _issue(
                     "RECIPE_SCAFFOLD_PLACEHOLDER_REMAINS",
-                    "A scaffold cannot become complete while TODO values or placeholder voice hashes remain.",
+                    "A scaffold cannot become complete while TODO content values remain.",
                 )
             )
     contract = planning_recipe.get("workflow_contract") or {}

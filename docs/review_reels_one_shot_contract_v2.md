@@ -54,7 +54,7 @@ planning recipe는 다음 필드를 모두 가져야 한다.
 우회하지 않는다. 동일 package와 recipe로 다음 세 명령을 순서대로 실행한다.
 
 ```powershell
-python scripts/generate_one_shot_tts.py --package "<output review package>" --planning "<planning_recipe.json>" --script "<*_script.md>"
+python scripts/generate_one_shot_tts.py --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --script "<*_script.md>"
 python scripts/produce_review_v2.py preflight --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --one-shot-html
 python scripts/produce_review_v2.py html --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --one-shot-html
 ```

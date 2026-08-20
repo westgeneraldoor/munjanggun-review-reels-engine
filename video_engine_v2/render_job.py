@@ -33,6 +33,10 @@ _STATE_TRANSITIONS = {
     "succeeded": frozenset({"succeeded"}),
     "failed": frozenset({"failed"}),
 }
+_FINAL_OUTPUT_NAME = re.compile(
+    r"^(?P<prefix>.+_final_render_\d{8})(?:_attempt(?P<attempt>\d{2}))?_upload_10mbps\.mp4$",
+    re.IGNORECASE,
+)
 
 
 class RenderJobError(ValueError):
@@ -71,6 +75,18 @@ def job_record_path(package_dir: str | Path, job_id: str) -> Path:
     return Path(package_dir).resolve() / "_work" / "render_jobs" / job_id / "render_job.json"
 
 
+def next_retry_output_path(output_path: str | Path) -> Path:
+    """Return the next valid, non-overwriting official render attempt name."""
+    output = Path(output_path).resolve()
+    match = _FINAL_OUTPUT_NAME.fullmatch(output.name)
+    if not match:
+        raise RenderJobError("FINAL_FILENAME_INVALID")
+    next_attempt = int(match.group("attempt") or "1") + 1
+    if next_attempt > 99:
+        raise RenderJobError("RENDER_ATTEMPT_LIMIT_REACHED")
+    return output.with_name(f"{match.group('prefix')}_attempt{next_attempt:02}_upload_10mbps.mp4")
+
+
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     rendered = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
@@ -85,6 +101,52 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     finally:
         if temporary_path is not None and temporary_path.exists():
             temporary_path.unlink()
+
+
+def _job_snapshot_path(job_path: Path, state: str) -> Path:
+    return job_path.parent / f"render_job_{state}.json"
+
+
+def publish_job_snapshot(
+    job_path: str | Path,
+    *,
+    producer: str,
+    extra_artifacts: dict[str, str | Path] | None = None,
+) -> Path:
+    """Publish one immutable job-state snapshot as current ledger evidence."""
+    path = Path(job_path).resolve()
+    payload = read_job(path)
+    package = Path(payload["bindings"]["package_path"]).resolve()
+    from video_engine_v2.current_artifacts import (
+        CurrentArtifactsViolation,
+        package_uses_ledger,
+        record_current_artifacts,
+    )
+
+    if not package_uses_ledger(package):
+        return path
+    snapshot = _job_snapshot_path(path, payload["state"])
+    if snapshot.exists():
+        try:
+            existing = json.loads(snapshot.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise RenderJobError("JOB_SNAPSHOT_INVALID") from error
+        if existing != payload:
+            raise RenderJobError("JOB_SNAPSHOT_CONFLICT")
+    else:
+        _atomic_write_json(snapshot, payload)
+    artifacts: dict[str, str | Path] = {"render_job": snapshot}
+    artifacts.update(extra_artifacts or {})
+    try:
+        record_current_artifacts(
+            package,
+            producer=producer,
+            artifacts=artifacts,
+            attempt_id=str(payload.get("job_id") or ""),
+        )
+    except CurrentArtifactsViolation as error:
+        raise RenderJobError(str(error)) from error
+    return snapshot
 
 
 def create_job_record(
@@ -139,6 +201,7 @@ def create_job_record(
         "exit_code": None,
     }
     _atomic_write_json(job_path, payload)
+    publish_job_snapshot(job_path, producer="render_job.create_job_record")
     return job_path
 
 

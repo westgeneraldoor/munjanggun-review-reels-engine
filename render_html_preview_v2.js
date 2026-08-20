@@ -235,6 +235,14 @@ async function main() {
   const { chromium } = require('playwright');
 
   const launchOptions = { headless: true };
+  if (process.platform === 'win32' && process.env.REVIEW_REEL_ALLOW_GPU !== '1') {
+    launchOptions.args = [
+      '--disable-gpu',
+      '--disable-gpu-compositing',
+      '--disable-features=UseSkiaRenderer,CanvasOopRasterization',
+    ];
+    console.log('Chromium Windows software-render fallback enabled.');
+  }
   if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH) {
     launchOptions.executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
   }

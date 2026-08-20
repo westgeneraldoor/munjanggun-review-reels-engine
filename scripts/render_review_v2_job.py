@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
 from video_engine_v2.production_gate import FINAL_RENDER_PRESET  # noqa: E402
 from video_engine_v2.render_job import (  # noqa: E402
     RenderJobError,
+    publish_job_snapshot,
     read_job,
     refresh_progress,
     sha256_file,
@@ -86,6 +87,7 @@ def _mark_failed(job_path: Path, *, code: str, message: str, exit_code: int) -> 
             failure={"code": code, "message": message},
             exit_code=exit_code,
         )
+        publish_job_snapshot(job_path, producer="render_review_v2_job.failed")
     except RenderJobError:
         # A corrupt/tampered record is intentionally not overwritten as if it were trusted evidence.
         pass
@@ -148,6 +150,11 @@ def run_job(
             },
             failure=None,
             exit_code=0,
+        )
+        publish_job_snapshot(
+            path,
+            producer="render_review_v2_job.run_job",
+            extra_artifacts={"upload_mp4": output},
         )
         return 0
     except RenderJobError as error:

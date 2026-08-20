@@ -36,7 +36,10 @@ FINAL_RENDER_PRESET = {
 
 _BOOLEAN_LINE = re.compile(r"(?mi)^[ \t]*-?[ \t]*(?P<key>[a-z0-9_]+)[ \t]*:[ \t]*(?P<value>true|false)[ \t]*$")
 _APPROVAL_LINE = re.compile(r"(?mi)^[ \t]*-?[ \t]*(?P<key>approved_scope|not_approved)[ \t]*:[ \t]*(?P<value>.+?)[ \t]*$")
-_FINAL_FILENAME = re.compile(r"^.+_final_render_\d{8}_upload_10mbps\.mp4$", re.IGNORECASE)
+_FINAL_FILENAME = re.compile(
+    r"^.+_final_render_\d{8}(?:_attempt(?P<attempt>\d{2}))?_upload_10mbps\.mp4$",
+    re.IGNORECASE,
+)
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _PRIVACY_INSPECTION_CATEGORIES = {"face", "vehicle_plate", "address", "family_photo"}
 HTML_ARTIFACT_EVIDENCE_FILENAME = "html_artifact_evidence.json"
@@ -238,64 +241,145 @@ def _manual_receipt_base_matches(
     )
 
 
-def _require_voice_manual_review(package_dir: Path, edit_recipe: dict[str, Any]) -> None:
+def _manual_review_candidates(package_dir: Path, *, kind: str, pattern: str) -> list[Path]:
+    """Return only authoritative receipt candidates for the package mode.
+
+    Legacy packages retain the historical directory scan. Ledger-enabled
+    packages must ignore every receipt except the exact current pointer; an
+    orphan written before a failed ledger update cannot become authority.
+    """
+    directory = package_dir / "_work" / "manual_reviews"
+    from video_engine_v2.current_artifacts import (
+        CurrentArtifactsViolation,
+        package_uses_ledger,
+        read_ledger,
+    )
+
+    if package_uses_ledger(package_dir):
+        try:
+            ledger = read_ledger(package_dir)
+        except CurrentArtifactsViolation:
+            return []
+        pointer = (ledger.get("pointers") or {}).get(kind)
+        if not isinstance(pointer, dict) or not isinstance(pointer.get("relative_path"), str):
+            return []
+        candidate = (package_dir / pointer["relative_path"]).resolve()
+        try:
+            candidate.relative_to(directory.resolve())
+        except ValueError:
+            return []
+        return [candidate] if candidate.is_file() else []
+    return sorted(directory.glob(pattern), reverse=True) if directory.is_dir() else []
+
+
+def find_current_voice_manual_review(package_dir: Path, edit_recipe: dict[str, Any]) -> Path | None:
+    """Return the official voice review receipt bound to the current edit inputs."""
     source = edit_recipe.get("source") or {}
     expected: dict[str, dict[str, Any]] = {}
-    for receipt_field, source_field in (("target", "voice"), ("srt", "srt"), ("tts_report", "tts_generation_report")):
-        path, _ = _package_relative_file(package_dir, source.get(source_field), outside_code="VOICE_MANUAL_REVIEW_INVALID")
-        expected[receipt_field] = _current_file_evidence(package_dir, path)
-    receipts = _manual_receipts(package_dir, "voice")
-    if not receipts:
-        raise GateViolation("VOICE_MANUAL_REVIEW_MISSING")
-    if not any(
-        _manual_receipt_base_matches(
-            receipt, package_dir, review_kind="voice", required_checks=VOICE_REVIEW_CHECKS
-        )
-        and all(receipt.get(field) == evidence for field, evidence in expected.items())
-        for receipt in receipts
+    try:
+        for receipt_field, source_field in (
+            ("target", "voice"),
+            ("srt", "srt"),
+            ("tts_report", "tts_generation_report"),
+        ):
+            path, _ = _package_relative_file(
+                package_dir,
+                source.get(source_field),
+                outside_code="VOICE_MANUAL_REVIEW_INVALID",
+            )
+            expected[receipt_field] = _current_file_evidence(package_dir, path)
+    except GateViolation:
+        return None
+    for receipt_path in _manual_review_candidates(
+        package_dir,
+        kind="voice_manual_review",
+        pattern="voice_review_*.json",
     ):
-        raise GateViolation("VOICE_MANUAL_REVIEW_STALE_OR_INVALID")
+        receipt = _read_json_optional(receipt_path)
+        if (
+            receipt
+            and _manual_receipt_base_matches(
+                receipt, package_dir, review_kind="voice", required_checks=VOICE_REVIEW_CHECKS
+            )
+            and all(receipt.get(field) == evidence for field, evidence in expected.items())
+        ):
+            return receipt_path
+    return None
+
+
+def _require_voice_manual_review(package_dir: Path, edit_recipe: dict[str, Any]) -> None:
+    if find_current_voice_manual_review(package_dir, edit_recipe) is not None:
+        return
+    if not _manual_receipts(package_dir, "voice"):
+        raise GateViolation("VOICE_MANUAL_REVIEW_MISSING")
+    raise GateViolation("VOICE_MANUAL_REVIEW_STALE_OR_INVALID")
+
+
+def find_current_html_manual_review(package_dir: Path, html_path: Path) -> Path | None:
+    """Return the official HTML review receipt bound to this preview, if any."""
+    package = Path(package_dir).resolve()
+    html = Path(html_path).resolve()
+    artifact_path = html.parent / HTML_ARTIFACT_EVIDENCE_FILENAME
+    qa_report_path = html.parent / "html_internal_qa_report.json"
+    try:
+        qa_report = _read_json(
+            qa_report_path,
+            missing_code="HTML_MANUAL_REVIEW_MISSING",
+            invalid_code="HTML_MANUAL_REVIEW_STALE_OR_INVALID",
+        )
+        if qa_report.get("automatic_status") != "pass":
+            return None
+        expected = {
+            "target": _current_file_evidence(package, html),
+            "artifact_evidence": _current_file_evidence(package, artifact_path),
+            "qa_report": _current_file_evidence(package, qa_report_path),
+        }
+        frame_paths: list[Path] = []
+        for key in ("checks", "hook_sequence_checks"):
+            values = qa_report.get(key)
+            if not isinstance(values, list):
+                return None
+            for item in values:
+                if not isinstance(item, dict) or not isinstance(item.get("frame_relative_path"), str):
+                    return None
+                frame_paths.append(html.parent / item["frame_relative_path"])
+        if not frame_paths:
+            return None
+        expected_frames = [_current_file_evidence(package, path) for path in frame_paths]
+    except GateViolation:
+        return None
+    for receipt_path in _manual_review_candidates(
+        package,
+        kind="html_manual_review",
+        pattern="html_review_*.json",
+    ):
+        receipt = _read_json_optional(receipt_path)
+        if (
+            receipt
+            and _manual_receipt_base_matches(
+                receipt, package, review_kind="html", required_checks=HTML_REVIEW_CHECKS
+            )
+            and all(receipt.get(field) == evidence for field, evidence in expected.items())
+            and receipt.get("qa_frames") == expected_frames
+        ):
+            return receipt_path
+    return None
+
+
+def _read_json_optional(path: Path) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _require_html_manual_review(package_dir: Path, html_path: Path) -> None:
-    artifact_path = html_path.parent / HTML_ARTIFACT_EVIDENCE_FILENAME
-    qa_report_path = html_path.parent / "html_internal_qa_report.json"
-    qa_report = _read_json(
-        qa_report_path,
-        missing_code="HTML_MANUAL_REVIEW_MISSING",
-        invalid_code="HTML_MANUAL_REVIEW_STALE_OR_INVALID",
-    )
-    if qa_report.get("automatic_status") != "pass":
-        raise GateViolation("HTML_MANUAL_REVIEW_STALE_OR_INVALID")
-    expected = {
-        "target": _current_file_evidence(package_dir, html_path),
-        "artifact_evidence": _current_file_evidence(package_dir, artifact_path),
-        "qa_report": _current_file_evidence(package_dir, qa_report_path),
-    }
-    frame_paths: list[Path] = []
-    for key in ("checks", "hook_sequence_checks"):
-        values = qa_report.get(key)
-        if not isinstance(values, list):
-            raise GateViolation("HTML_MANUAL_REVIEW_STALE_OR_INVALID")
-        for item in values:
-            if not isinstance(item, dict) or not isinstance(item.get("frame_relative_path"), str):
-                raise GateViolation("HTML_MANUAL_REVIEW_STALE_OR_INVALID")
-            frame_paths.append(html_path.parent / item["frame_relative_path"])
-    if not frame_paths:
-        raise GateViolation("HTML_MANUAL_REVIEW_STALE_OR_INVALID")
-    expected_frames = [_current_file_evidence(package_dir, path) for path in frame_paths]
-    receipts = _manual_receipts(package_dir, "html")
-    if not receipts:
+    if find_current_html_manual_review(package_dir, html_path) is not None:
+        return
+    if not _manual_receipts(package_dir, "html"):
         raise GateViolation("HTML_MANUAL_REVIEW_MISSING")
-    if not any(
-        _manual_receipt_base_matches(
-            receipt, package_dir, review_kind="html", required_checks=HTML_REVIEW_CHECKS
-        )
-        and all(receipt.get(field) == evidence for field, evidence in expected.items())
-        and receipt.get("qa_frames") == expected_frames
-        for receipt in receipts
-    ):
-        raise GateViolation("HTML_MANUAL_REVIEW_STALE_OR_INVALID")
+    raise GateViolation("HTML_MANUAL_REVIEW_STALE_OR_INVALID")
 
 
 def _path_evidence(path: Path, *, kind: str, scope: str, relative_path: str) -> dict[str, Any]:
@@ -655,9 +739,7 @@ def _asset_root(package_dir: Path, edit_recipe: dict[str, Any]) -> Path | None:
     return _ensure_inside(package_dir, package_dir / image_dir, outside_code="ASSET_OUTSIDE_PACKAGE")
 
 
-def _validate_sanitized_asset_pixels(
-    package_dir: Path, edit_recipe: dict[str, Any], privacy_manifest: dict[str, Any]
-) -> None:
+def _validate_sanitized_asset_pixels(package_dir: Path, privacy_manifest: dict[str, Any]) -> None:
     """마스킹했다는 선언을 픽셀로 확인한다.
 
     지금까지는 sanitization report가 파일 경로와 해시만 담았다. 파일 이름에
@@ -855,6 +937,7 @@ def _validate_one_shot_tts_provenance(package_dir: Path, edit_recipe: dict[str, 
     if not isinstance(source, dict):
         raise GateViolation("TTS_PROVENANCE_MISSING")
 
+    source_paths: dict[str, Path] = {}
     for field, suffix, code in (
         ("script", "_script.md", "SCRIPT_ARTIFACT_INVALID"),
         ("srt", ".srt", "SRT_ARTIFACT_INVALID"),
@@ -863,6 +946,7 @@ def _validate_one_shot_tts_provenance(package_dir: Path, edit_recipe: dict[str, 
         path, relative_path = _package_relative_file(package_dir, value, outside_code=code)
         if not relative_path.lower().endswith(suffix) or not path.is_file():
             raise GateViolation(code)
+        source_paths[field] = path
 
     report_value = source.get("tts_generation_report")
     report_path, _ = _package_relative_file(
@@ -899,6 +983,46 @@ def _validate_one_shot_tts_provenance(package_dir: Path, edit_recipe: dict[str, 
     }
     if any(report.get(key) != value for key, value in expected.items()):
         raise GateViolation("TTS_PROVENANCE_STALE")
+    if report.get("caption_timeline_schema") != "review-reel-voice-caption-timeline-v1":
+        raise GateViolation("VOICE_CAPTION_TIMELINE_INVALID")
+    edit_relative = report.get("edit_recipe_relative_path")
+    edit_path, _ = _package_relative_file(
+        package_dir,
+        edit_relative,
+        outside_code="VOICE_CAPTION_TIMELINE_INVALID",
+    )
+    if report.get("edit_recipe_sha256") != _sha256(edit_path):
+        raise GateViolation("VOICE_CAPTION_TIMELINE_STALE")
+    expected_timeline = []
+    for beat in edit_recipe.get("beats") or []:
+        if not isinstance(beat, dict):
+            raise GateViolation("VOICE_CAPTION_TIMELINE_INVALID")
+        for index, chunk in enumerate(beat.get("caption_chunks") or [], start=1):
+            if not isinstance(chunk, dict):
+                raise GateViolation("VOICE_CAPTION_TIMELINE_INVALID")
+            expected_timeline.append(
+                {
+                    "beat_id": str(beat.get("id") or ""),
+                    "chunk_index": index,
+                    "start_sec": chunk.get("start_sec"),
+                    "end_sec": chunk.get("end_sec"),
+                    "text": str(chunk.get("text") or "").strip(),
+                    "display_text": str(chunk.get("display_text") or chunk.get("text") or "").strip(),
+                }
+            )
+    if not expected_timeline or report.get("caption_timeline") != expected_timeline:
+        raise GateViolation("VOICE_CAPTION_TIMELINE_STALE")
+    srt_text = source_paths["srt"].read_text(encoding="utf-8-sig")
+    for item in expected_timeline:
+        start_ms = int(round(float(item["start_sec"]) * 1000))
+        end_ms = int(round(float(item["end_sec"]) * 1000))
+        def stamp(value: int) -> str:
+            hours, remainder = divmod(value, 3_600_000)
+            minutes, remainder = divmod(remainder, 60_000)
+            seconds, millis = divmod(remainder, 1000)
+            return f"{hours:02}:{minutes:02}:{seconds:02},{millis:03}"
+        if f"{stamp(start_ms)} --> {stamp(end_ms)}\n{item['display_text']}" not in srt_text:
+            raise GateViolation("VOICE_CAPTION_TIMELINE_STALE")
 
 
 def _load_recipes(package_dir: Path, planning_path: Path, edit_path: Path) -> tuple[Path, Path, dict[str, Any], dict[str, Any]]:
@@ -926,7 +1050,7 @@ def _validate_preflight(
     privacy_manifest = _validate_privacy_manifest(package_dir, privacy_manifest_path)
     _validate_privacy_asset_binding(_validate_edit_assets(package_dir, edit_recipe), privacy_manifest)
     _validate_edit_privacy_report_binding(package_dir, edit_recipe, privacy_manifest)
-    _validate_sanitized_asset_pixels(package_dir, edit_recipe, privacy_manifest)
+    _validate_sanitized_asset_pixels(package_dir, privacy_manifest)
     _validate_review_underline_pixels(package_dir, edit_recipe)
     result = validate_html_preflight(
         planning_recipe,
@@ -1006,6 +1130,30 @@ def create_sync_manifest(
         Path(privacy_manifest_path),
         allow_one_shot_html_contract=allow_one_shot_html_contract,
     )
+    current_inputs: dict[str, Path] = {"privacy_manifest": Path(privacy_manifest_path).resolve()}
+    if allow_one_shot_html_contract:
+        source = edit_recipe.get("source") or {}
+        script_path, _ = _package_relative_file(package, source.get("script"), outside_code="SCRIPT_OUTSIDE_PACKAGE")
+        captions_path, _ = _package_relative_file(package, source.get("srt"), outside_code="SRT_OUTSIDE_PACKAGE")
+        voice_path, _ = _package_relative_file(package, source.get("voice"), outside_code="VOICE_OUTSIDE_PACKAGE")
+        tts_report_path, _ = _package_relative_file(
+            package,
+            source.get("tts_generation_report"),
+            outside_code="TTS_REPORT_OUTSIDE_PACKAGE",
+        )
+        voice_review_path = find_current_voice_manual_review(package, edit_recipe)
+        if voice_review_path is None:
+            raise GateViolation("VOICE_MANUAL_REVIEW_STALE_OR_INVALID")
+        current_inputs.update(
+            {
+                "script": script_path,
+                "captions": captions_path,
+                "voice": voice_path,
+                "tts_report": tts_report_path,
+                "voice_manual_review": voice_review_path,
+            }
+        )
+    _require_ledger_current_paths(package, current_inputs)
     sync_path = _ensure_inside(package, Path(sync_manifest_path), outside_code="SYNC_MANIFEST_OUTSIDE_PACKAGE")
     if sync_path.exists():
         raise GateViolation("SYNC_MANIFEST_EXISTS")
@@ -1031,6 +1179,20 @@ def create_sync_manifest(
             output.write("\n")
     except FileExistsError as error:
         raise GateViolation("SYNC_MANIFEST_EXISTS") from error
+    from video_engine_v2.current_artifacts import CurrentArtifactsViolation, record_current_artifacts
+
+    try:
+        record_current_artifacts(
+            package,
+            producer="production_gate.create_sync_manifest",
+            artifacts={
+                "sync_manifest": sync_path,
+                "planning_recipe": planning,
+                "edit_recipe": edit,
+            },
+        )
+    except CurrentArtifactsViolation as error:
+        raise GateViolation(str(error)) from error
     return manifest
 
 
@@ -1059,6 +1221,15 @@ def validate_html_gate(
         edit,
         Path(privacy_manifest_path),
         expected_one_shot_html_contract=allow_one_shot_html_contract,
+    )
+    _require_ledger_current_paths(
+        package,
+        {
+            "planning_recipe": planning,
+            "edit_recipe": edit,
+            "privacy_manifest": Path(privacy_manifest_path).resolve(),
+            "sync_manifest": Path(sync_manifest_path).resolve(),
+        },
     )
     return {
         "schema_version": "1.0",
@@ -1228,6 +1399,25 @@ def _validate_mp4_approval_binding(
     }
 
 
+def _require_ledger_current_paths(package: Path, expected: dict[str, Path]) -> None:
+    from video_engine_v2.current_artifacts import CurrentArtifactsViolation, package_uses_ledger, read_ledger
+
+    if not package_uses_ledger(package):
+        return
+    try:
+        ledger = read_ledger(package)
+    except CurrentArtifactsViolation as error:
+        raise GateViolation(str(error)) from error
+    pointers = ledger["pointers"]
+    for kind, path in expected.items():
+        pointer = pointers.get(kind)
+        if (
+            not isinstance(pointer, dict)
+            or (package / str(pointer.get("relative_path") or "")).resolve() != path.resolve()
+        ):
+            raise GateViolation(f"CURRENT_ARTIFACT_POINTER_MISSING:{kind}")
+
+
 def validate_render_gate(
     *,
     package_dir: str | Path,
@@ -1244,7 +1434,10 @@ def validate_render_gate(
     if not html.is_file():
         raise GateViolation("HTML_MISSING")
     output = _ensure_inside(package, Path(output_path), outside_code="OUTPUT_OUTSIDE_PACKAGE")
-    if not _FINAL_FILENAME.fullmatch(output.name):
+    filename_match = _FINAL_FILENAME.fullmatch(output.name)
+    if not filename_match or (
+        filename_match.group("attempt") is not None and int(filename_match.group("attempt")) < 2
+    ):
         raise GateViolation("FINAL_FILENAME_INVALID")
     if output.exists():
         raise GateViolation("OUTPUT_ALREADY_EXISTS")
@@ -1284,6 +1477,24 @@ def validate_render_gate(
     )
     render_dependencies = _validate_render_dependency_binding(package, html, edit_path, engine_font_path)
     _require_html_manual_review(package, html)
+    manual_review_path = find_current_html_manual_review(package, html)
+    if manual_review_path is None:
+        raise GateViolation("HTML_MANUAL_REVIEW_STALE_OR_INVALID")
+    _require_ledger_current_paths(
+        package,
+        {
+            "html": html,
+            "html_artifact_evidence": html.parent / HTML_ARTIFACT_EVIDENCE_FILENAME,
+            "html_qa_report": html.parent / "html_internal_qa_report.json",
+            "html_manual_review": manual_review_path,
+            "html_approval": package / HTML_APPROVAL_EVIDENCE_FILENAME,
+            "mp4_render_approval": package / MP4_RENDER_APPROVAL_EVIDENCE_FILENAME,
+            "privacy_manifest": privacy_path,
+            "sync_manifest": sync_path,
+            "planning_recipe": planning_path,
+            "edit_recipe": edit_path,
+        },
+    )
     return {
         "schema_version": "1.0",
         "action": "render",
@@ -1415,3 +1626,152 @@ def validate_html_receipt(receipt_path: str | Path, recipe_path: str | Path) -> 
     assert_gate_receipt_available(receipt_path, package, expected_action="html")
     if receipt.get("action") != "html" or receipt.get("recipe_path") != str(recipe) or receipt.get("recipe_sha256") != _sha256(recipe):
         raise GateViolation("GATE_RECEIPT_INVALID")
+
+
+def _gate_reason(error: GateViolation) -> str:
+    code = str(error.codes[0]) if error.codes else str(error)
+    return code.lower()
+
+
+def inspect_html_preview_chain(package_dir: str | Path, html_path: str | Path) -> dict[str, Any]:
+    """Read-only check of HTML, artifact evidence, official gate receipt, and render deps."""
+    package = Path(package_dir).resolve()
+    try:
+        html = _ensure_inside(package, Path(html_path), outside_code="HTML_OUTSIDE_PACKAGE")
+    except GateViolation as error:
+        return {"status": "stale_html", "stale_html_reason": _gate_reason(error)}
+    result: dict[str, Any] = {
+        "status": "stale_html",
+        "html": html,
+        "html_relative_path": html.relative_to(package).as_posix() if html.is_file() or html.exists() else None,
+    }
+    if not html.is_file():
+        result["stale_html_reason"] = "html_missing"
+        return result
+    result["html_relative_path"] = html.relative_to(package).as_posix()
+    artifact_path = html.parent / HTML_ARTIFACT_EVIDENCE_FILENAME
+    try:
+        artifact = _read_json(
+            artifact_path,
+            missing_code="html_artifact_evidence_missing",
+            invalid_code="html_artifact_evidence_invalid",
+        )
+        _require_package_identity(
+            artifact.get("package_identity"),
+            package,
+            invalid_code="html_artifact_evidence_invalid",
+            mismatch_code="html_artifact_package_mismatch",
+        )
+        if artifact.get("html_relative_path") != result["html_relative_path"]:
+            result["stale_html_reason"] = "html_relative_path_mismatch"
+            return result
+        if _require_sha256(artifact.get("html_sha256"), invalid_code="html_sha256_missing") != _sha256(html):
+            result["stale_html_reason"] = "html_sha256_mismatch"
+            return result
+        receipt_value = artifact.get("html_gate_receipt_path")
+        if not isinstance(receipt_value, str) or not receipt_value:
+            result["stale_html_reason"] = "html_gate_receipt_missing"
+            return result
+        receipt_path = _ensure_inside(package, package / receipt_value, outside_code="html_gate_receipt_missing")
+        if _require_sha256(artifact.get("html_gate_receipt_sha256"), invalid_code="html_gate_receipt_missing") != _sha256(receipt_path):
+            result["stale_html_reason"] = "html_gate_receipt_mismatch"
+            return result
+        receipt = _read_json(
+            receipt_path,
+            missing_code="html_gate_receipt_missing",
+            invalid_code="html_gate_receipt_invalid",
+        )
+        if receipt.get("action") != "html":
+            result["stale_html_reason"] = "html_gate_receipt_invalid"
+            return result
+        package_path_value = receipt.get("package_path")
+        try:
+            same_package = isinstance(package_path_value, str) and os.path.samefile(package_path_value, package)
+        except OSError:
+            same_package = False
+        if not same_package:
+            result["stale_html_reason"] = "html_gate_package_mismatch"
+            return result
+        recipe_value = receipt.get("recipe_path")
+        if not isinstance(recipe_value, str) or not recipe_value:
+            result["stale_html_reason"] = "html_gate_recipe_missing"
+            return result
+        recipe_path = _ensure_inside(package, Path(recipe_value), outside_code="html_gate_recipe_missing")
+        if not recipe_path.is_file():
+            result["stale_html_reason"] = "html_gate_recipe_missing"
+            return result
+        if _require_sha256(receipt.get("recipe_sha256"), invalid_code="html_gate_recipe_mismatch") != _sha256(recipe_path):
+            result["stale_html_reason"] = "html_gate_recipe_mismatch"
+            return result
+        sync_value = receipt.get("sync_manifest_path")
+        if not isinstance(sync_value, str) or not sync_value:
+            result["stale_html_reason"] = "html_gate_sync_missing"
+            return result
+        sync_path = _ensure_inside(package, Path(sync_value), outside_code="html_gate_sync_missing")
+        if not sync_path.is_file():
+            result["stale_html_reason"] = "html_gate_sync_missing"
+            return result
+        if _require_sha256(receipt.get("sync_manifest_sha256"), invalid_code="html_gate_sync_mismatch") != _sha256(sync_path):
+            result["stale_html_reason"] = "html_gate_sync_mismatch"
+            return result
+        if not isinstance(receipt.get("one_shot_html_contract"), bool):
+            result["stale_html_reason"] = "html_gate_receipt_invalid"
+            return result
+        recorded = _dependency_map(artifact.get("render_dependencies"), invalid_code="render_dependency_invalid")
+        kinds = {kind for kind, _scope, _path in recorded}
+        if not {"image", "voice", "font"}.issubset(kinds):
+            result["stale_html_reason"] = "render_dependencies_incomplete"
+            return result
+        for (kind, scope, relative_path), (byte_count, digest) in recorded.items():
+            if scope == "package":
+                dependency = _ensure_inside(package, package / relative_path, outside_code=f"dependency_mismatch:{kind}")
+            elif scope == "repository":
+                dependency = _ensure_inside(
+                    REPOSITORY_ROOT,
+                    REPOSITORY_ROOT / relative_path,
+                    outside_code=f"dependency_mismatch:{kind}",
+                )
+            else:
+                result["stale_html_reason"] = "render_dependency_invalid"
+                return result
+            if not dependency.is_file() or dependency.stat().st_size != byte_count or _sha256(dependency) != digest:
+                result["stale_html_reason"] = f"dependency_mismatch:{kind}"
+                return result
+    except GateViolation as error:
+        result["stale_html_reason"] = _gate_reason(error)
+        return result
+    result.update(
+        {
+            "status": "valid",
+            "artifact_path": artifact_path,
+            "evidence": artifact,
+            "receipt_path": receipt_path,
+            "recipe_path": recipe_path,
+            "sync_path": sync_path,
+        }
+    )
+    return result
+
+
+def html_approval_is_current(package_dir: str | Path, html_path: str | Path) -> bool:
+    package = Path(package_dir).resolve()
+    try:
+        html = _ensure_inside(package, Path(html_path), outside_code="HTML_OUTSIDE_PACKAGE")
+        _validate_html_approval_binding(package, html)
+        _require_html_manual_review(package, html)
+    except GateViolation:
+        return False
+    return True
+
+
+def mp4_approval_is_current(package_dir: str | Path, html_path: str | Path) -> bool:
+    if not html_approval_is_current(package_dir, html_path):
+        return False
+    package = Path(package_dir).resolve()
+    try:
+        html = _ensure_inside(package, Path(html_path), outside_code="HTML_OUTSIDE_PACKAGE")
+        html_binding = _validate_html_approval_binding(package, html)
+        _validate_mp4_approval_binding(package, html, html_binding)
+    except GateViolation:
+        return False
+    return True

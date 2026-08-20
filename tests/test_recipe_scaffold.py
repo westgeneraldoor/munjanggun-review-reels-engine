@@ -36,9 +36,25 @@ class RecipeScaffoldTests(unittest.TestCase):
             "after_change": "설치 후 동선이 편해짐",
             "customer_emotion": ["편안함"],
         }
+        hook_text = "중문 설치 한 달 뒤, 집 분위기가 달라졌습니다."
+        planning["hooks"] = [{"text": hook_text}]
+        planning["selected_hook"] = {"text": hook_text}
         planning["writer_brief"]["one_line_story"] = "불편했던 현관 동선이 설치 후 편해진 리뷰 이야기"
+        planning["writer_brief"]["hook_candidates"] = [{"text": hook_text}]
+        planning["writer_brief"]["recommended_hook"] = hook_text
+        planning["scenes"][0]["caption"] = {"text": hook_text}
+        planning["scenes"][0]["narration"] = hook_text
         for scene in planning["scenes"]:
             scene["meaning_match_evidence"] = "review_source.text and selected photo evidence"
+        first_beat = edit["beats"][0]
+        first_beat["caption"] = hook_text
+        first_beat["narration_ref"] = hook_text
+        first_beat["caption_chunks"] = [{"text": hook_text, "start_sec": 0.0, "end_sec": 4.0}]
+        first_beat["caption_focus_keywords"] = ["중문"]
+        first_beat["caption_emphasis"] = ["중문"]
+        first_beat["caption_accent"]["start_sec"] = 0.05
+        for shot in first_beat["shots"]:
+            shot["meaning_match_source"] = f"asset_evidence:{shot['asset_id']}; narration_fragment:{hook_text}"
         edit["audio_plan"]["tts_text_sha256"] = "a" * 64
         edit["audio_plan"]["final_voice_sha256"] = "b" * 64
         completed_validation = validate_html_preflight(planning, edit)
@@ -81,11 +97,11 @@ class RecipeScaffoldTests(unittest.TestCase):
 
     def test_official_intake_cli_exposes_error_explainer(self):
         args = intake_cli.build_parser().parse_args(
-            ["explain-error", "--code", "HOOK_SHOT_CAPTION_ALIGNMENT_INVALID"]
+            ["explain-error", "--code", "VOICE_CAPTION_TIMELINE_STALE"]
         )
 
         self.assertEqual(args.command, "explain-error")
-        self.assertEqual(args.code, "HOOK_SHOT_CAPTION_ALIGNMENT_INVALID")
+        self.assertEqual(args.code, "VOICE_CAPTION_TIMELINE_STALE")
 
     def test_official_intake_cli_exposes_recipe_scaffold_with_identity_guard(self):
         args = intake_cli.build_parser().parse_args(

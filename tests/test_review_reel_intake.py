@@ -11,6 +11,12 @@ from unittest.mock import patch
 
 from PIL import Image, ImageDraw
 
+from video_engine_v2.manual_review import (
+    HTML_REVIEW_CHECKS,
+    VOICE_REVIEW_CHECKS,
+    record_html_review,
+    record_voice_review,
+)
 from video_engine_v2.qa_guidance import explain_error
 from video_engine_v2.reels_qa import validate_review_reels_one_shot_contract
 from video_engine_v2.review_reel_intake import (
@@ -118,6 +124,28 @@ class ReviewReelIntakeTests(unittest.TestCase):
             "resolve_active_package_then_record_hash_bound_approvals",
         )
         self.assertNotIn("approved", approval_intent)
+
+    def test_korean_render_intent_requires_active_package_or_html_approval_context(self):
+        with_package = route_user_command("진행해 그리고 렌더까지 해", active_review_reel_package=True)
+        self.assertEqual(with_package["workflow"], "review_reel_production")
+        self.assertEqual(with_package["state"], "mp4_render_intent_requested")
+        self.assertEqual(
+            with_package["next_action"],
+            "resolve_active_package_then_record_hash_bound_approvals",
+        )
+        self.assertNotIn("approved", with_package)
+
+        without_context = route_user_command("진행해 그리고 렌더까지 해")
+        self.assertEqual(without_context["workflow"], "generic_review_content")
+        self.assertNotEqual(without_context["state"], "mp4_render_intent_requested")
+
+        html_context = route_user_command("HTML 승인. 렌더까지 해")
+        self.assertEqual(html_context["workflow"], "review_reel_production")
+        self.assertEqual(html_context["state"], "html_approval_and_mp4_render_intent_requested")
+        self.assertNotIn("approved", html_context)
+
+        generic_render = route_user_command("하이퍼프레임 렌더까지 해")
+        self.assertEqual(generic_render["workflow"], "generic_review_content")
 
     def test_generic_review_content_phrases_without_reel_intent_stay_generic(self):
         for command in ("리뷰 컨텐츠 만들어줘", "리뷰 콘텐츠 신규 발행하자", "리뷰 원문 정리해줘"):
@@ -886,6 +914,15 @@ class ReviewReelIntakeTests(unittest.TestCase):
         report = package.package_dir / privacy_payload["sanitization_report"]
         report_payload = json.loads(report.read_text(encoding="utf-8"))
         report_payload["checked_assets"].append(evidence)
+        report_payload.setdefault("sanitized_assets", []).append(
+            {
+                "relative_path": evidence["relative_path"],
+                "source_relative_path": source.relative_to(package.package_dir).as_posix(),
+                "masked_regions": [
+                    {"left_pct": 10, "top_pct": 10, "width_pct": 20, "height_pct": 10}
+                ],
+            }
+        )
         report.write_text(json.dumps(report_payload), encoding="utf-8")
 
     def test_recipe_scaffold_writes_complete_revisioned_json_after_photo_review(self):
@@ -954,9 +991,25 @@ class ReviewReelIntakeTests(unittest.TestCase):
             "after_change": "설치 후 동선 개선",
             "customer_emotion": ["편안함"],
         }
+        hook_text = "중문 설치 한 달 뒤, 집 분위기가 달라졌습니다."
+        planning["hooks"] = [{"text": hook_text}]
+        planning["selected_hook"] = {"text": hook_text}
         planning["writer_brief"]["one_line_story"] = "현관 동선이 설치 후 편해진 리뷰 이야기"
+        planning["writer_brief"]["hook_candidates"] = [{"text": hook_text}]
+        planning["writer_brief"]["recommended_hook"] = hook_text
+        planning["scenes"][0]["caption"] = {"text": hook_text}
+        planning["scenes"][0]["narration"] = hook_text
         for scene in planning["scenes"]:
             scene["meaning_match_evidence"] = "review_source.text and selected photo evidence"
+        first_beat = edit["beats"][0]
+        first_beat["caption"] = hook_text
+        first_beat["narration_ref"] = hook_text
+        first_beat["caption_chunks"] = [{"text": hook_text, "start_sec": 0.0, "end_sec": 4.0}]
+        first_beat["caption_focus_keywords"] = ["중문"]
+        first_beat["caption_emphasis"] = ["중문"]
+        first_beat["caption_accent"]["start_sec"] = 0.05
+        for shot in first_beat["shots"]:
+            shot["meaning_match_source"] = f"asset_evidence:{shot['asset_id']}; narration_fragment:{hook_text}"
         edit["audio_plan"]["tts_text_sha256"] = "a" * 64
         edit["audio_plan"]["final_voice_sha256"] = "b" * 64
         planning_path.write_text(json.dumps(planning, ensure_ascii=False), encoding="utf-8")
@@ -979,18 +1032,73 @@ class ReviewReelIntakeTests(unittest.TestCase):
             target = package.package_dir / relative_path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
+        from video_engine_v2.current_artifacts import record_current_artifacts
+
+        record_current_artifacts(
+            package.package_dir,
+            producer="tests.fixture_tts",
+            artifacts={
+                "script": script,
+                "captions": package.package_dir / source["srt"],
+                "voice": package.package_dir / source["voice"],
+                "tts_report": package.package_dir / source["tts_generation_report"],
+            },
+        )
         guidance = workflow_next(self.output_root)
         self.assertEqual(guidance["next_action"], "listen_to_voice_then_record_review")
         self.assertIsNone(guidance["next_command"])
 
-        manual_reviews = package.package_dir / "_work" / "manual_reviews"
-        manual_reviews.mkdir(parents=True)
-        (manual_reviews / "voice_review_fixture.json").write_text("{}", encoding="utf-8")
+        record_voice_review(
+            package_dir=package.package_dir,
+            voice_path=package.package_dir / source["voice"],
+            srt_path=package.package_dir / source["srt"],
+            tts_report_path=package.package_dir / source["tts_generation_report"],
+            reviewer="fixture-reviewer",
+            evidence_reference="fixture-voice-review",
+            checks=VOICE_REVIEW_CHECKS,
+        )
+        ledger_path = package.package_dir / "CURRENT_ARTIFACTS.json"
+        ledger_payload = json.loads(ledger_path.read_text(encoding="utf-8"))
+        del ledger_payload["pointers"]["voice_manual_review"]
+        ledger_path.write_text(json.dumps(ledger_payload), encoding="utf-8")
+        guidance = workflow_next(self.output_root)
+        self.assertEqual(guidance["next_action"], "listen_to_voice_then_record_review")
+        record_voice_review(
+            package_dir=package.package_dir,
+            voice_path=package.package_dir / source["voice"],
+            srt_path=package.package_dir / source["srt"],
+            tts_report_path=package.package_dir / source["tts_generation_report"],
+            reviewer="fixture-reviewer",
+            evidence_reference="fixture-voice-review-rebound",
+            checks=VOICE_REVIEW_CHECKS,
+        )
         guidance = workflow_next(self.output_root)
         self.assertEqual(guidance["next_action"], "run_one_shot_preflight")
         self.assertIn("--one-shot-html", guidance["next_command"])
 
         (package.package_dir / "sync_manifest.json").write_text("{}", encoding="utf-8")
+        guidance = workflow_next(self.output_root)
+        self.assertEqual(guidance["next_action"], "run_one_shot_preflight")
+        record_current_artifacts(
+            package.package_dir,
+            producer="tests.fixture_preflight",
+            artifacts={
+                "sync_manifest": package.package_dir / "sync_manifest.json",
+                "planning_recipe": planning_path,
+                "edit_recipe": edit_path,
+            },
+        )
+        ledger_payload = json.loads(ledger_path.read_text(encoding="utf-8"))
+        del ledger_payload["pointers"]["planning_recipe"]
+        ledger_path.write_text(json.dumps(ledger_payload), encoding="utf-8")
+        guidance = workflow_next(self.output_root)
+        self.assertEqual(guidance["next_action"], "stale_current_artifacts")
+        self.assertEqual(guidance["stale_artifact_kind"], "planning_recipe")
+        record_current_artifacts(
+            package.package_dir,
+            producer="tests.fixture_preflight_rebound",
+            artifacts={"planning_recipe": planning_path},
+        )
         guidance = workflow_next(self.output_root)
         self.assertEqual(guidance["next_action"], "build_one_shot_html")
 
@@ -998,13 +1106,8 @@ class ReviewReelIntakeTests(unittest.TestCase):
         html.parent.mkdir()
         html.write_text("<!doctype html>", encoding="utf-8")
         guidance = workflow_next(self.output_root)
-        self.assertEqual(guidance["next_action"], "inspect_html_frames_then_record_review")
-
-        (manual_reviews / "html_review_fixture.json").write_text("{}", encoding="utf-8")
-        guidance = workflow_next(self.output_root)
-        self.assertEqual(guidance["next_action"], "wait_for_explicit_html_approval_then_record_it")
-        self.assertTrue(guidance["approval_required"])
-        self.assertIsNone(guidance["next_command"])
+        self.assertEqual(guidance["next_action"], "build_one_shot_html")
+        self.assertFalse(guidance["approval_required"])
 
     def test_photo_review_accepts_a_full_composition_review_capture_with_only_a_local_mask(self):
         package = self.create()
@@ -1019,6 +1122,53 @@ class ReviewReelIntakeTests(unittest.TestCase):
         )
 
         self.assertEqual(reviewed.metadata["photo_review"]["selected_asset_count"], 2)
+
+    def test_photo_review_rejects_an_undeclared_sanitized_output_before_lifecycle_change(self):
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+        self._add_sanitized_review_capture(package, selection, privacy)
+        manifest = json.loads(privacy.read_text(encoding="utf-8"))
+        report_path = package.package_dir / manifest["sanitization_report"]
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        report.pop("sanitized_assets")
+        report_path.write_text(json.dumps(report), encoding="utf-8")
+
+        with self.assertRaisesRegex(IntakeViolation, "SANITIZED_ASSET_NOT_DECLARED"):
+            record_photo_review(
+                output_root=self.output_root,
+                selection_path=selection,
+                privacy_manifest_path=privacy,
+                now=self.now,
+            )
+        metadata = json.loads(
+            (package.package_dir / "CANONICAL_PACKAGE_METADATA.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(metadata["lifecycle_state"], "photo_intake_pending")
+
+    def test_photo_review_ledger_failure_does_not_advance_canonical_lifecycle(self):
+        from video_engine_v2.current_artifacts import CurrentArtifactsViolation
+
+        package = self.create()
+        selection, privacy = self._write_photo_review_evidence(package)
+        self._add_sanitized_review_capture(package, selection, privacy)
+
+        with patch(
+            "video_engine_v2.current_artifacts.record_current_artifacts",
+            side_effect=CurrentArtifactsViolation("CURRENT_ARTIFACTS_LOCK_TIMEOUT"),
+        ):
+            with self.assertRaisesRegex(IntakeViolation, "CURRENT_ARTIFACTS_LOCK_TIMEOUT"):
+                record_photo_review(
+                    output_root=self.output_root,
+                    selection_path=selection,
+                    privacy_manifest_path=privacy,
+                    now=self.now,
+                )
+
+        metadata = json.loads(
+            (package.package_dir / "CANONICAL_PACKAGE_METADATA.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(metadata["lifecycle_state"], "photo_intake_pending")
+        self.assertFalse(metadata["approvals"]["photo_checked"])
 
     def test_photo_review_rejects_cropping_a_user_supplied_review_capture(self):
         package = self.create()
@@ -1639,7 +1789,7 @@ class ReviewReelIntakeTests(unittest.TestCase):
             "mp4_render_approved": True,
         }
 
-        with patch("video_engine_v2.package_state.map_legacy_package", return_value=completed_state):
+        with patch("video_engine_v2.package_state.map_package_state", return_value=completed_state):
             status = active_package_status(self.output_root)
 
         self.assertEqual(status["render_complete"], True)
@@ -1759,6 +1909,548 @@ class ReviewReelIntakeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("ACTIVE_PACKAGE_CONTENT_ID_MISMATCH", result.stderr)
         self.assertNotIn("PLANNING_RECIPE_MISSING", result.stderr)
+
+    def _photo_reviewed_status(self, package):
+        return {
+            "workflow": "review_reel_production",
+            "content_id": "004",
+            "lifecycle_state": "photo_reviewed",
+            "package": str(package.package_dir),
+            "next_action": "prepare_planning_script_tts",
+        }
+
+    def _write_incomplete_scaffold(self, package):
+        root = package.package_dir / "_work" / "recipe_scaffolds" / "revision_001"
+        root.mkdir(parents=True, exist_ok=True)
+        planning = {"scaffold": {"status": "incomplete", "pending_fields": ["analysis"]}}
+        edit = {"scaffold": {"status": "incomplete", "pending_fields": ["voice-bound timing and hashes"]}}
+        (root / "004_planning_recipe_scaffold.json").write_text(json.dumps(planning), encoding="utf-8")
+        (root / "004_edit_recipe_scaffold.json").write_text(json.dumps(edit), encoding="utf-8")
+
+    def _file_evidence(self, package, path: Path):
+        return {
+            "relative_path": path.relative_to(package.package_dir).as_posix(),
+            "bytes": path.stat().st_size,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+
+    def _write_valid_html_chain(self, package, *, folder="004_valid_html_preview_v2", record_ledger=True):
+        preview = package.package_dir / folder
+        preview.mkdir(parents=True, exist_ok=True)
+        image = package.package_dir / "images" / "after.jpg"
+        image.parent.mkdir(parents=True, exist_ok=True)
+        if not image.is_file():
+            image.write_bytes(b"dummy-image")
+        voice = package.package_dir / "voice.mp3"
+        if not voice.is_file():
+            voice.write_bytes(b"dummy-voice")
+        font = package.package_dir / "_work" / "dummy_font.ttf"
+        font.parent.mkdir(parents=True, exist_ok=True)
+        if not font.is_file():
+            font.write_bytes(b"dummy-font")
+        recipe = package.package_dir / f"{folder}_edit_recipe.json"
+        if not recipe.is_file():
+            recipe.write_text(json.dumps({"schema_version": "review-reel-edit-v2", "fixture": folder}), encoding="utf-8")
+        sync = package.package_dir / "sync_manifest_v6.json"
+        if not sync.is_file():
+            sync.write_text(json.dumps({"ok": True, "fixture": "bound-sync"}), encoding="utf-8")
+        html = preview / "index.html"
+        html.write_text("<!doctype html><html></html>", encoding="utf-8")
+        receipt = package.package_dir / "_work" / "production_gates" / f"{folder}_html_gate.json"
+        receipt.parent.mkdir(parents=True, exist_ok=True)
+        receipt.write_text(
+            json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "action": "html",
+                    "package_path": str(package.package_dir.resolve()),
+                    "recipe_path": str(recipe.resolve()),
+                    "recipe_sha256": hashlib.sha256(recipe.read_bytes()).hexdigest(),
+                    "sync_manifest_path": str(sync.resolve()),
+                    "sync_manifest_sha256": hashlib.sha256(sync.read_bytes()).hexdigest(),
+                    "one_shot_html_contract": True,
+                    "issued_at": "2030-01-02T03:04:05+00:00",
+                }
+            ),
+            encoding="utf-8",
+        )
+        evidence = {
+            "schema_version": "1.0",
+            "package_identity": {
+                "package_path": str(package.package_dir.resolve()),
+                "package_name": package.package_dir.name,
+            },
+            "html_relative_path": html.relative_to(package.package_dir).as_posix(),
+            "html_sha256": hashlib.sha256(html.read_bytes()).hexdigest(),
+            "html_gate_receipt_path": receipt.relative_to(package.package_dir).as_posix(),
+            "html_gate_receipt_sha256": hashlib.sha256(receipt.read_bytes()).hexdigest(),
+            "render_dependencies": [
+                {"kind": "image", "scope": "package", **self._file_evidence(package, image)},
+                {"kind": "voice", "scope": "package", **self._file_evidence(package, voice)},
+                {"kind": "font", "scope": "package", **self._file_evidence(package, font)},
+            ],
+        }
+        artifact_path = preview / "html_artifact_evidence.json"
+        artifact_path.write_text(json.dumps(evidence), encoding="utf-8")
+        frame = preview / "_qa_frames" / "hook.jpg"
+        frame.parent.mkdir(parents=True, exist_ok=True)
+        frame.write_bytes(b"dummy-frame")
+        qa_report = preview / "html_internal_qa_report.json"
+        qa_report.write_text(
+            json.dumps(
+                {
+                    "automatic_status": "pass",
+                    "checks": [{"frame_relative_path": "_qa_frames/hook.jpg"}],
+                    "hook_sequence_checks": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        if record_ledger:
+            from video_engine_v2.current_artifacts import record_current_artifacts
+
+            record_current_artifacts(
+                package.package_dir,
+                producer="tests.write_valid_html_chain",
+                artifacts={
+                    "html": html,
+                    "html_artifact_evidence": artifact_path,
+                    "html_qa_report": qa_report,
+                },
+            )
+        return html
+
+    def _write_bound_html_review(self, package, html: Path, *, name="html_review_20300102T030405000000Z.json"):
+        del name
+        preview = html.parent
+        qa_report = preview / "html_internal_qa_report.json"
+        frame = preview / "_qa_frames" / "hook.jpg"
+        frame.parent.mkdir(parents=True, exist_ok=True)
+        frame.write_bytes(b"dummy-frame")
+        qa_report.write_text(
+            json.dumps(
+                {
+                    "automatic_status": "pass",
+                    "checks": [{"frame_relative_path": "_qa_frames/hook.jpg"}],
+                    "hook_sequence_checks": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return record_html_review(
+            package_dir=package.package_dir,
+            html_path=html,
+            reviewer="fixture-reviewer",
+            evidence_reference="fixture-html-review",
+            checks=HTML_REVIEW_CHECKS,
+        )
+
+    def _guidance_for_photo_reviewed(self, package):
+        with patch(
+            "video_engine_v2.review_reel_intake.active_package_status",
+            return_value=self._photo_reviewed_status(package),
+        ):
+            return workflow_next(self.output_root)
+
+    def test_workflow_next_prefers_valid_html_over_incomplete_scaffold(self):
+        package = self.create()
+        self._write_incomplete_scaffold(package)
+        html = self._write_valid_html_chain(package)
+
+        guidance = self._guidance_for_photo_reviewed(package)
+
+        self.assertEqual(guidance["next_action"], "inspect_html_frames_then_record_review")
+        self.assertEqual(guidance["html_status"], "valid")
+        self.assertEqual(guidance["html"], str(html.resolve()))
+        self.assertFalse(guidance["approval_required"])
+
+    def test_workflow_next_marks_bare_html_stale_instead_of_approval_wait(self):
+        package = self.create()
+        self._write_incomplete_scaffold(package)
+        html = package.package_dir / "004_bare_html_preview_v2" / "index.html"
+        html.parent.mkdir(parents=True)
+        html.write_text("<!doctype html>", encoding="utf-8")
+        from video_engine_v2.current_artifacts import record_current_artifacts
+
+        record_current_artifacts(
+            package.package_dir,
+            producer="tests.bare_html",
+            artifacts={"html": html},
+        )
+
+        guidance = self._guidance_for_photo_reviewed(package)
+
+        self.assertEqual(guidance["next_action"], "stale_html")
+        self.assertEqual(guidance["html_status"], "stale_html")
+        self.assertEqual(guidance["stale_html_reason"], "html_ledger_chain_incomplete")
+        self.assertFalse(guidance["approval_required"])
+
+    def test_workflow_next_marks_html_sha_mismatch_stale(self):
+        package = self.create()
+        self._write_incomplete_scaffold(package)
+        html = self._write_valid_html_chain(package)
+        html.write_text("<!doctype html><html>changed</html>", encoding="utf-8")
+
+        guidance = self._guidance_for_photo_reviewed(package)
+
+        self.assertEqual(guidance["next_action"], "stale_html")
+        self.assertIn(
+            guidance["stale_html_reason"],
+            {
+                "html_sha256_mismatch",
+                "current_artifacts_hash_mismatch",
+                "current_artifacts_bytes_mismatch",
+            },
+        )
+        self.assertFalse(guidance["approval_required"])
+
+    def test_workflow_next_ignores_html_review_bound_to_a_different_html(self):
+        package = self.create()
+        self._write_incomplete_scaffold(package)
+        current = self._write_valid_html_chain(package, folder="004_current_html_preview_v2")
+        previous = self._write_valid_html_chain(
+            package, folder="004_previous_html_preview_v2", record_ledger=False
+        )
+        previous.write_text("<!doctype html><html>old</html>", encoding="utf-8")
+        self._write_bound_html_review(package, previous, name="html_review_old.json")
+
+        guidance = self._guidance_for_photo_reviewed(package)
+
+        self.assertEqual(guidance["next_action"], "inspect_html_frames_then_record_review")
+        self.assertEqual(guidance["html"], str(current.resolve()))
+        self.assertFalse(guidance["approval_required"])
+
+    def test_workflow_next_waits_for_html_approval_after_bound_manual_review(self):
+        package = self.create()
+        self._write_incomplete_scaffold(package)
+        html = self._write_valid_html_chain(package)
+        self._write_bound_html_review(package, html)
+
+        guidance = self._guidance_for_photo_reviewed(package)
+
+        self.assertEqual(guidance["next_action"], "wait_for_explicit_html_approval_then_record_it")
+        self.assertTrue(guidance["approval_required"])
+        self.assertIsNone(guidance["next_command"])
+
+    def test_workflow_next_does_not_use_unpointed_valid_html_review_or_approval(self):
+        from video_engine_v2.approval_evidence import record_html_approval
+
+        package = self.create()
+        self._write_incomplete_scaffold(package)
+        html = self._write_valid_html_chain(package)
+        self._write_bound_html_review(package, html)
+        ledger_path = package.package_dir / "CURRENT_ARTIFACTS.json"
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        del ledger["pointers"]["html_manual_review"]
+        ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+
+        guidance = self._guidance_for_photo_reviewed(package)
+        self.assertEqual(guidance["next_action"], "inspect_html_frames_then_record_review")
+
+        self._write_bound_html_review(package, html)
+        record_html_approval(
+            package_dir=package.package_dir,
+            html_path=html,
+            approved_by="fixture-user",
+            evidence_reference="fixture-html-approval",
+        )
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        del ledger["pointers"]["html_approval"]
+        ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+
+        guidance = self._guidance_for_photo_reviewed(package)
+        self.assertEqual(guidance["next_action"], "wait_for_explicit_html_approval_then_record_it")
+
+    def test_workflow_next_uses_scaffold_flow_when_html_is_absent(self):
+        package = self.create()
+        self._write_incomplete_scaffold(package)
+
+        guidance = self._guidance_for_photo_reviewed(package)
+
+        self.assertEqual(guidance["next_action"], "complete_scaffold_content_then_write_standard_script")
+        self.assertNotIn("html_status", guidance)
+
+    def test_workflow_next_marks_html_stale_when_bound_sync_changes(self):
+        package = self.create()
+        self._write_incomplete_scaffold(package)
+        self._write_valid_html_chain(package)
+        (package.package_dir / "sync_manifest_v6.json").write_text(
+            json.dumps({"ok": True, "fixture": "changed"}),
+            encoding="utf-8",
+        )
+
+        guidance = self._guidance_for_photo_reviewed(package)
+
+        self.assertEqual(guidance["next_action"], "stale_html")
+        self.assertEqual(guidance["stale_html_reason"], "html_gate_sync_mismatch")
+
+    def test_workflow_next_marks_html_stale_when_bound_recipe_changes(self):
+        package = self.create()
+        self._write_incomplete_scaffold(package)
+        html = self._write_valid_html_chain(package)
+        recipe = package.package_dir / f"{html.parent.name}_edit_recipe.json"
+        recipe.write_text(json.dumps({"schema_version": "review-reel-edit-v2", "fixture": "changed"}), encoding="utf-8")
+
+        guidance = self._guidance_for_photo_reviewed(package)
+
+        self.assertEqual(guidance["next_action"], "stale_html")
+        self.assertEqual(guidance["stale_html_reason"], "html_gate_recipe_mismatch")
+
+    def test_workflow_next_marks_html_stale_when_gate_package_path_is_wrong(self):
+        package = self.create()
+        self._write_incomplete_scaffold(package)
+        html = self._write_valid_html_chain(package)
+        receipt = package.package_dir / "_work" / "production_gates" / f"{html.parent.name}_html_gate.json"
+        payload = json.loads(receipt.read_text(encoding="utf-8"))
+        payload["package_path"] = str(self.root / "other-package")
+        receipt.write_text(json.dumps(payload), encoding="utf-8")
+        evidence_path = html.parent / "html_artifact_evidence.json"
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+        evidence["html_gate_receipt_sha256"] = hashlib.sha256(receipt.read_bytes()).hexdigest()
+        evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+        from video_engine_v2.current_artifacts import record_current_artifacts
+
+        record_current_artifacts(
+            package.package_dir,
+            producer="tests.refresh_invalid_artifact",
+            artifacts={"html_artifact_evidence": evidence_path},
+        )
+
+        guidance = self._guidance_for_photo_reviewed(package)
+
+        self.assertEqual(guidance["next_action"], "stale_html")
+        self.assertEqual(guidance["stale_html_reason"], "html_gate_package_mismatch")
+
+    def test_workflow_next_ignores_html_review_from_another_package_identity(self):
+        package = self.create()
+        self._write_incomplete_scaffold(package)
+        html = self._write_valid_html_chain(package)
+        preview = html.parent
+        qa_report = preview / "html_internal_qa_report.json"
+        frame = preview / "_qa_frames" / "hook.jpg"
+        frame.parent.mkdir(parents=True, exist_ok=True)
+        frame.write_bytes(b"dummy-frame")
+        qa_report.write_text(
+            json.dumps(
+                {
+                    "automatic_status": "pass",
+                    "checks": [{"frame_relative_path": "_qa_frames/hook.jpg"}],
+                    "hook_sequence_checks": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        receipt_dir = package.package_dir / "_work" / "manual_reviews"
+        receipt_dir.mkdir(parents=True, exist_ok=True)
+        (receipt_dir / "html_review_foreign.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "review-reel-manual-review-v1",
+                    "review_kind": "html",
+                    "status": "passed",
+                    "package_identity": {
+                        "package_path": str(self.root / "other-package"),
+                        "package_name": "other-package",
+                    },
+                    "reviewed_by": "fixture-reviewer",
+                    "evidence_reference": "foreign",
+                    "checks": sorted(HTML_REVIEW_CHECKS),
+                    "target": self._file_evidence(package, html),
+                    "artifact_evidence": self._file_evidence(package, preview / "html_artifact_evidence.json"),
+                    "qa_report": self._file_evidence(package, qa_report),
+                    "qa_frames": [self._file_evidence(package, frame)],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        guidance = self._guidance_for_photo_reviewed(package)
+
+        self.assertEqual(guidance["next_action"], "inspect_html_frames_then_record_review")
+        self.assertFalse(guidance["approval_required"])
+
+    def test_workflow_next_ignores_html_review_missing_required_checks(self):
+        package = self.create()
+        self._write_incomplete_scaffold(package)
+        html = self._write_valid_html_chain(package)
+        preview = html.parent
+        qa_report = preview / "html_internal_qa_report.json"
+        frame = preview / "_qa_frames" / "hook.jpg"
+        frame.parent.mkdir(parents=True, exist_ok=True)
+        frame.write_bytes(b"dummy-frame")
+        qa_report.write_text(
+            json.dumps(
+                {
+                    "automatic_status": "pass",
+                    "checks": [{"frame_relative_path": "_qa_frames/hook.jpg"}],
+                    "hook_sequence_checks": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        receipt_dir = package.package_dir / "_work" / "manual_reviews"
+        receipt_dir.mkdir(parents=True, exist_ok=True)
+        (receipt_dir / "html_review_incomplete.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "review-reel-manual-review-v1",
+                    "review_kind": "html",
+                    "status": "passed",
+                    "package_identity": {
+                        "package_path": str(package.package_dir.resolve()),
+                        "package_name": package.package_dir.name,
+                    },
+                    "reviewed_by": "fixture-reviewer",
+                    "evidence_reference": "incomplete",
+                    "checks": ["hook_sequence_reviewed"],
+                    "target": self._file_evidence(package, html),
+                    "artifact_evidence": self._file_evidence(package, preview / "html_artifact_evidence.json"),
+                    "qa_report": self._file_evidence(package, qa_report),
+                    "qa_frames": [self._file_evidence(package, frame)],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        guidance = self._guidance_for_photo_reviewed(package)
+
+        self.assertEqual(guidance["next_action"], "inspect_html_frames_then_record_review")
+        self.assertFalse(guidance["approval_required"])
+
+    def test_workflow_next_ignores_html_review_when_qa_frame_changes(self):
+        package = self.create()
+        self._write_incomplete_scaffold(package)
+        html = self._write_valid_html_chain(package)
+        self._write_bound_html_review(package, html)
+        (html.parent / "_qa_frames" / "hook.jpg").write_bytes(b"changed-frame")
+
+        guidance = self._guidance_for_photo_reviewed(package)
+
+        self.assertEqual(guidance["next_action"], "inspect_html_frames_then_record_review")
+        self.assertFalse(guidance["approval_required"])
+
+    def test_invalid_html_approval_does_not_unlock_render_via_mp4_approval_hash(self):
+        package = self.create()
+        self._write_incomplete_scaffold(package)
+        html = self._write_valid_html_chain(package)
+        self._write_bound_html_review(package, html)
+        approval = {
+            "schema_version": "1.0",
+            "package_identity": {
+                "package_path": str(package.package_dir.resolve()),
+                "package_name": package.package_dir.name,
+            },
+            "html_relative_path": html.relative_to(package.package_dir).as_posix(),
+            "html_sha256": "0" * 64,
+            "html_artifact_evidence_sha256": hashlib.sha256(
+                (html.parent / "html_artifact_evidence.json").read_bytes()
+            ).hexdigest(),
+            "approved_by_user": True,
+            "approved_at": "2030-01-02T03:06:05+00:00",
+            "approved_by": "fixture-user",
+            "approval_evidence_reference": "invalid-html-approval",
+        }
+        approval_path = package.package_dir / "HTML_APPROVAL.json"
+        approval_path.write_text(json.dumps(approval), encoding="utf-8")
+        (package.package_dir / "MP4_RENDER_APPROVAL.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": "review-reel-mp4-render-approval-v1",
+                    "package_identity": {
+                        "package_path": str(package.package_dir.resolve()),
+                        "package_name": package.package_dir.name,
+                    },
+                    "html_relative_path": html.relative_to(package.package_dir).as_posix(),
+                    "html_sha256": hashlib.sha256(html.read_bytes()).hexdigest(),
+                    "html_approval_relative_path": "HTML_APPROVAL.json",
+                    "html_approval_sha256": hashlib.sha256(approval_path.read_bytes()).hexdigest(),
+                    "approved_by_user": True,
+                    "approved_at": "2030-01-02T03:07:05+00:00",
+                    "approved_by": "fixture-user",
+                    "approval_evidence_reference": "hash-bound-to-invalid-html",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        guidance = self._guidance_for_photo_reviewed(package)
+
+        self.assertEqual(guidance["next_action"], "wait_for_explicit_html_approval_then_record_it")
+        self.assertNotEqual(guidance["next_action"], "start_or_check_durable_render_job")
+
+    def test_valid_html_review_and_approvals_follow_required_order(self):
+        from video_engine_v2.approval_evidence import record_html_approval, record_render_approval
+
+        package = self.create()
+        self._write_incomplete_scaffold(package)
+        html = self._write_valid_html_chain(package)
+        self.assertEqual(
+            self._guidance_for_photo_reviewed(package)["next_action"],
+            "inspect_html_frames_then_record_review",
+        )
+        self._write_bound_html_review(package, html)
+        self.assertEqual(
+            self._guidance_for_photo_reviewed(package)["next_action"],
+            "wait_for_explicit_html_approval_then_record_it",
+        )
+        record_html_approval(
+            package_dir=package.package_dir,
+            html_path=html,
+            approved_by="fixture-user",
+            evidence_reference="explicit-html-approval",
+        )
+        self.assertEqual(
+            self._guidance_for_photo_reviewed(package)["next_action"],
+            "wait_for_explicit_mp4_approval_then_record_it",
+        )
+        record_render_approval(
+            package_dir=package.package_dir,
+            html_path=html,
+            approved_by="fixture-user",
+            evidence_reference="explicit-mp4-approval",
+        )
+        self.assertEqual(
+            self._guidance_for_photo_reviewed(package)["next_action"],
+            "start_or_check_durable_render_job",
+        )
+
+    def test_route_cli_uses_output_root_to_detect_active_review_reel_package(self):
+        self.create()
+        script = Path(__file__).resolve().parents[1] / "scripts" / "review_reel_intake.py"
+        with_package = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "route",
+                "--user-command",
+                "진행해 그리고 렌더까지 해",
+                "--output-root",
+                str(self.output_root),
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+        without_root = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "route",
+                "--user-command",
+                "하이퍼프레임 렌더까지 해",
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+
+        self.assertEqual(with_package.returncode, 0)
+        self.assertEqual(json.loads(with_package.stdout)["state"], "mp4_render_intent_requested")
+        self.assertNotIn("approved", json.loads(with_package.stdout))
+        self.assertEqual(without_root.returncode, 0)
+        self.assertEqual(json.loads(without_root.stdout)["workflow"], "generic_review_content")
 
 
 if __name__ == "__main__":

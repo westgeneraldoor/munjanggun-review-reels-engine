@@ -30,11 +30,11 @@ ERROR_GUIDANCE: dict[str, dict[str, str]] = {
     },
     "RECIPE_SCAFFOLD_PLACEHOLDER_REMAINS": {
         "authority": "docs/review_recipe_contract_v2.md",
-        "how_to_fix": "Replace every TODO value and placeholder voice hash with review-grounded content and current generated-artifact hashes before marking the scaffold complete.",
+        "how_to_fix": "Replace every TODO content value with review-grounded writing. The official one-shot TTS command binds voice timing and hashes afterward.",
     },
-    "HOOK_SHOT_CAPTION_ALIGNMENT_INVALID": {
+    "VOICE_CAPTION_TIMELINE_STALE": {
         "authority": "docs/review_reels_visual_edit_standard_v1.md",
-        "how_to_fix": "Make the first three result-before-result shot boundaries exactly match three complete caption_chunks and spoken claims.",
+        "how_to_fix": "Regenerate official one-shot TTS with the current edit recipe so SRT and HTML caption chunks share the measured final-voice timeline.",
     },
     "CAPTION_ACCENT_VOICE_SYNC_INVALID": {
         "authority": "docs/review_reels_visual_edit_standard_v1.md",

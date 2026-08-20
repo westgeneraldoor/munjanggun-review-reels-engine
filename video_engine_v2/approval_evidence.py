@@ -240,6 +240,16 @@ def record_html_approval(
         evidence_reference=evidence_reference,
         clock=clock,
     )
+    from video_engine_v2.current_artifacts import CurrentArtifactsViolation, record_current_artifacts
+
+    try:
+        record_current_artifacts(
+            package,
+            producer="approval_evidence.record_html_approval",
+            artifacts={"html_approval": approval_path},
+        )
+    except CurrentArtifactsViolation as error:
+        raise ApprovalEvidenceViolation(str(error)) from error
     return approval_path
 
 
@@ -295,4 +305,14 @@ def record_render_approval(
         evidence_reference=evidence_reference,
         clock=clock,
     )
+    from video_engine_v2.current_artifacts import CurrentArtifactsViolation, record_current_artifacts
+
+    try:
+        record_current_artifacts(
+            package,
+            producer="approval_evidence.record_render_approval",
+            artifacts={"mp4_render_approval": render_approval},
+        )
+    except CurrentArtifactsViolation as error:
+        raise ApprovalEvidenceViolation(str(error)) from error
     return render_approval

@@ -91,6 +91,11 @@ dependency를 먼저 불러 그 Python 실행경로로 같은 공식 CLI를 실�
 `html_approval_and_mp4_render_intent_requested`로만 분류하며, 실제 권한은 아래 공식
 approval record가 현재 HTML 해시에 결속된 뒤에만 생긴다.
 
+신규 official intake 패키지는 `CURRENT_ARTIFACTS.json` ledger-enabled다. ledger는
+현재 artifact 포인터만 가지며 승인을 대체하지 않는다. ledger 없는 기존 패키지와
+120은 migration하지 않고 1A evidence-bound 판정을 유지한다. 상세는
+`docs/review_reel_current_artifacts_contract_v1.md`를 따른다.
+
 새 세션은 파일을 쓰기 전에 `review_reel_intake.py status --output-root "output"`으로
 활성 `content_id`와 package를 확인합니다. `photo-review`와 `one-shot-html`에는 그 값을
 `--expected-content-id`로 반드시 다시 넣습니다. 활성 pointer가 다른 리뷰를 가리키면
@@ -159,8 +164,9 @@ one-shot의 창작 기준은 `docs/review_reels_content_standard_v1.md`, 화면�
 본문 자막은 medium 크기를 유지합니다. 발음용 `삼 연동 중문`은 화면에서 공식 제품명
 `3연동중문`으로 표시할 수 있으며 리뷰 밑줄은 장면 진입 즉시 짧게 그어져야 합니다.
 자막 chunk는 음성의 문장 끝에서 함께 끊고 끝난 문장 뒤에 다음 문장 조각을 붙이지 않습니다.
-완성→이전→완성 훅의 첫 3개 shot은 각각 하나의 완결된 음성·자막 주장과 같은 시간 경계를
-사용하고, shot별 사진 근거와 해당 발화 조각을 `meaning_match_source`로 결속합니다.
+완성→이전→완성 훅의 첫 3개 shot은 사진 경계와 자막 경계를 강제로 같게 하지 않습니다.
+대상·상황·변화를 보존한 한 완결 문장이 세 사진을 가로지를 수 있으며, shot별 사진 근거와
+해당 발화 문맥은 계속 `meaning_match_source`로 결속합니다.
 `context`, `choice_turn`, 실측, 공정 설명은 고정 장면이 아니며 리뷰와 사진에 실제
 근거가 있을 때만 넣는다. 공식 음성은 Gemini TTS `Sulafat`이며 Windows SAPI 등
 임시 음성은 production HTML에 연결하지 않는다.
@@ -200,7 +206,7 @@ v2 production의 유일한 공식 진입점은 아래 오케스트레이터입�
 
 ```powershell
 # 0. one-shot HTML용 표준 SRT 및 Gemini/Sulafat 최종 음성 생성
-python scripts/generate_one_shot_tts.py --package "<output review package>" --planning "<planning_recipe.json>" --script "<*_script.md>"
+python scripts/generate_one_shot_tts.py --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --script "<*_script.md>"
 
 # 0.5. 실제 음성을 듣고 발음·톤·자막 싱크를 확인한 뒤 해시 결속 영수증 기록
 python scripts/produce_review_v2.py voice-review-record --package "<output review package>" --voice "<voice.mp3>" --srt "<captions.srt>" --tts-report "<_work/tts_generation_report.json>" --reviewer "<reviewer>" --evidence-reference "<review evidence>" --check pronunciation_clear --check tone_approved --check caption_sync_approved

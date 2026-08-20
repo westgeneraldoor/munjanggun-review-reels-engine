@@ -116,7 +116,18 @@ def record_voice_review(
     tts_report = _inside(package, tts_report_path, code="VOICE_REVIEW_REPORT_OUTSIDE_PACKAGE")
     _read_json(tts_report, code="VOICE_REVIEW_REPORT_INVALID")
     receipt["tts_report"] = _file_evidence(tts_report, package)
-    return _write_receipt(package, "voice", receipt)
+    path = _write_receipt(package, "voice", receipt)
+    from video_engine_v2.current_artifacts import CurrentArtifactsViolation, record_current_artifacts
+
+    try:
+        record_current_artifacts(
+            package,
+            producer="manual_review.record_voice_review",
+            artifacts={"voice_manual_review": path},
+        )
+    except CurrentArtifactsViolation as error:
+        raise ManualReviewViolation(str(error)) from error
+    return path
 
 
 def record_html_review(
@@ -151,7 +162,18 @@ def record_html_review(
         frame = _inside(package, preview / value, code="HTML_REVIEW_FRAME_OUTSIDE_PACKAGE")
         frames.append(_file_evidence(frame, package))
     receipt["qa_frames"] = frames
-    return _write_receipt(package, "html", receipt)
+    path = _write_receipt(package, "html", receipt)
+    from video_engine_v2.current_artifacts import CurrentArtifactsViolation, record_current_artifacts
+
+    try:
+        record_current_artifacts(
+            package,
+            producer="manual_review.record_html_review",
+            artifacts={"html_manual_review": path},
+        )
+    except CurrentArtifactsViolation as error:
+        raise ManualReviewViolation(str(error)) from error
+    return path
 
 
 def record_render_review(
@@ -185,4 +207,15 @@ def record_render_review(
     if not frames:
         raise ManualReviewViolation("RENDER_REVIEW_QA_FRAMES_MISSING")
     receipt["qa_frames"] = frames
-    return _write_receipt(package, "render", receipt)
+    path = _write_receipt(package, "render", receipt)
+    from video_engine_v2.current_artifacts import CurrentArtifactsViolation, record_current_artifacts
+
+    try:
+        record_current_artifacts(
+            package,
+            producer="manual_review.record_render_review",
+            artifacts={"render_manual_review": path},
+        )
+    except CurrentArtifactsViolation as error:
+        raise ManualReviewViolation(str(error)) from error
+    return path

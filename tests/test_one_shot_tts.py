@@ -64,7 +64,12 @@ class OneShotTTSTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
-        self.package = Path(self.tempdir.name) / "117_한달사용후변화_20260731_040457"
+        # Windows에서 사용자 이름이 8자를 넘으면 임시 경로가 `RUNNER~1` 같은 8.3
+        # 단축형으로 나온다. 제품 코드는 경로를 resolve해서 돌려주므로, 여기서도
+        # resolve해 두지 않으면 같은 폴더인데도 relative_to가 실패한다.
+        self.package = (
+            Path(self.tempdir.name).resolve() / "117_한달사용후변화_20260731_040457"
+        )
         self.package.mkdir()
         self.source_text = "한 달 정도 사용해 보니 슬라이딩이 부드럽고 소음이 적어 만족스럽습니다."
         source_hash = hashlib.sha256(self.source_text.encode("utf-8")).hexdigest()
@@ -118,6 +123,37 @@ class OneShotTTSTests(unittest.TestCase):
         )
         self.script = self.package / "117_month_later_gold_v2_script.md"
         self.script.write_text(SCRIPT, encoding="utf-8")
+        self.edit = self.package / "117_gold_edit_recipe.json"
+        sections = [
+            (0, 3, "같은 고객님이 한 달 뒤, 별 다섯 개를 또 남겼습니다."),
+            (3, 7, "처음에는 집 분위기가 달라졌다고 했고요."),
+            (7, 11, "진짜 궁금한 건 한 달을 써본 뒤였습니다."),
+            (11, 16, "슬라이딩은 여전히 부드럽고 소음도 적었습니다."),
+            (16, 21, "채광이 좋아 실내도 한층 밝아졌습니다."),
+            (21, 25, "한 달 뒤에도 만족은 그대로였습니다. 문장군 리뷰에서 가져왔어요."),
+        ]
+        self.edit.write_text(
+            json.dumps(
+                {
+                    "source": {},
+                    "audio_plan": {"tts_text_sha256": "0" * 64, "final_voice_sha256": "0" * 64},
+                    "beats": [
+                        {
+                            "id": f"b{index:02}",
+                            "time": [start, end],
+                            "caption_start_sec": start,
+                            "narration_start_sec": start,
+                            "narration_ref": text,
+                            "caption_chunks": [{"text": text, "start_sec": start, "end_sec": end}],
+                            "shots": [{"asset_id": "fixture", "start_sec": start, "end_sec": end}],
+                        }
+                        for index, (start, end, text) in enumerate(sections, start=1)
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
 
     def fake_voice(self, script_text: str, output_folder: Path, artifact_stem: str) -> Path:
         import generate
@@ -151,17 +187,57 @@ class OneShotTTSTests(unittest.TestCase):
             result = generate_one_shot_tts(
                 package_dir=self.package,
                 planning_path=self.planning,
+                edit_path=self.edit,
                 script_path=self.script,
             )
 
         self.assertEqual(result["voice"].name, "117_month_later_gold_v2_voice.mp3")
         self.assertEqual(result["srt"].name, "117_month_later_gold_v2.srt")
         self.assertTrue(result["tts_report"].is_file())
+        edit = json.loads(self.edit.read_text(encoding="utf-8"))
+        report = json.loads(result["tts_report"].read_text(encoding="utf-8"))
+        self.assertEqual(edit["beats"][-1]["time"][1], 25.0)
+        self.assertEqual(report["caption_timeline_schema"], "review-reel-voice-caption-timeline-v1")
+        self.assertEqual(
+            [(item["start_sec"], item["end_sec"]) for item in report["caption_timeline"]],
+            [
+                (chunk["start_sec"], chunk["end_sec"])
+                for beat in edit["beats"]
+                for chunk in beat["caption_chunks"]
+            ],
+        )
+        self.assertIn("00:00:21,000 --> 00:00:25,000", result["srt"].read_text(encoding="utf-8"))
         metadata = json.loads(
             (self.package / "CANONICAL_PACKAGE_METADATA.json").read_text(encoding="utf-8")
         )
         self.assertFalse(metadata["approvals"]["html_scope_authorized"])
         self.assertFalse(metadata["approvals"]["mp4_scope_authorized"])
+
+    def test_ledger_enabled_package_records_the_actual_tts_writer_outputs(self):
+        from video_engine_v2.current_artifacts import SCHEMA_VERSION, initialize_ledger, read_ledger
+
+        metadata_path = self.package / "CANONICAL_PACKAGE_METADATA.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["current_artifacts_contract"] = SCHEMA_VERSION
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        initialize_ledger(self.package)
+
+        with patch("video_engine_v2.one_shot_tts.generate.generate_voice", side_effect=self.fake_voice):
+            result = generate_one_shot_tts(
+                package_dir=self.package,
+                planning_path=self.planning,
+                edit_path=self.edit,
+                script_path=self.script,
+            )
+
+        pointers = read_ledger(self.package)["pointers"]
+        self.assertEqual(pointers["script"]["relative_path"], self.script.name)
+        self.assertEqual(pointers["captions"]["relative_path"], result["srt"].name)
+        self.assertEqual(pointers["voice"]["relative_path"], result["voice"].name)
+        self.assertEqual(
+            pointers["tts_report"]["relative_path"],
+            result["tts_report"].relative_to(self.package).as_posix(),
+        )
 
     def test_rejects_a_package_that_has_not_passed_official_photo_review(self):
         metadata_path = self.package / "CANONICAL_PACKAGE_METADATA.json"
@@ -174,6 +250,7 @@ class OneShotTTSTests(unittest.TestCase):
             generate_one_shot_tts(
                 package_dir=self.package,
                 planning_path=self.planning,
+                edit_path=self.edit,
                 script_path=self.script,
             )
 
@@ -186,6 +263,7 @@ class OneShotTTSTests(unittest.TestCase):
             generate_one_shot_tts(
                 package_dir=self.package,
                 planning_path=self.planning,
+                edit_path=self.edit,
                 script_path=self.script,
             )
 
@@ -197,6 +275,7 @@ class OneShotTTSTests(unittest.TestCase):
             generate_one_shot_tts(
                 package_dir=self.package,
                 planning_path=self.planning,
+                edit_path=self.edit,
                 script_path=self.script,
             )
 
