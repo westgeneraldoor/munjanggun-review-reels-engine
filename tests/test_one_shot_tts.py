@@ -64,7 +64,12 @@ class OneShotTTSTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
-        self.package = Path(self.tempdir.name) / "117_한달사용후변화_20260731_040457"
+        # Windows에서 사용자 이름이 8자를 넘으면 임시 경로가 `RUNNER~1` 같은 8.3
+        # 단축형으로 나온다. 제품 코드는 경로를 resolve해서 돌려주므로, 여기서도
+        # resolve해 두지 않으면 같은 폴더인데도 relative_to가 실패한다.
+        self.package = (
+            Path(self.tempdir.name).resolve() / "117_한달사용후변화_20260731_040457"
+        )
         self.package.mkdir()
         self.source_text = "한 달 정도 사용해 보니 슬라이딩이 부드럽고 소음이 적어 만족스럽습니다."
         source_hash = hashlib.sha256(self.source_text.encode("utf-8")).hexdigest()
