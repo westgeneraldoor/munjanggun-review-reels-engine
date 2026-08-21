@@ -9,6 +9,14 @@ from build_html_preview_v2 import TEMPLATE_PATH, render_preview_html
 
 
 class HtmlPreviewTemplateTests(unittest.TestCase):
+    def test_review_capture_card_stays_above_the_bottom_caption_zone(self):
+        template = TEMPLATE_PATH.read_text(encoding="utf-8")
+
+        review_rule = re.search(r"(?m)^    \.review-card \{(?P<body>.*?)^    \}", template, re.DOTALL | re.MULTILINE)
+
+        self.assertIsNotNone(review_rule)
+        self.assertIn("top: 32%;", review_rule.group("body"))
+
     def test_template_is_external_and_recipe_json_cannot_terminate_its_script_tag(self):
         recipe = {
             "title": "테스트",
