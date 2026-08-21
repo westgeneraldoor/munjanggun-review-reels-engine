@@ -117,6 +117,37 @@ class RecipeScaffoldTests(unittest.TestCase):
         self.assertEqual(args.command, "recipe-scaffold")
         self.assertEqual(args.expected_content_id, "120")
 
+    def test_official_intake_cli_exposes_voice_reuse_fork_and_check(self):
+        fork = intake_cli.build_parser().parse_args(
+            [
+                "recipe-fork-reuse-voice",
+                "--output-root",
+                "output",
+                "--expected-content-id",
+                "122",
+                "--planning",
+                "planning.json",
+                "--edit",
+                "edit.json",
+            ]
+        )
+        check = intake_cli.build_parser().parse_args(
+            [
+                "voice-reuse-check",
+                "--output-root",
+                "output",
+                "--expected-content-id",
+                "122",
+                "--edit",
+                "edit-v2.json",
+            ]
+        )
+
+        self.assertEqual(fork.command, "recipe-fork-reuse-voice")
+        self.assertEqual(fork.expected_content_id, "122")
+        self.assertEqual(check.command, "voice-reuse-check")
+        self.assertEqual(check.edit, "edit-v2.json")
+
     def test_official_intake_cli_exposes_central_workflow_next_command(self):
         args = intake_cli.build_parser().parse_args(
             ["workflow-next", "--output-root", "output"]

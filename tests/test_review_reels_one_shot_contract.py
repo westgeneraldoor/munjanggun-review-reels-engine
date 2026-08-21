@@ -6,6 +6,7 @@ from pathlib import Path
 from video_engine_v2.reels_qa import (
     canonical_tts_input_narration,
     validate_html_preflight,
+    validate_review_reels_one_shot_authoring,
     validate_review_reels_one_shot_contract,
 )
 
@@ -18,6 +19,28 @@ def load_fixture():
 
 
 class ReviewReelsOneShotContractTest(unittest.TestCase):
+    def test_authoring_check_defers_voice_artifacts_but_reports_all_structural_failures(self):
+        fixture = load_fixture()
+        source = fixture["edit"]["source"]
+        source["srt"] = ""
+        source["tts_generation_report"] = ""
+        fixture["edit"]["audio_plan"].pop("final_voice_is_master", None)
+        fixture["edit"]["audio_plan"].pop("tts_text_matches_narration", None)
+        fixture["edit"]["audio_plan"]["tts_text_sha256"] = ""
+        fixture["edit"]["audio_plan"]["final_voice_sha256"] = ""
+
+        clean = validate_review_reels_one_shot_authoring(fixture["planning"], fixture["edit"])
+        self.assertTrue(clean["ok"], clean["issues"])
+
+        fixture["edit"]["beats"][0]["time"] = [0, 8]
+        fixture["edit"]["beats"][6]["time"] = [24, 31]
+        broken = validate_review_reels_one_shot_authoring(fixture["planning"], fixture["edit"])
+        codes = {issue["code"] for issue in broken["issues"]}
+        self.assertIn("OPENING_BEAT_TOO_LONG", codes)
+        self.assertIn("REVIEW_PROOF_DWELL_TOO_LONG", codes)
+        self.assertNotIn("TTS_PROVENANCE_MISSING", codes)
+        self.assertNotIn("TTS_EVIDENCE_HASH_MISSING", codes)
+
     def apply_calm_c_visual_language(self, fixture):
         motion_rows = (
             ("calm_push_in", "calm_push_in", "calm_push_in"),

@@ -12,6 +12,31 @@ from video_engine_v2.render_job import create_job_record
 
 
 class ProduceReviewV2SubprocessTest(unittest.TestCase):
+    def test_layout_check_uses_a_disposable_probe_before_official_html(self):
+        with TemporaryDirectory() as temporary:
+            package = Path(temporary) / "122_package"
+            package.mkdir()
+            edit = package / "122_edit_recipe_v4.json"
+            edit.write_text("{}", encoding="utf-8")
+            stdout = io.StringIO()
+
+            with (
+                patch.object(
+                    produce_review_v2,
+                    "run_layout_precheck",
+                    return_value={"status": "pass", "checks": []},
+                ) as precheck,
+                redirect_stdout(stdout),
+            ):
+                result = produce_review_v2.main(
+                    ["layout-check", "--package", str(package), "--edit", str(edit)]
+                )
+
+            self.assertEqual(result, 0)
+            self.assertEqual(json.loads(stdout.getvalue())["status"], "pass")
+            precheck.assert_called_once_with(edit, engine_font_path=None)
+            self.assertEqual(sorted(path.name for path in package.iterdir()), [edit.name])
+
     def test_parser_exposes_background_start_and_status_commands(self):
         parser = produce_review_v2.build_parser()
         start = parser.parse_args(

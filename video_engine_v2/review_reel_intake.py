@@ -2036,6 +2036,66 @@ def write_recipe_scaffold(*, output_root: str | Path, expected_content_id: str) 
     }
 
 
+def fork_active_recipe_for_voice_reuse(
+    *,
+    output_root: str | Path,
+    expected_content_id: str,
+    planning_path: str | Path,
+    edit_path: str | Path,
+) -> dict[str, Any]:
+    """Fork one active package recipe without changing its current audio pointers."""
+
+    from video_engine_v2.recipe_revision import (
+        RecipeRevisionViolation,
+        fork_recipe_for_voice_reuse,
+    )
+
+    package = resolve_active_package(output_root)
+    _assert_expected_content_id(package, expected_content_id)
+    try:
+        result = fork_recipe_for_voice_reuse(
+            package.package_dir,
+            planning_path=planning_path,
+            edit_path=edit_path,
+        )
+    except RecipeRevisionViolation as error:
+        raise IntakeViolation(str(error)) from error
+    result.update(
+        {
+            "workflow": "review_reel_production",
+            "content_id": str(package.metadata.get("content_id") or ""),
+            "package": str(package.package_dir),
+        }
+    )
+    return result
+
+
+def check_active_voice_reuse(
+    *,
+    output_root: str | Path,
+    expected_content_id: str,
+    edit_path: str | Path,
+) -> dict[str, Any]:
+    """Read-only voice-reuse verdict for the active canonical package."""
+
+    from video_engine_v2.recipe_revision import RecipeRevisionViolation, check_voice_reuse_candidate
+
+    package = resolve_active_package(output_root)
+    _assert_expected_content_id(package, expected_content_id)
+    try:
+        result = check_voice_reuse_candidate(package.package_dir, edit_path)
+    except RecipeRevisionViolation as error:
+        raise IntakeViolation(str(error)) from error
+    result.update(
+        {
+            "workflow": "review_reel_production",
+            "content_id": str(package.metadata.get("content_id") or ""),
+            "package": str(package.package_dir),
+        }
+    )
+    return result
+
+
 def _file_evidence(path: Path, *, relative_to: Path) -> dict[str, Any]:
     return {
         "relative_path": path.resolve().relative_to(relative_to.resolve()).as_posix(),
@@ -2678,7 +2738,7 @@ def build_one_shot_html_commands(
     edit_path: str | Path,
     privacy_manifest_path: str | Path,
 ) -> list[list[str]]:
-    """Return only the two official, MP4-free one-shot production commands."""
+    """Return the disposable layout check and two official MP4-free HTML commands."""
 
     package = resolve_active_package(output_root)
     if expected_content_id is not None:
@@ -2703,6 +2763,15 @@ def build_one_shot_html_commands(
     ]
     official = str(REPOSITORY_ROOT / "scripts" / "produce_review_v2.py")
     return [
+        [
+            sys.executable,
+            official,
+            "layout-check",
+            "--package",
+            str(package.package_dir),
+            "--edit",
+            str(edit),
+        ],
         [sys.executable, official, "preflight", *shared],
         [sys.executable, official, "html", *shared],
     ]
@@ -2716,7 +2785,7 @@ def run_one_shot_html(
     edit_path: str | Path,
     privacy_manifest_path: str | Path,
 ) -> int:
-    """Run the preflight then HTML official entry points; never render an MP4."""
+    """Run layout check, preflight, then HTML; never render an MP4."""
 
     for command in build_one_shot_html_commands(
         output_root=output_root,

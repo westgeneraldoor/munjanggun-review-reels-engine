@@ -11,6 +11,7 @@ from pathlib import Path
 import secrets
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -48,6 +49,41 @@ from video_engine_v2.approval_evidence import (  # noqa: E402
     record_render_approval,
 )
 from video_engine_v2.current_artifacts import CurrentArtifactsViolation  # noqa: E402
+
+
+def run_layout_precheck(
+    edit_path: str | Path,
+    *,
+    engine_font_path: str | Path | None = None,
+) -> dict:
+    """Measure every caption chunk in the real template without creating official artifacts."""
+    from build_html_preview_v2 import build_layout_probe
+
+    resolved_edit = Path(edit_path).resolve()
+    with tempfile.TemporaryDirectory(prefix="review-reel-layout-") as temporary:
+        probe_path = build_layout_probe(
+            resolved_edit,
+            Path(temporary) / "probe",
+            engine_font_path,
+        )
+        command = [
+            "node",
+            str(ROOT / "scripts" / "html-layout-precheck.mjs"),
+            "--html",
+            str(probe_path),
+            "--edit",
+            str(resolved_edit),
+        ]
+        result = run_utf8_capture(command, cwd=ROOT)
+        try:
+            report = json.loads(result.stdout)
+        except json.JSONDecodeError as error:
+            detail = result.stderr.strip() or result.stdout.strip() or "LAYOUT_PRECHECK_NO_REPORT"
+            raise GateViolation(f"LAYOUT_PRECHECK_INVALID_REPORT:{detail}") from error
+        if result.returncode not in (0, 2):
+            detail = result.stderr.strip() or "LAYOUT_PRECHECK_EXECUTION_FAILED"
+            raise GateViolation(detail)
+        return report
 
 
 def configure_utf8_output() -> None:
@@ -212,6 +248,13 @@ def build_parser() -> argparse.ArgumentParser:
     _common_arguments(html, include_recipes=True)
     html.add_argument("--engine-font", help="repository-contained font dependency injection")
     html.add_argument("--one-shot-html", action="store_true", help="Require the HTML-only one-shot recipe contract")
+    layout_check = commands.add_parser(
+        "layout-check",
+        help="Measure caption layout in a disposable real-template probe before official HTML",
+    )
+    layout_check.add_argument("--package", required=True)
+    layout_check.add_argument("--edit", required=True)
+    layout_check.add_argument("--engine-font", help="repository-contained font dependency injection")
     render_start = commands.add_parser("render-start", help="Start a durable background render job and return immediately")
     _common_arguments(render_start, include_recipes=False)
     render_start.add_argument("--html", required=True)
@@ -265,6 +308,14 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     args = build_parser().parse_args(effective_argv)
     try:
+        if args.command == "layout-check":
+            package = Path(args.package).resolve()
+            edit = Path(args.edit).resolve()
+            if not edit.is_relative_to(package):
+                raise GateViolation("EDIT_PATH_OUTSIDE_PACKAGE")
+            report = run_layout_precheck(edit, engine_font_path=args.engine_font)
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            return 0 if report.get("status") == "pass" else 2
         if args.command == "html-approval-record":
             print(
                 record_html_approval(

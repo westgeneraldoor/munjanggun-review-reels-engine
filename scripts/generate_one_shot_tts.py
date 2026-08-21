@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import sys
 
@@ -16,6 +17,17 @@ from video_engine_v2.one_shot_tts import (  # noqa: E402
     calibrate_one_shot_timeline,
     generate_one_shot_tts,
 )
+from video_engine_v2.reels_qa import validate_review_reels_one_shot_authoring  # noqa: E402
+
+
+def _read_recipe(path: str, *, code: str) -> dict:
+    try:
+        value = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise OneShotTTSViolation(code) from error
+    if not isinstance(value, dict):
+        raise OneShotTTSViolation(code)
+    return value
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -30,6 +42,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lead-in-sec", type=float, default=0.4)
     args = parser.parse_args(argv)
     try:
+        authoring = validate_review_reels_one_shot_authoring(
+            _read_recipe(args.planning, code="PLANNING_RECIPE_INVALID"),
+            _read_recipe(args.edit, code="EDIT_RECIPE_INVALID"),
+        )
+        if not authoring["ok"]:
+            codes = ",".join(
+                sorted({str(issue.get("code") or "") for issue in authoring["issues"]})
+            )
+            raise OneShotTTSViolation(f"AUTHORING_CHECK_FAILED:{codes}")
         calibration_inputs = (
             args.calibrate_from_voice,
             args.calibrate_from_report,

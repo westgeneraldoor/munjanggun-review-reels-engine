@@ -54,7 +54,19 @@ ERROR_GUIDANCE: dict[str, dict[str, str]] = {
     },
     "VOICE_CAPTION_TIMELINE_STALE": {
         "authority": "docs/review_reels_visual_edit_standard_v1.md",
-        "how_to_fix": "Regenerate official one-shot TTS with the current edit recipe so SRT and HTML caption chunks share the measured final-voice timeline.",
+        "how_to_fix": "Do not regenerate by default. If narration and the complete caption timeline are unchanged, fork a new recipe revision and reuse the intact voice/SRT/report evidence. If caption chunks or timing changed, use a valid measured alignment with the official calibration path; regenerate only when no valid alignment exists.",
+    },
+    "BOUND_RECIPE_MODIFIED": {
+        "authority": "docs/review_reels_one_shot_contract_v2.md",
+        "how_to_fix": "The TTS report's original edit recipe changed after binding. Do not keep editing or weaken the hash gate. Start from an intact bound revision, fork a new recipe revision, and reuse its voice evidence only after the official reuse check passes.",
+    },
+    "AUTHORING_CHECK_FAILED": {
+        "authority": "docs/review_reels_one_shot_contract_v2.md",
+        "how_to_fix": "Fix every reported structural contract code before calling Gemini TTS. This check intentionally runs before SRT, voice, or TTS-report evidence exists so one authoring pass can repair the complete recipe.",
+    },
+    "TTS_ATTEMPT_BUDGET_EXCEEDED": {
+        "authority": "docs/review_reels_one_shot_contract_v2.md",
+        "how_to_fix": "Stop production after two Gemini/Sulafat API generations for the same canonical narration hash. Inspect why the prior revisions failed; reuse intact voice evidence for visual-only changes or change the narration deliberately before any further generation.",
     },
     "CAPTION_ACCENT_VOICE_SYNC_INVALID": {
         "authority": "docs/review_reels_visual_edit_standard_v1.md",

@@ -147,9 +147,21 @@ fragment. The bounded transition palette is `calm_dissolve`, `calm_slide`
 on `calm_dissolve`.
 
 ```powershell
+python scripts/review_reel_intake.py recipe-fork-reuse-voice --output-root "output" --expected-content-id "<content-id>" --planning "<bound planning_recipe.json>" --edit "<bound edit_recipe.json>"
+python scripts/review_reel_intake.py voice-reuse-check --output-root "output" --expected-content-id "<content-id>" --edit "<new edit_recipe.json>"
+python scripts/generate_one_shot_tts.py --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --script "<*_script.md>"
+python scripts/produce_review_v2.py layout-check --package "<output review package>" --edit "<edit_recipe.json>"
 python scripts/produce_review_v2.py preflight --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --one-shot-html
 python scripts/produce_review_v2.py html --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --one-shot-html
 ```
+
+The TTS command runs the full structural authoring check before any API call.
+Successful TTS binds and locks that edit revision. Visual-only changes use a
+new fork plus the official reuse check; changed narration creates new TTS, and
+changed caption timing requires measured alignment. A third Gemini/Sulafat API
+generation for the same narration hash is blocked. `layout-check` uses the real
+template in a disposable directory and writes no production preview or QA
+evidence; manual representative-frame review remains mandatory after HTML.
 
 The strict contract requires photo/privacy evidence, an actual review capture,
 the event-to-CTA narrative sequence, direct visual relevance, readable

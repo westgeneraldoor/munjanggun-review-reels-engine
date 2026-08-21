@@ -992,7 +992,7 @@ def _validate_one_shot_tts_provenance(package_dir: Path, edit_recipe: dict[str, 
         outside_code="VOICE_CAPTION_TIMELINE_INVALID",
     )
     if report.get("edit_recipe_sha256") != _sha256(edit_path):
-        raise GateViolation("VOICE_CAPTION_TIMELINE_STALE")
+        raise GateViolation("BOUND_RECIPE_MODIFIED")
     expected_timeline = []
     for beat in edit_recipe.get("beats") or []:
         if not isinstance(beat, dict):

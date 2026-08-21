@@ -27,6 +27,8 @@ from video_engine_v2.review_reel_intake import (  # noqa: E402
     shortlist_material_bank_candidates,
     workflow_next,
     write_recipe_scaffold,
+    fork_active_recipe_for_voice_reuse,
+    check_active_voice_reuse,
 )
 from video_engine_v2.qa_guidance import explain_error  # noqa: E402
 
@@ -108,6 +110,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     scaffold.add_argument("--output-root", required=True)
     scaffold.add_argument("--expected-content-id", required=True)
+    recipe_fork = commands.add_parser(
+        "recipe-fork-reuse-voice",
+        help="Create the next immutable-safe planning/edit revision while retaining current voice evidence",
+    )
+    recipe_fork.add_argument("--output-root", required=True)
+    recipe_fork.add_argument("--expected-content-id", required=True)
+    recipe_fork.add_argument("--planning", required=True)
+    recipe_fork.add_argument("--edit", required=True)
+    reuse_check = commands.add_parser(
+        "voice-reuse-check",
+        help="Read-only proof that a revised edit can retain the current voice/SRT/report",
+    )
+    reuse_check.add_argument("--output-root", required=True)
+    reuse_check.add_argument("--expected-content-id", required=True)
+    reuse_check.add_argument("--edit", required=True)
     one_shot = commands.add_parser("one-shot-html", help="Resolve the active package and run official one-shot HTML")
     one_shot.add_argument("--output-root", required=True)
     one_shot.add_argument("--expected-content-id", required=True)
@@ -244,6 +261,31 @@ def main(argv: list[str] | None = None) -> int:
                     write_recipe_scaffold(
                         output_root=args.output_root,
                         expected_content_id=args.expected_content_id,
+                    ),
+                    ensure_ascii=False,
+                )
+            )
+            return 0
+        if args.command == "recipe-fork-reuse-voice":
+            print(
+                json.dumps(
+                    fork_active_recipe_for_voice_reuse(
+                        output_root=args.output_root,
+                        expected_content_id=args.expected_content_id,
+                        planning_path=args.planning,
+                        edit_path=args.edit,
+                    ),
+                    ensure_ascii=False,
+                )
+            )
+            return 0
+        if args.command == "voice-reuse-check":
+            print(
+                json.dumps(
+                    check_active_voice_reuse(
+                        output_root=args.output_root,
+                        expected_content_id=args.expected_content_id,
+                        edit_path=args.edit,
                     ),
                     ensure_ascii=False,
                 )

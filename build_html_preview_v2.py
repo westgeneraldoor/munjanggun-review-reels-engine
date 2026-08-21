@@ -64,6 +64,42 @@ def render_preview_html(
     )
 
 
+def build_layout_probe(
+    recipe_path: Path,
+    destination_dir: Path,
+    engine_font_path: str | Path | None = None,
+) -> Path:
+    """Render the real template into a disposable directory without production evidence."""
+    recipe_path = recipe_path.resolve()
+    recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
+    package_dir = recipe_path.parent
+    destination_dir = destination_dir.resolve()
+    destination_dir.mkdir(parents=True, exist_ok=False)
+    font_path = resolve_engine_font_path(engine_font_path)
+    image_dir = resolve_source(package_dir, recipe["source"]["image_dir"])
+    voice_path = resolve_source(package_dir, recipe["source"]["voice"])
+
+    asset_urls: dict[str, str] = {
+        role: rel_url(destination_dir, image_dir / filename)
+        for role, filename in recipe["asset_roles"].items()
+    }
+    asset_urls["voice"] = rel_url(destination_dir, voice_path)
+    asset_urls["font_body"] = rel_url(destination_dir, font_path)
+    display_title = recipe.get("title") or recipe_path.stem.replace("_edit_recipe_v2", "")
+    display_desc = recipe.get("description") or "Disposable review-reel layout precheck"
+    output_path = destination_dir / "index.html"
+    output_path.write_text(
+        render_preview_html(
+            recipe=recipe,
+            asset_urls=asset_urls,
+            preview_title=str(display_title),
+            preview_description=str(display_desc),
+        ),
+        encoding="utf-8",
+    )
+    return output_path
+
+
 def build_preview(recipe_path: Path, gate_receipt: Path, engine_font_path: str | Path | None = None) -> Path:
     recipe_path = recipe_path.resolve()
     recipe = json.loads(recipe_path.read_text(encoding="utf-8"))

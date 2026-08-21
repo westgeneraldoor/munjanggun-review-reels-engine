@@ -2,6 +2,7 @@ import hashlib
 import json
 import tempfile
 import unittest
+import stat
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,6 +11,7 @@ from video_engine_v2.one_shot_tts import (
     calibrate_one_shot_timeline,
     generate_one_shot_tts,
 )
+from video_engine_v2.recipe_revision import verify_bound_recipe_lock
 
 
 SCRIPT = """---
@@ -216,6 +218,10 @@ class OneShotTTSTests(unittest.TestCase):
         )
         self.assertFalse(metadata["approvals"]["html_scope_authorized"])
         self.assertFalse(metadata["approvals"]["mp4_scope_authorized"])
+        self.addCleanup(lambda: self.edit.chmod(stat.S_IREAD | stat.S_IWRITE))
+        lock = verify_bound_recipe_lock(self.package, self.edit, result["tts_report"])
+        self.assertEqual(lock["edit_recipe_relative_path"], self.edit.name)
+        self.assertFalse(self.edit.stat().st_mode & stat.S_IWUSR)
 
     def test_ledger_enabled_package_records_the_actual_tts_writer_outputs(self):
         from video_engine_v2.current_artifacts import SCHEMA_VERSION, initialize_ledger, read_ledger
@@ -284,6 +290,38 @@ class OneShotTTSTests(unittest.TestCase):
             )
 
         self.assertEqual(existing.read_bytes(), b"keep")
+
+    def test_blocks_a_third_api_generation_for_the_same_narration_hash(self):
+        import generate
+
+        tts_hash = hashlib.sha256(generate.prepare_tts_text(SCRIPT).encode("utf-8")).hexdigest()
+        work = self.package / "_work"
+        work.mkdir(exist_ok=True)
+        for attempt in (1, 2):
+            (work / f"previous_v{attempt}_tts_generation_report.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "review-reel-tts-generation-report-v1",
+                        "provider": "google_gemini_tts",
+                        "model": "gemini-3.1-flash-tts-preview",
+                        "voice": "Sulafat",
+                        "tts_text_sha256": tts_hash,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        with (
+            patch("video_engine_v2.one_shot_tts.generate.generate_voice") as external_generator,
+            self.assertRaisesRegex(OneShotTTSViolation, "TTS_ATTEMPT_BUDGET_EXCEEDED"),
+        ):
+            generate_one_shot_tts(
+                package_dir=self.package,
+                planning_path=self.planning,
+                edit_path=self.edit,
+                script_path=self.script,
+            )
+        external_generator.assert_not_called()
 
     def test_calibration_uses_measured_speech_boundaries_and_adds_lead_in(self):
         import generate

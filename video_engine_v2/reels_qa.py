@@ -1900,6 +1900,56 @@ def validate_html_preflight(
     }
 
 
+_AUTHORING_DEFERRED_AUDIO_CODES = frozenset(
+    {
+        "SCRIPT_ARTIFACT_INVALID",
+        "SRT_ARTIFACT_INVALID",
+        "TTS_PROVENANCE_MISSING",
+        "TTS_MASTER_EVIDENCE_MISSING",
+        "TTS_EVIDENCE_HASH_MISSING",
+        "TTS_EVIDENCE_HASH_INVALID",
+        "VOICE_DURATION_UNVERIFIED",
+        "VOICE_DURATION_INVALID",
+        "RAW_TTS_DURATION_UNVERIFIED",
+        "RAW_TTS_DURATION_INVALID",
+        "TOTAL_VOICE_CPS_TOO_LOW",
+        "TOTAL_VOICE_CPS_TOO_HIGH",
+        "TOTAL_VOICE_CPS_NEEDS_REVIEW",
+        "VOICE_COMPRESSION_TOO_HIGH",
+        "VOICE_COMPRESSION_NEEDS_REVIEW",
+    }
+)
+
+
+def validate_review_reels_one_shot_authoring(
+    planning_recipe: dict[str, Any],
+    edit_recipe: dict[str, Any],
+) -> dict[str, Any]:
+    """Return every pre-TTS story/visual/caption failure while deferring real audio evidence."""
+
+    result = validate_html_preflight(
+        planning_recipe,
+        edit_recipe,
+        require_one_shot_contract=True,
+    )
+    issues = [
+        issue
+        for issue in result["issues"]
+        if issue.get("code") not in _AUTHORING_DEFERRED_AUDIO_CODES
+    ]
+    return {
+        "ok": not any(issue.get("severity") == "fail" for issue in issues),
+        "issues": issues,
+        "deferred_audio_issue_codes": sorted(
+            {
+                str(issue.get("code") or "")
+                for issue in result["issues"]
+                if issue.get("code") in _AUTHORING_DEFERRED_AUDIO_CODES
+            }
+        ),
+    }
+
+
 def _bool_text(value: bool) -> str:
     return "true" if value else "false"
 

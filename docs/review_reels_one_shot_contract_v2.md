@@ -51,19 +51,47 @@ planning recipe는 다음 필드를 모두 가져야 한다.
 ## 유일한 실행 경로
 
 직접 `reels_qa`, `build_html_preview_v2.py`, `render_html_preview_v2.js`를 실행해 gate를
-우회하지 않는다. 동일 package와 recipe로 다음 세 명령을 순서대로 실행한다.
+우회하지 않는다. 동일 package와 recipe로 다음 네 명령을 순서대로 실행한다.
 
 ```powershell
 python scripts/generate_one_shot_tts.py --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --script "<*_script.md>"
+python scripts/produce_review_v2.py layout-check --package "<output review package>" --edit "<edit_recipe.json>"
 python scripts/produce_review_v2.py preflight --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --one-shot-html
 python scripts/produce_review_v2.py html --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --one-shot-html
 ```
 
-첫 명령은 canonical package의 `photo_reviewed` 상태와 review source hash, one-shot
-contract, planning scene 내레이션과 표준 `*_script.md` 내레이션의 일치를 검사한다.
+첫 명령은 API를 호출하기 전에 canonical package의 `photo_reviewed` 상태와 review source
+hash, one-shot contract, shot·hook·review proof·CTA·자막 chunk 등 authoring contract
+전체, planning scene 내레이션과 표준 `*_script.md` 내레이션의 일치를 검사한다.
 기존 SRT/voice/report를 덮어쓰지 않으며 Gemini TTS `Sulafat`과 hash-bound 생성
 보고서만 허용한다. Windows SAPI, 임의 MP3, 수동 SRT는 one-shot production 입력이
-아니다. 이 명령은 HTML 또는 MP4 승인 상태를 바꾸지 않는다.
+아니다. 같은 canonical narration hash로 API 생성에 성공한 보고서가 이미 두 개면
+세 번째 호출은 `TTS_ATTEMPT_BUDGET_EXCEEDED`로 중단한다. 이 명령은 HTML 또는 MP4
+승인 상태를 바꾸지 않는다.
+
+두 번째 명령은 실제 production HTML 템플릿을 임시 폴더에만 렌더해 모든 caption
+chunk의 실제 줄수, 1080x1920 안전영역, overflow를 브라우저 DOM으로 측정한다. 공식
+HTML, QA frame, gate receipt, approval evidence는 만들지 않으며 임시 probe는 명령 종료와
+함께 폐기한다. 이 검사가 실패하면 caption/edit을 새 revision에서 고친 뒤 다시 검사한다.
+
+## 결속 후 revision과 음성 재사용
+
+공식 TTS가 성공하면 사용한 edit recipe는 `_work/recipe_locks/`의 hash-bound 영수증과
+읽기 전용 속성으로 잠긴다. 결속 뒤 제자리 수정은 `BOUND_RECIPE_MODIFIED`이며 기존
+보고서나 994행의 변조 탐지 결속을 약화해서 해결하지 않는다.
+
+- narration hash가 바뀜: 새 recipe revision에서 새 TTS를 생성한다.
+- narration과 전체 caption timeline이 동일하고 시각/메타데이터만 바뀜:
+  `recipe-fork-reuse-voice`로 다음 revision을 만들고 `voice-reuse-check` 통과 뒤 기존
+  voice/SRT/report 증거를 직접 재사용한다.
+- narration은 같지만 caption chunk 또는 timing이 바뀜: 실제 발화 경계를 기록한
+  `review-reel-voice-alignment-v1`과 공식 calibration 경로를 사용한다. 측정값이 없으면
+  추정 alignment를 만들지 말고 중단한다.
+
+```powershell
+python scripts/review_reel_intake.py recipe-fork-reuse-voice --output-root "output" --expected-content-id "<content-id>" --planning "<bound planning>" --edit "<bound edit>"
+python scripts/review_reel_intake.py voice-reuse-check --output-root "output" --expected-content-id "<content-id>" --edit "<new edit>"
+```
 
 실제 청취에서 첫 음절 손실 또는 비례 배분 타임라인 오차가 확인되면 기존 산출물을
 수정하지 않고 새 artifact stem으로 교정한다. 교정도 같은 공식 스크립트만 사용하며,

@@ -21,6 +21,7 @@ TTS_REPORT_SCHEMA = "review-reel-tts-generation-report-v1"
 VOICE_TIMELINE_SCHEMA = "review-reel-voice-caption-timeline-v1"
 VOICE_ALIGNMENT_SCHEMA = "review-reel-voice-alignment-v1"
 SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+MAX_TTS_API_ATTEMPTS_PER_NARRATION = 2
 
 
 class OneShotTTSViolation(RuntimeError):
@@ -63,6 +64,28 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     finally:
         if temporary_path is not None and temporary_path.exists():
             temporary_path.unlink()
+
+
+def _count_tts_api_attempts(package: Path, tts_text_sha256: str) -> int:
+    work = package / "_work"
+    if not work.is_dir():
+        return 0
+    attempts = 0
+    for report_path in work.glob("*_tts_generation_report.json"):
+        try:
+            report = _read_json(report_path, code="TTS_PROVENANCE_INVALID")
+        except OneShotTTSViolation:
+            continue
+        if (
+            report.get("schema_version") == TTS_REPORT_SCHEMA
+            and report.get("provider") == "google_gemini_tts"
+            and report.get("voice") == "Sulafat"
+            and report.get("tts_text_sha256") == tts_text_sha256
+            and not report.get("derived_voice")
+            and report.get("timeline_source") != VOICE_ALIGNMENT_SCHEMA
+        ):
+            attempts += 1
+    return attempts
 
 
 def _retime_edit_to_voice(edit: dict[str, Any], final_duration_sec: float) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -521,6 +544,12 @@ def calibrate_one_shot_timeline(
         )
     except CurrentArtifactsViolation as error:
         raise OneShotTTSViolation(str(error)) from error
+    from video_engine_v2.recipe_revision import RecipeRevisionViolation, lock_bound_recipe
+
+    try:
+        lock_bound_recipe(package, edit_file, target_report)
+    except RecipeRevisionViolation as error:
+        raise OneShotTTSViolation(str(error)) from error
     return {
         "script": script_file,
         "edit": edit_file,
@@ -568,6 +597,10 @@ def generate_one_shot_tts(
     collision_paths = [srt_path, voice_path, report_path]
     if any(path.exists() for path in collision_paths):
         raise OneShotTTSViolation("TTS_ARTIFACT_ALREADY_EXISTS")
+
+    tts_hash = hashlib.sha256(generate.prepare_tts_text(script_text).encode("utf-8")).hexdigest()
+    if _count_tts_api_attempts(package, tts_hash) >= MAX_TTS_API_ATTEMPTS_PER_NARRATION:
+        raise OneShotTTSViolation("TTS_ATTEMPT_BUDGET_EXCEEDED")
 
     generated_voice = generate.generate_voice(
         script_text,
@@ -638,6 +671,12 @@ def generate_one_shot_tts(
             },
         )
     except CurrentArtifactsViolation as error:
+        raise OneShotTTSViolation(str(error)) from error
+    from video_engine_v2.recipe_revision import RecipeRevisionViolation, lock_bound_recipe
+
+    try:
+        lock_bound_recipe(package, edit_file, report_path)
+    except RecipeRevisionViolation as error:
         raise OneShotTTSViolation(str(error)) from error
     return {
         "script": script_file,

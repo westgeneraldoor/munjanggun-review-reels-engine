@@ -12,6 +12,49 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class HtmlPreviewQaTests(unittest.TestCase):
+    def test_layout_precheck_rejects_three_lines_without_writing_qa_artifacts(self):
+        recipe = {
+            "title": "layout precheck",
+            "audio_plan": {"sync_policy": {"final_voice_duration_sec": 4.0}},
+            "asset_roles": {"photo": "photo.jpg"},
+            "beats": [{
+                "id": "b01", "narrative_role": "event", "phase": "event",
+                "time": [0.0, 4.0], "asset": "photo", "motion": "calm_push_in",
+                "transition_in": "cut", "caption": "아주 긴 자막",
+                "caption_layout": {"position": "bottom", "size": "large", "theme": "white"},
+                "caption_chunks": [{
+                    "text": "리뷰를 하나하나 읽어가며 여러 업체의 견적과 추천 내용을 아주 꼼꼼하게 비교해 보았습니다",
+                    "start_sec": 0.0, "end_sec": 4.0,
+                }],
+                "shots": [{"asset_id": "photo", "motion": "calm_push_in", "transition_in": "cut", "start_sec": 0.0, "end_sec": 4.0}],
+            }],
+        }
+        pixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        html = render_preview_html(
+            recipe=recipe,
+            asset_urls={"photo": pixel, "voice": "data:audio/mp3;base64,", "font_body": "data:font/woff2;base64,"},
+            preview_title="layout precheck",
+            preview_description="layout precheck",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = Path(temp_dir)
+            html_path = temp / "index.html"
+            edit_path = temp / "edit.json"
+            html_path.write_text(html, encoding="utf-8")
+            edit_path.write_text(json.dumps(recipe), encoding="utf-8")
+            result = subprocess.run(
+                ["node", "scripts/html-layout-precheck.mjs", "--html", str(html_path), "--edit", str(edit_path)],
+                cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            )
+            remaining = sorted(path.name for path in temp.iterdir())
+
+        self.assertEqual(result.returncode, 2, result.stderr or result.stdout)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["status"], "fail")
+        self.assertIn("CAPTION_LINE_COUNT_EXCESSIVE", report["checks"][0]["issues"])
+        self.assertEqual(remaining, ["edit.json", "index.html"])
+
     def test_hook_qa_captures_half_second_and_each_of_the_first_three_shots(self):
         recipe = {
             "title": "hook evidence test",

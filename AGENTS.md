@@ -113,6 +113,16 @@ approval record가 현재 HTML 해시에 결속된 뒤에만 생긴다.
 `explain-error --code "<CODE>"`로 해석합니다. scaffold의 `TODO`나 임시 voice hash가
 남아 있으면 HTML preflight로 진행할 수 없습니다.
 
+공식 TTS가 결속된 edit recipe는 immutable revision입니다. 공식 생성기가
+`_work/recipe_locks/`에 해시 영수증을 기록하고 파일을 읽기 전용으로 전환한 뒤에는
+그 파일을 제자리 수정하지 않습니다. 화면·사진 역할·전환만 바꿀 때는
+`recipe-fork-reuse-voice`로 다음 planning/edit revision을 만들고,
+`voice-reuse-check`가 narration hash와 전체 caption timeline이 동일하다고 판정한 경우에만
+기존 voice/SRT/report를 재사용합니다. narration이 바뀌면 새 TTS가 필요하고,
+caption chunk 또는 timing이 바뀌면 실측 alignment를 사용한 공식 calibration이 필요합니다.
+같은 narration hash의 Gemini/Sulafat API 생성은 두 번까지만 허용하며 세 번째는
+`TTS_ATTEMPT_BUDGET_EXCEEDED`로 중단하고 원인을 먼저 고칩니다.
+
 ## 포맷 상태
 
 - v2: current production
@@ -216,11 +226,19 @@ v2 production의 유일한 공식 진입점은 아래 오케스트레이터입�
 `reels_qa`, HTML builder, renderer를 직접 호출해 gate를 우회하지 않습니다.
 
 ```powershell
+# 0 이전. 이미 결속된 recipe의 시각/메타데이터만 수정할 때 새 revision으로 fork하고 재사용 적합성을 확인
+python scripts/review_reel_intake.py recipe-fork-reuse-voice --output-root "output" --expected-content-id "<content-id>" --planning "<bound planning_recipe.json>" --edit "<bound edit_recipe.json>"
+python scripts/review_reel_intake.py voice-reuse-check --output-root "output" --expected-content-id "<content-id>" --edit "<new edit_recipe.json>"
+
 # 0. one-shot HTML용 표준 SRT 및 Gemini/Sulafat 최종 음성 생성
+# 이 명령은 API 호출 전에 one-shot authoring contract 전체를 먼저 검사한다.
 python scripts/generate_one_shot_tts.py --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --script "<*_script.md>"
 
 # 0.5. 실제 음성을 듣고 발음·톤·자막 싱크를 확인한 뒤 해시 결속 영수증 기록
 python scripts/produce_review_v2.py voice-review-record --package "<output review package>" --voice "<voice.mp3>" --srt "<captions.srt>" --tts-report "<_work/tts_generation_report.json>" --reviewer "<reviewer>" --evidence-reference "<review evidence>" --check pronunciation_clear --check tone_approved --check caption_sync_approved
+
+# 0.7. 실제 production 템플릿에서 모든 자막 chunk의 줄수·안전영역을 무산출 검사
+python scripts/produce_review_v2.py layout-check --package "<output review package>" --edit "<edit_recipe.json>"
 
 # 1. HTML/MP4 산출물 없이 sync manifest를 생성하는 preflight
 python scripts/produce_review_v2.py preflight --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json"

@@ -732,6 +732,25 @@ class ProductionGateTests(unittest.TestCase):
         self.assertIn("FINAL_VOICE_HASH_MISMATCH", str(raised.exception))
         self.assertFalse(self.sync.exists())
 
+    def test_one_shot_preflight_names_a_report_bound_edit_mutated_in_place(self):
+        self.write_one_shot_html_package()
+        edit = json.loads(self.edit.read_text(encoding="utf-8"))
+        edit["asset_evidence"]["after_main"]["meaning_match"] = "visual metadata changed"
+        self.edit.write_text(json.dumps(edit), encoding="utf-8")
+
+        with self.assertRaises(GateViolation) as raised:
+            create_sync_manifest(
+                package_dir=self.package,
+                planning_path=self.planning,
+                edit_path=self.edit,
+                privacy_manifest_path=self.privacy,
+                sync_manifest_path=self.sync,
+                allow_one_shot_html_contract=True,
+            )
+
+        self.assertIn("BOUND_RECIPE_MODIFIED", str(raised.exception))
+        self.assertFalse(self.sync.exists())
+
     def test_one_shot_preflight_rejects_missing_or_inconsistent_canonical_package_state(self):
         self.write_one_shot_html_package()
         metadata_path = self.package / "CANONICAL_PACKAGE_METADATA.json"

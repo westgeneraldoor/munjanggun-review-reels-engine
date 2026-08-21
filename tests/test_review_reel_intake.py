@@ -33,6 +33,8 @@ from video_engine_v2.review_reel_intake import (
     run_one_shot_html,
     workflow_next,
     write_recipe_scaffold,
+    fork_active_recipe_for_voice_reuse,
+    check_active_voice_reuse,
 )
 
 
@@ -1548,6 +1550,23 @@ class ReviewReelIntakeTests(unittest.TestCase):
         self.assertEqual(guidance["next_action"], "build_one_shot_html")
         self.assertFalse(guidance["approval_required"])
 
+    def test_voice_reuse_commands_reject_active_content_id_mismatch_before_reading_recipes(self):
+        self.create()
+
+        with self.assertRaisesRegex(IntakeViolation, "ACTIVE_PACKAGE_CONTENT_ID_MISMATCH"):
+            fork_active_recipe_for_voice_reuse(
+                output_root=self.output_root,
+                expected_content_id="999",
+                planning_path=self.root / "missing-planning.json",
+                edit_path=self.root / "missing-edit.json",
+            )
+        with self.assertRaisesRegex(IntakeViolation, "ACTIVE_PACKAGE_CONTENT_ID_MISMATCH"):
+            check_active_voice_reuse(
+                output_root=self.output_root,
+                expected_content_id="999",
+                edit_path=self.root / "missing-edit.json",
+            )
+
     def test_recipe_scaffold_uses_photo_review_revision_after_reinspection(self):
         package = self.create()
         selection_v1, privacy_v1 = self._write_photo_review_evidence(
@@ -2206,9 +2225,10 @@ class ReviewReelIntakeTests(unittest.TestCase):
             privacy_manifest_path=privacy,
         )
 
-        self.assertEqual([command[2] for command in commands], ["preflight", "html"])
+        self.assertEqual([command[2] for command in commands], ["layout-check", "preflight", "html"])
         self.assertEqual(commands[0][commands[0].index("--package") + 1], str(result.package_dir))
-        self.assertTrue(all("--one-shot-html" in command for command in commands))
+        self.assertNotIn("--one-shot-html", commands[0])
+        self.assertTrue(all("--one-shot-html" in command for command in commands[1:]))
         self.assertTrue(all("render" not in command for command in commands))
         self.assertTrue(all("--out" not in command for command in commands))
 

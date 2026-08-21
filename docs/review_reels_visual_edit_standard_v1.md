@@ -77,6 +77,10 @@ visual은 narration보다 0.05초를 초과해 먼저 시작하지 않습니다.
 - 공식 one-shot TTS는 측정된 최종 음성 길이에 edit의 모든 beat·shot·caption chunk를
   한 번에 재결속하고, 같은 `caption_timeline`으로 SRT를 생성합니다. SRT와 HTML recipe가
   서로 다른 시간표를 쓰면 `VOICE_CAPTION_TIMELINE_STALE`로 실패합니다.
+- `VOICE_CAPTION_TIMELINE_STALE`은 무조건 재생성 지시가 아닙니다. narration과 전체
+  caption timeline이 같으면 immutable revision을 fork하고 기존 voice/SRT/report를
+  재사용합니다. caption chunk나 timing이 바뀌었을 때만 실측 alignment 기반 calibration을
+  사용하고, narration hash가 바뀐 경우에만 새 TTS를 생성합니다.
 - Gemini TTS 보고서는 구간별 단어·문장 타임스탬프가 아니라 최종 음성의 총 길이만
   제공합니다. 따라서 위 재결속은 계획 시간을 총 길이에 선형 비례시켜 SRT와 HTML의
   시계만 일치시키며, 구간 내부의 실제 발화 시작·끝까지 자동 보장하지 않습니다. 작업자는
@@ -84,6 +88,9 @@ visual은 narration보다 0.05초를 초과해 먼저 시작하지 않습니다.
   `caption_sync_approved`를 반드시 기록해야 합니다.
 - 명시한 줄바꿈과 자동 줄바꿈을 합쳐 실제 화면이 3줄 이상이면 실패합니다. 문맥을
   다시 잘게 쪼개지 않고 한 화면 1~2줄을 유지하되, 장면이 뒤로 갈수록 글자를 줄이지 않습니다.
+- 공식 HTML 전 `produce_review_v2.py layout-check`로 실제 production 템플릿의 모든
+  caption chunk를 무산출 측정합니다. 이 검사는 3줄, 안전영역 이탈, DOM overflow를
+  선제 차단하지만 대표 프레임 직접 검수를 대체하지 않습니다.
 - 핵심 피사체, 얼굴, 제품 디테일, 리뷰 인용을 가리지 않습니다.
 - production one-shot의 키워드 강조는 beat당 정확히 1개입니다. 키워드 크기는 본문과 동일하며 색으로만 위계를 줍니다.
 - 핵심어 pop은 chunk 시작의 고정 지연값으로 실행하지 않습니다. `caption_accent.start_sec`를
