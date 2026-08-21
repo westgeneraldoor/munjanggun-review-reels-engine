@@ -12,6 +12,47 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class HtmlPreviewQaTests(unittest.TestCase):
+    def test_layout_precheck_accepts_two_wrapped_lines_with_visible_caption_effects(self):
+        recipe = {
+            "title": "layout precheck valid",
+            "audio_plan": {"sync_policy": {"final_voice_duration_sec": 4.0}},
+            "asset_roles": {"photo": "photo.jpg"},
+            "beats": [{
+                "id": "b01", "narrative_role": "event", "phase": "event",
+                "time": [0.0, 4.0], "asset": "photo", "motion": "calm_push_in",
+                "transition_in": "cut", "caption": "거실이 바로 보이던 현관,",
+                "caption_layout": {"position": "bottom", "size": "medium", "theme": "white"},
+                "caption_chunks": [{
+                    "text": "거실이 바로 보이던 현관,",
+                    "start_sec": 0.0, "end_sec": 4.0,
+                }],
+                "shots": [{"asset_id": "photo", "motion": "calm_push_in", "transition_in": "cut", "start_sec": 0.0, "end_sec": 4.0}],
+            }],
+        }
+        pixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        html = render_preview_html(
+            recipe=recipe,
+            asset_urls={"photo": pixel, "voice": "data:audio/mp3;base64,", "font_body": "data:font/woff2;base64,"},
+            preview_title="layout precheck valid",
+            preview_description="layout precheck valid",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = Path(temp_dir)
+            html_path = temp / "index.html"
+            edit_path = temp / "edit.json"
+            html_path.write_text(html, encoding="utf-8")
+            edit_path.write_text(json.dumps(recipe), encoding="utf-8")
+            result = subprocess.run(
+                ["node", "scripts/html-layout-precheck.mjs", "--html", str(html_path), "--edit", str(edit_path)],
+                cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["status"], "pass")
+        self.assertEqual(report["checks"][0]["issues"], [])
+
     def test_layout_precheck_rejects_three_lines_without_writing_qa_artifacts(self):
         recipe = {
             "title": "layout precheck",

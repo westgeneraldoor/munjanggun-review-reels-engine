@@ -89,7 +89,10 @@ try {
           top_1080x1920: Math.round(top),
           bottom_1080x1920: Math.round(bottom),
           safe: top >= safeArea.top - 0.5 && bottom <= safeArea.bottom + 0.5,
-          overflow: captionNode.scrollWidth > captionNode.clientWidth + 1 || captionNode.scrollHeight > captionNode.clientHeight + 1,
+          // The caption intentionally uses visible vertical effects (stroke/shadow/pop),
+          // so the parent scrollHeight is not a text-overflow signal. Actual wrapping is
+          // enforced by line_count; only unwrapped horizontal line overflow is relevant.
+          overflow: lines.some((line) => line.scrollWidth > line.clientWidth + 1),
         };
       }, { safeArea: SAFE_AREA });
       const issues = [];
