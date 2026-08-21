@@ -5,7 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1547,6 +1547,70 @@ class ReviewReelIntakeTests(unittest.TestCase):
         guidance = workflow_next(self.output_root)
         self.assertEqual(guidance["next_action"], "build_one_shot_html")
         self.assertFalse(guidance["approval_required"])
+
+    def test_recipe_scaffold_uses_photo_review_revision_after_reinspection(self):
+        package = self.create()
+        selection_v1, privacy_v1 = self._write_photo_review_evidence(
+            package,
+            suffix="_revision_001",
+        )
+        record_photo_review(
+            output_root=self.output_root,
+            expected_content_id="004",
+            selection_path=selection_v1,
+            privacy_manifest_path=privacy_v1,
+            now=self.now,
+        )
+        (package.package_dir / "_work" / "recipe_scaffolds" / "revision_001").mkdir(parents=True)
+
+        selection_v2, privacy_v2 = self._write_photo_review_evidence(
+            package,
+            suffix="_revision_002",
+            selected_name="detail.jpg",
+        )
+        selection_payload = json.loads(selection_v2.read_text(encoding="utf-8"))
+        before = selection_payload["decisions"][1]
+        before["decision"] = "use"
+        before["reason"] = "Clear before-state evidence."
+        before["editorial_category"] = "selected_story_evidence"
+        before["evidence_classes"] = ["before_state"]
+        selection_v2.write_text(json.dumps(selection_payload), encoding="utf-8")
+        before_path = package.package_dir / before["relative_path"]
+        before_evidence = {
+            "relative_path": before["relative_path"],
+            "bytes": before_path.stat().st_size,
+            "sha256": hashlib.sha256(before_path.read_bytes()).hexdigest(),
+        }
+        privacy_payload = json.loads(privacy_v2.read_text(encoding="utf-8"))
+        privacy_payload["selected_assets"].append(before_evidence)
+        privacy_v2.write_text(json.dumps(privacy_payload), encoding="utf-8")
+        report_path = package.package_dir / privacy_payload["sanitization_report"]
+        report_payload = json.loads(report_path.read_text(encoding="utf-8"))
+        report_payload["checked_assets"].append(before_evidence)
+        report_path.write_text(json.dumps(report_payload), encoding="utf-8")
+        self._add_sanitized_review_capture(package, selection_v2, privacy_v2)
+        record_photo_review(
+            output_root=self.output_root,
+            expected_content_id="004",
+            selection_path=selection_v2,
+            privacy_manifest_path=privacy_v2,
+            now=self.now + timedelta(minutes=1),
+        )
+
+        second = write_recipe_scaffold(output_root=self.output_root, expected_content_id="004")
+
+        planning_path = Path(second["planning"])
+        edit_path = Path(second["edit"])
+        self.assertEqual(planning_path.parent.name, "revision_002")
+        self.assertEqual(edit_path.parent.name, "revision_002")
+        planning = json.loads(planning_path.read_text(encoding="utf-8"))
+        edit = json.loads(edit_path.read_text(encoding="utf-8"))
+        self.assertEqual(planning["scaffold"]["source_photo_review_revision"], 2)
+        self.assertEqual(edit["scaffold"]["source_photo_review_revision"], 2)
+        self.assertEqual(
+            edit["source"]["privacy_sanitization_report"],
+            "_work/privacy_sanitization_report_revision_002.json",
+        )
 
     def test_photo_review_accepts_a_full_composition_review_capture_with_only_a_local_mask(self):
         package = self.create()

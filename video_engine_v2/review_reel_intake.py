@@ -2015,10 +2015,11 @@ def write_recipe_scaffold(*, output_root: str | Path, expected_content_id: str) 
     planning["scaffold"].update(scaffold_binding)
     edit["scaffold"].update(scaffold_binding)
     parent = package.package_dir / "_work" / "recipe_scaffolds"
-    target = parent / "revision_001"
+    revision_name = f"revision_{revision:03d}"
+    target = parent / revision_name
     if target.exists():
         raise IntakeViolation("RECIPE_SCAFFOLD_ALREADY_EXISTS")
-    pending = parent / f".revision_001.pending-{uuid4().hex}"
+    pending = parent / f".{revision_name}.pending-{uuid4().hex}"
     pending.mkdir(parents=True)
     planning_path = pending / f"{package.metadata['content_id']}_planning_recipe_scaffold.json"
     edit_path = pending / f"{package.metadata['content_id']}_edit_recipe_scaffold.json"
