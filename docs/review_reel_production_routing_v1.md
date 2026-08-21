@@ -13,8 +13,9 @@
 1. `AGENTS.md`의 하드 gate와 고객자료 로컬 전용 규칙
 2. `docs/munjanggun_content_operating_principles_v1.md`의 콘텐츠 원칙
 3. 이 문서의 `review_reel_production` routing/intake 계약
-4. `docs/review_video_publish_workflow_v2.md`와 `docs/review_reels_one_shot_contract_v2.md`의 제작·one-shot gate
-5. `scripts/produce_review_v2.py`의 실제 production gate
+4. `docs/review_reel_candidate_selection_policy_v1.md`의 후보 제외·중복·관련 리뷰 계약
+5. `docs/review_video_publish_workflow_v2.md`와 `docs/review_reels_one_shot_contract_v2.md`의 제작·one-shot gate
+6. `scripts/produce_review_v2.py`의 실제 production gate
 
 `docs/reels_operations_dashboard_v1.md`는 관측·참고용 dashboard이며 **not a routing authority**이다.
 `docs/archive/`와 과거 handoff/intake 메모는 **not current routing authority**이다.
@@ -49,7 +50,16 @@ review-content/material-bank 라우터는 위 상태를 가로챌 수 없다.
 실제 필드인 `candidate_id`, `inventory_id`, `order_id`, `review_id`, `review_text`를
 공식 adapter가 canonical 필드로 바꾼다.
 
+후보를 제시하기 전에는 `candidate-shortlist`로 전체 bank를 현재 output 증거와 대조한다.
+ABS도어·셀프실측·셀프시공·배송상품은 점수와 무관하게 제외한다.
+
 ```powershell
+python scripts/review_reel_intake.py candidate-shortlist `
+  --output-root "output" `
+  --reviews-root "reviews" `
+  --material-bank "reviews/material_bank/2026-07-29/candidate_top60_private.jsonl" `
+  --limit 10
+
 python scripts/review_reel_intake.py candidate-check `
   --output-root "output" `
   --reviews-root "reviews" `
@@ -72,6 +82,9 @@ python scripts/review_reel_intake.py create-from-material-bank `
 - source registry에 없어도 과거 `CAND-*` package 경로 또는 canonical metadata에서 사용
   흔적이 발견되면 `CANDIDATE_LEGACY_PACKAGE_PRESENT`로 차단한다. 이 경우 legacy를
   고치지 말고 다른 후보를 선택하거나 별도 legacy-resolution 결정을 받는다.
+- 다른 CAND ID라도 리뷰글번호 또는 review-text hash가 같으면 `REVIEW_ALREADY_USED`로
+  차단한다. 상품주문번호만 같고 리뷰글번호가 다르면 `PRODUCT_ORDER_ALREADY_USED`로
+  보류하며 자동 재사용하지 않는다.
 - registry JSON이 깨졌거나 같은 candidate의 원문/주문/리뷰 ID가 바뀌면 덮어쓰지
   않고 하드 실패한다.
 - 원문은 `reviews/production_registry/<ID>_<slug>.txt`에 local-only로 고정되고,
@@ -159,6 +172,13 @@ python scripts/review_reel_intake.py status --output-root "output"
 ```powershell
 python scripts/review_reel_intake.py workflow-next --output-root "output"
 python scripts/review_reel_intake.py explain-error --code "<GATE_CODE>"
+```
+
+사진·script·TTS·HTML·MP4가 전혀 없는 잘못 선택된 active package만 삭제 없이 공식
+격리할 수 있다. 상세 조건과 복구 증거는 후보 선정 정책을 따른다.
+
+```powershell
+python scripts/review_reel_intake.py quarantine-active-selection --output-root "output" --reviews-root "reviews" --expected-content-id "<content_id>" --reason-code duplicate_existing_review
 ```
 
 Git worktree에는 Git에서 제외된 `reviews/`와 `output/`이 자동 복제되지 않는다. 고객자료

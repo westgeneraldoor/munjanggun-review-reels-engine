@@ -4,6 +4,24 @@ const os = require("node:os");
 const path = require("node:path");
 
 const args = ["-m", "unittest", "discover", "-s", "tests"];
+const workspaceDeps = path.join(process.cwd(), ".codex_deps");
+const basePythonEnv = { ...process.env };
+
+function bundledPythonEnv() {
+  const pythonPathEntries = [];
+  if (fs.existsSync(workspaceDeps)) {
+    pythonPathEntries.push(workspaceDeps);
+  }
+  if (process.env.PYTHONPATH) {
+    pythonPathEntries.push(process.env.PYTHONPATH);
+  }
+  return {
+    ...basePythonEnv,
+    ...(pythonPathEntries.length > 0
+      ? { PYTHONPATH: pythonPathEntries.join(path.delimiter) }
+      : {}),
+  };
+}
 
 const candidates = [];
 
@@ -26,7 +44,7 @@ if (process.platform === "win32") {
     "python.exe",
   );
   if (fs.existsSync(codexPython)) {
-    candidates.push({ command: codexPython, args });
+    candidates.push({ command: codexPython, args, env: bundledPythonEnv() });
   }
 }
 
@@ -37,6 +55,7 @@ for (const candidate of candidates) {
     cwd: process.cwd(),
     encoding: "utf8",
     stdio: "pipe",
+    env: candidate.env || basePythonEnv,
   });
 
   if (result.error && result.error.code === "ENOENT") {

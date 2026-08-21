@@ -284,6 +284,42 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
 
                 self.assertIn("ONE_SHOT_TRANSITION_NOT_CALM", {issue["code"] for issue in result["issues"]})
 
+    def test_contract_allows_bounded_slide_and_page_turn_transitions_in_the_story_body(self):
+        fixture = load_fixture()
+        fixture["edit"]["beats"][1]["shots"][0]["transition_in"] = "calm_slide"
+        fixture["edit"]["beats"][3]["shots"][0]["transition_in"] = "soft_page_turn"
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertTrue(result["ok"], result["issues"])
+
+    def test_contract_rejects_overused_scene_change_effects(self):
+        fixture = load_fixture()
+        for beat_index in (1, 2, 3):
+            fixture["edit"]["beats"][beat_index]["shots"][0]["transition_in"] = "calm_slide"
+        for beat_index in (4, 5):
+            fixture["edit"]["beats"][beat_index]["shots"][0]["transition_in"] = "soft_page_turn"
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn(
+            "ONE_SHOT_TRANSITION_USAGE_EXCESSIVE",
+            {issue["code"] for issue in result["issues"]},
+        )
+
+    def test_contract_keeps_review_proof_and_cta_on_calm_dissolve(self):
+        fixture = load_fixture()
+        fixture["edit"]["beats"][6]["shots"][0]["transition_in"] = "soft_page_turn"
+        fixture["edit"]["beats"][7]["shots"][0]["transition_in"] = "calm_slide"
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        role_issues = [
+            issue for issue in result["issues"]
+            if issue["code"] == "ONE_SHOT_TRANSITION_ROLE_INVALID"
+        ]
+        self.assertEqual(2, len(role_issues), result["issues"])
+
     def test_contract_locks_the_result_before_result_hook_timing_and_transitions(self):
         fixture = load_fixture()
         fixture["edit"]["beats"][0]["shots"][0]["end_sec"] = 0.8
@@ -336,6 +372,42 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
                     "HOOK_SHOT_MEANING_EVIDENCE_MISSING",
                     {issue["code"] for issue in result["issues"]},
                 )
+
+    def test_contract_requires_each_body_shot_to_bind_its_photo_and_spoken_fragment(self):
+        cases = (
+            None,
+            "asset_evidence:after_main; narration_fragment:Daily route needed care.",
+            "asset_evidence:before_problem",
+        )
+        for source in cases:
+            with self.subTest(source=source):
+                fixture = load_fixture()
+                shot = fixture["edit"]["beats"][1]["shots"][0]
+                if source is None:
+                    shot.pop("meaning_match_source", None)
+                else:
+                    shot["meaning_match_source"] = source
+
+                result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+                self.assertIn(
+                    "SHOT_MEANING_EVIDENCE_MISSING",
+                    {issue["code"] for issue in result["issues"]},
+                )
+
+    def test_contract_warns_when_safe_assets_can_support_a_richer_scene_sequence(self):
+        fixture = load_fixture()
+        fixture["edit"]["asset_evidence"].update({
+            "detail_left": {"evidence_class": "detail"},
+            "detail_right": {"evidence_class": "detail"},
+        })
+        fixture["edit"]["beats"][-1]["shots"][0]["asset_id"] = "review_capture"
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        density = [issue for issue in result["issues"] if issue["code"] == "SCENE_DENSITY_LOW"]
+        self.assertEqual(1, len(density), result["issues"])
+        self.assertEqual("warn", density[0]["severity"])
 
     def test_contract_warns_when_a_long_photo_edit_recycles_too_few_available_assets(self):
         fixture = load_fixture()

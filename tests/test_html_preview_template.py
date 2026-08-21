@@ -874,6 +874,77 @@ const { chromium } = require('playwright');
             )
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
+    def test_bounded_scene_transitions_render_with_outgoing_photo_context(self):
+        recipe = {
+            "title": "bounded transitions",
+            "audio_plan": {"sync_policy": {"final_voice_duration_sec": 6.0}},
+            "asset_roles": {"first": "first.jpg", "second": "second.jpg", "third": "third.jpg"},
+            "beats": [{
+                "id": "b01", "phase": "result", "time": [0.0, 6.0], "asset": "first",
+                "motion": "calm_push_in", "transition_in": "cut", "caption": "finished door",
+                "shots": [
+                    {"asset_id": "first", "motion": "calm_push_in", "transition_in": "cut", "start_sec": 0.0, "end_sec": 2.0},
+                    {"asset_id": "second", "motion": "calm_push_in", "transition_in": "calm_slide", "start_sec": 2.0, "end_sec": 4.0},
+                    {"asset_id": "third", "motion": "calm_push_in", "transition_in": "soft_page_turn", "start_sec": 4.0, "end_sec": 6.0},
+                ],
+            }],
+        }
+        assets = {
+            key: f"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E%23{key}"
+            for key in ("first", "second", "third")
+        }
+        assets.update({"voice": "data:audio/mp3;base64,", "font_body": "data:font/woff2;base64,"})
+        html = render_preview_html(
+            recipe=recipe,
+            asset_urls=assets,
+            preview_title="bounded transitions",
+            preview_description="browser behavior test",
+        )
+        browser_check = r"""
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({viewport: {width: 1200, height: 2100}});
+  await page.goto(process.argv[1]);
+  const states = await page.evaluate(() => {
+    renderAt(1.99);
+    renderAt(2.01);
+    const slide = {
+      className: stage.className,
+      animationName: getComputedStyle(mainAsset).animationName,
+      previousSrc: previousAsset.getAttribute('src') || '',
+    };
+    renderAt(3.99);
+    renderAt(4.01);
+    const pageTurn = {
+      className: stage.className,
+      animationName: getComputedStyle(mainAsset).animationName,
+      previousSrc: previousAsset.getAttribute('src') || '',
+    };
+    return {slide, pageTurn};
+  });
+  await browser.close();
+  if (!states.slide.className.includes('t-calm_slide')) process.exit(2);
+  if (states.slide.animationName !== 'calmSlideRevealIn') process.exit(3);
+  if (!states.slide.previousSrc.includes('first')) process.exit(4);
+  if (!states.pageTurn.className.includes('t-soft_page_turn')) process.exit(5);
+  if (states.pageTurn.animationName !== 'softPageTurnIn') process.exit(6);
+  if (!states.pageTurn.previousSrc.includes('second')) process.exit(7);
+})().catch(error => { console.error(error); process.exit(1); });
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / "preview.html"
+            html_path.write_text(html, encoding="utf-8")
+            result = subprocess.run(
+                ["node", "-e", browser_check, html_path.as_uri()],
+                cwd=TEMPLATE_PATH.parent.parent.parent,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

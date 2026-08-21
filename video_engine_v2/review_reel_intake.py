@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 from tempfile import NamedTemporaryFile
@@ -42,6 +43,11 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _WINDOWS_UNSAFE_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _CANDIDATE_PREFIX = "CAND-"
 _CANDIDATE_ID = re.compile(r"^CAND-\d{8}-\d{4}$")
+_CANDIDATE_EVIDENCE_EXTENSIONS = frozenset({".json", ".md", ".source", ".txt"})
+_MAX_CANDIDATE_EVIDENCE_BYTES = 2 * 1024 * 1024
+_SELECTION_QUARANTINE_REASON_CODES = frozenset(
+    {"duplicate_existing_review", "policy_excluded", "wrong_selection"}
+)
 _PHOTO_MEDIA_EXTENSIONS = {
     ".avif",
     ".bmp",
@@ -536,6 +542,157 @@ def _material_record_key(candidate_id: str) -> str:
     return f"material-bank::{candidate_id}"
 
 
+def _candidate_policy_exclusion_reasons(record: dict[str, Any]) -> list[str]:
+    product_name = str(record.get("product_name") or "")
+    product_family = str(record.get("product_family") or "")
+    product = re.sub(r"\s+", "", f"{product_family} {product_name}").casefold()
+    reasons: list[str] = []
+    if "abs도어" in product:
+        reasons.append("ABS_DOOR")
+    if "셀프실측" in product:
+        reasons.append("SELF_MEASUREMENT")
+    if any(token in product for token in ("셀프설치시공", "셀프설치", "셀프시공")):
+        reasons.append("SELF_INSTALLATION")
+    if any(token in product for token in ("배송상품", "택배배송", "배송전용")):
+        reasons.append("DELIVERY_ONLY")
+    return reasons
+
+
+def _production_package_dirs(output_root: Path) -> list[Path]:
+    if not output_root.is_dir():
+        return []
+    package_dirs: list[Path] = [
+        path
+        for path in output_root.iterdir()
+        if path.is_dir() and _CONTENT_PREFIX.match(path.name)
+    ]
+    for collection in sorted(output_root.glob("inbox_*"), key=lambda path: path.name.casefold()):
+        if collection.is_dir():
+            package_dirs.extend(path for path in collection.iterdir() if path.is_dir())
+    pilot = output_root / "pilot"
+    if pilot.is_dir():
+        package_dirs.extend(path for path in pilot.iterdir() if path.is_dir())
+    unique = {str(path.resolve()).casefold(): path.resolve() for path in package_dirs}
+    return sorted(unique.values(), key=lambda path: str(path).casefold())
+
+
+def _token_present(text: str, token: str) -> bool:
+    if not token:
+        return False
+    pattern = re.compile(r"(?<![A-Za-z0-9])" + re.escape(token) + r"(?![A-Za-z0-9])")
+    return pattern.search(text) is not None
+
+
+def _candidate_evidence_texts(package_dir: Path, reviews_root: Path) -> list[str]:
+    texts: list[str] = []
+    source_markers: list[str] = []
+    for path in package_dir.rglob("*"):
+        if (
+            not path.is_file()
+            or path.suffix.casefold() not in _CANDIDATE_EVIDENCE_EXTENSIONS
+        ):
+            continue
+        try:
+            if path.stat().st_size > _MAX_CANDIDATE_EVIDENCE_BYTES:
+                continue
+            value = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        texts.append(value)
+        if path.name == ".source":
+            source_markers.append(value.strip())
+
+    prefix = _CONTENT_PREFIX.match(package_dir.name)
+    source_candidates: list[Path] = []
+    if prefix:
+        content_id = prefix.group(1)
+        source_candidates.extend(reviews_root.glob(f"inbox_*/{content_id}_*.txt"))
+        source_candidates.extend((reviews_root / "production_registry").glob(f"{content_id}_*.txt"))
+        source_candidates.extend((reviews_root / "pilot").glob(f"review_{content_id}.txt"))
+    for marker in source_markers:
+        if not marker:
+            continue
+        marker_path = Path(marker)
+        if not marker_path.is_absolute():
+            marker_path = REPOSITORY_ROOT / marker_path
+        try:
+            resolved = marker_path.resolve()
+            resolved.relative_to(reviews_root.resolve())
+        except (OSError, ValueError):
+            continue
+        source_candidates.append(resolved)
+    for source_path in source_candidates:
+        try:
+            if source_path.is_file() and source_path.stat().st_size <= _MAX_CANDIDATE_EVIDENCE_BYTES:
+                texts.append(source_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            continue
+    return texts
+
+
+def _candidate_package_matches(
+    *,
+    output_root: Path,
+    reviews_root: Path,
+    candidate_id: str,
+    identity: dict[str, str],
+) -> list[dict[str, Any]]:
+    matches: list[dict[str, Any]] = []
+    for package_dir in _production_package_dirs(output_root):
+        match_types: set[str] = set()
+        if package_dir.name == candidate_id or package_dir.name.startswith(f"{candidate_id}_"):
+            match_types.add("candidate_reference")
+        metadata: dict[str, Any] | None = None
+        metadata_path = package_dir / METADATA_FILENAME
+        if metadata_path.is_file():
+            try:
+                loaded = json.loads(metadata_path.read_text(encoding="utf-8"))
+                metadata = loaded if isinstance(loaded, dict) else None
+            except (OSError, json.JSONDecodeError):
+                metadata = None
+        if metadata is not None:
+            review_source = metadata.get("review_source")
+            if isinstance(review_source, dict) and review_source.get("candidate_reference") == candidate_id:
+                match_types.add("candidate_reference")
+            package_identity = metadata.get("identity")
+            if isinstance(package_identity, dict):
+                if package_identity.get("review_article_id") == identity["review_article_id"]:
+                    match_types.add("review_article_id")
+                if package_identity.get("product_order_number") == identity["product_order_number"]:
+                    match_types.add("product_order_number")
+                if package_identity.get("review_text_sha256") == identity["review_text_sha256"]:
+                    match_types.add("review_text_sha256")
+        for text in _candidate_evidence_texts(package_dir, reviews_root):
+            if _token_present(text, candidate_id):
+                match_types.add("candidate_reference")
+            if _token_present(text, identity["review_article_id"]):
+                match_types.add("review_article_id")
+            if _token_present(text, identity["product_order_number"]):
+                match_types.add("product_order_number")
+        if match_types:
+            matches.append(
+                {
+                    "path": package_dir,
+                    "relative_path": package_dir.relative_to(output_root).as_posix(),
+                    "match_types": sorted(match_types),
+                    "metadata": metadata,
+                }
+            )
+    return matches
+
+
+def _is_official_binding_package(match: dict[str, Any], binding: dict[str, Any]) -> bool:
+    metadata = match.get("metadata")
+    if not isinstance(metadata, dict):
+        return False
+    review_source = metadata.get("review_source")
+    return (
+        metadata.get("content_id") == binding.get("content_id")
+        and isinstance(review_source, dict)
+        and review_source.get("candidate_reference") == binding.get("candidate_reference")
+    )
+
+
 def _candidate_legacy_package_paths(output_root: Path, candidate_id: str) -> list[Path]:
     """Return pre-registry package directories that already used a candidate.
 
@@ -550,15 +707,15 @@ def _candidate_legacy_package_paths(output_root: Path, candidate_id: str) -> lis
     if not output_root.is_dir():
         return []
 
-    package_dirs: list[Path] = [
+    package_dirs: list[Path] = _production_package_dirs(output_root)
+    package_dirs.extend(
         path
         for path in output_root.iterdir()
-        if path.is_dir()
-        and (_CONTENT_PREFIX.match(path.name) or path.name.startswith(_CANDIDATE_PREFIX))
-    ]
-    for inbox in output_root.glob("inbox_*"):
-        if inbox.is_dir():
-            package_dirs.extend(path for path in inbox.iterdir() if path.is_dir())
+        if path.is_dir() and path.name.startswith(_CANDIDATE_PREFIX)
+    )
+    package_dirs = list(
+        {str(path.resolve()).casefold(): path.resolve() for path in package_dirs}.values()
+    )
 
     matches: dict[str, Path] = {}
     for package_dir in package_dirs:
@@ -583,13 +740,15 @@ def _candidate_legacy_package_paths(output_root: Path, candidate_id: str) -> lis
             candidate_token = re.compile(
                 rb"(?<![A-Za-z0-9])" + re.escape(candidate_bytes) + rb"(?![A-Za-z0-9])"
             )
-            for evidence_path in package_dir.iterdir():
+            for evidence_path in package_dir.rglob("*"):
                 if (
                     not evidence_path.is_file()
-                    or evidence_path.suffix.lower() not in {".json", ".md", ".txt"}
+                    or evidence_path.suffix.casefold() not in _CANDIDATE_EVIDENCE_EXTENSIONS
                 ):
                     continue
                 try:
+                    if evidence_path.stat().st_size > _MAX_CANDIDATE_EVIDENCE_BYTES:
+                        continue
                     if candidate_token.search(evidence_path.read_bytes()):
                         evidence_mentions_candidate = True
                         break
@@ -614,6 +773,7 @@ def inspect_material_bank_candidate(
     bank_path = Path(material_bank_path).resolve()
     selected = _read_jsonl_record(bank_path, candidate_id=candidate_id)
     identity = _material_identity(selected)
+    exclusion_reasons = _candidate_policy_exclusion_reasons(selected)
     registry = _load_source_registry(root / POINTER_DIRECTORY / SOURCE_REGISTRY_FILENAME)
     official_matches = [
         record
@@ -623,9 +783,35 @@ def inspect_material_bank_candidate(
     if len(official_matches) > 1:
         raise IntakeViolation("SOURCE_REGISTRY_RECORD_NOT_UNIQUE")
     legacy_paths = _candidate_legacy_package_paths(root, candidate_id)
-    relative_legacy_paths = [
-        path.relative_to(root).as_posix() for path in legacy_paths
+    identity_matches = _candidate_package_matches(
+        output_root=root,
+        reviews_root=local_reviews,
+        candidate_id=candidate_id,
+        identity=identity,
+    )
+    binding = official_matches[0] if official_matches else None
+    external_matches = [
+        match
+        for match in identity_matches
+        if binding is None or not _is_official_binding_package(match, binding)
     ]
+    review_matches = [
+        match
+        for match in external_matches
+        if {"review_article_id", "review_text_sha256"}.intersection(match["match_types"])
+    ]
+    order_matches = [
+        match
+        for match in external_matches
+        if "product_order_number" in match["match_types"]
+        and match not in review_matches
+    ]
+    relative_legacy_paths = sorted(
+        {
+            path.relative_to(root).as_posix()
+            for path in legacy_paths
+        }
+    )
     result: dict[str, Any] = {
         "workflow": "review_reel_production",
         "candidate_id": candidate_id,
@@ -634,6 +820,44 @@ def inspect_material_bank_candidate(
         "eligible_for_new_package": False,
         "legacy_package_relative_paths": relative_legacy_paths,
     }
+    if exclusion_reasons:
+        result.update(
+            {
+                "status": "policy_excluded",
+                "blocker_code": "CANDIDATE_PRODUCT_EXCLUDED",
+                "exclusion_reason_codes": exclusion_reasons,
+                "next_action": "select_a_non_excluded_candidate",
+            }
+        )
+        return result
+    if review_matches:
+        result.update(
+            {
+                "status": "legacy_identity_present",
+                "blocker_code": "REVIEW_ALREADY_USED",
+                "legacy_package_relative_paths": sorted(
+                    {match["relative_path"] for match in review_matches}
+                ),
+                "identity_match_types": sorted(
+                    {kind for match in review_matches for kind in match["match_types"]}
+                ),
+                "next_action": "select_a_different_review",
+            }
+        )
+        return result
+    if order_matches:
+        result.update(
+            {
+                "status": "related_review_hold",
+                "blocker_code": "PRODUCT_ORDER_ALREADY_USED",
+                "legacy_package_relative_paths": sorted(
+                    {match["relative_path"] for match in order_matches}
+                ),
+                "identity_match_types": ["product_order_number"],
+                "next_action": "request_related_review_resolution_or_select_another_candidate",
+            }
+        )
+        return result
     if official_matches:
         binding = official_matches[0]
         if binding.get("identity") != identity:
@@ -676,6 +900,99 @@ def inspect_material_bank_candidate(
     return result
 
 
+def _read_jsonl_records(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        raise IntakeViolation("MATERIAL_BANK_MISSING")
+    records: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    try:
+        with path.open("r", encoding="utf-8") as source:
+            for raw_line in source:
+                if not raw_line.strip():
+                    continue
+                record = json.loads(raw_line)
+                if not isinstance(record, dict):
+                    raise IntakeViolation("MATERIAL_BANK_INVALID")
+                candidate_id = record.get("candidate_id")
+                if not isinstance(candidate_id, str) or not _CANDIDATE_ID.fullmatch(candidate_id):
+                    raise IntakeViolation("CANDIDATE_REFERENCE_INVALID")
+                if candidate_id in seen:
+                    raise IntakeViolation("MATERIAL_BANK_RECORD_NOT_UNIQUE")
+                seen.add(candidate_id)
+                records.append(record)
+    except (OSError, json.JSONDecodeError) as error:
+        raise IntakeViolation("MATERIAL_BANK_INVALID") from error
+    return records
+
+
+def shortlist_material_bank_candidates(
+    *,
+    output_root: str | Path,
+    reviews_root: str | Path,
+    material_bank_path: str | Path,
+    limit: int = 10,
+) -> dict[str, Any]:
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1 or limit > 100:
+        raise IntakeViolation("CANDIDATE_SHORTLIST_LIMIT_INVALID")
+    root = Path(output_root).resolve()
+    local_reviews = Path(reviews_root).resolve()
+    bank_path = Path(material_bank_path).resolve()
+    records = _read_jsonl_records(bank_path)
+    ranked: list[tuple[int, int, dict[str, Any], dict[str, Any]]] = []
+    for ordinal, record in enumerate(records, start=1):
+        candidate_id = str(record["candidate_id"])
+        inspection = inspect_material_bank_candidate(
+            output_root=root,
+            reviews_root=local_reviews,
+            material_bank_path=bank_path,
+            candidate_id=candidate_id,
+        )
+        rank_value = record.get("canonical_top60_rank")
+        rank = rank_value if isinstance(rank_value, int) and not isinstance(rank_value, bool) else ordinal
+        ranked.append((rank, ordinal, record, inspection))
+    ranked.sort(key=lambda item: (item[0], item[1]))
+    candidates: list[dict[str, Any]] = []
+    for rank, _, record, inspection in ranked:
+        candidates.append(
+            {
+                "rank": rank,
+                "candidate_id": record["candidate_id"],
+                "inventory_id": record.get("inventory_id"),
+                "review_article_id": record.get("review_id"),
+                "product_order_number": record.get("order_id"),
+                "product_family": record.get("product_family"),
+                "tier": record.get("tier"),
+                "story_score_60": record.get("story_score_60"),
+                "status": inspection["status"],
+                "eligible_for_new_package": inspection["eligible_for_new_package"],
+                "blocker_code": inspection.get("blocker_code"),
+                "legacy_package_relative_paths": inspection.get(
+                    "legacy_package_relative_paths", []
+                ),
+                "exclusion_reason_codes": inspection.get("exclusion_reason_codes", []),
+            }
+        )
+    summary: dict[str, int] = {
+        "evaluated": len(candidates),
+        "eligible_for_new_package": sum(
+            1 for candidate in candidates if candidate["eligible_for_new_package"]
+        ),
+    }
+    for candidate in candidates:
+        status = str(candidate["status"])
+        summary[status] = summary.get(status, 0) + 1
+    eligible_candidates = [
+        candidate for candidate in candidates if candidate["eligible_for_new_package"]
+    ][:limit]
+    return {
+        "workflow": "review_reel_production",
+        "material_bank": str(bank_path),
+        "summary": summary,
+        "eligible_candidates": eligible_candidates,
+        "candidates": candidates,
+    }
+
+
 def create_canonical_package_from_material_bank(
     *,
     output_root: str | Path,
@@ -698,6 +1015,8 @@ def create_canonical_package_from_material_bank(
     identity = _material_identity(selected)
     if identity["candidate_reference"] != candidate_id:
         raise IntakeViolation("CANDIDATE_REFERENCE_INVALID")
+    if _candidate_policy_exclusion_reasons(selected):
+        raise IntakeViolation("CANDIDATE_PRODUCT_EXCLUDED")
     requested_slug = _safe_slug(content_slug)
     review_text = _required_text(selected, "review_text", "REVIEW_TEXT_MISSING")
     state_dir = root / POINTER_DIRECTORY
@@ -705,6 +1024,14 @@ def create_canonical_package_from_material_bank(
     inventory_path = state_dir / MATERIAL_BANK_INVENTORY_FILENAME
 
     with _exclusive_allocation_lock(state_dir):
+        inspection = inspect_material_bank_candidate(
+            output_root=root,
+            reviews_root=local_reviews,
+            material_bank_path=bank_path,
+            candidate_id=candidate_id,
+        )
+        if inspection.get("status") not in {"eligible", "official_binding_exists"}:
+            raise IntakeViolation(str(inspection.get("blocker_code") or "CANDIDATE_NOT_ELIGIBLE"))
         registry = _load_source_registry(source_registry_path)
         inventory = _load_material_bank_inventory(inventory_path)
         matches = [
@@ -790,6 +1117,206 @@ def create_canonical_package_from_material_bank(
         record_key=canonical_record["record_key"],
         now=now,
     )
+
+
+def quarantine_active_selection(
+    *,
+    output_root: str | Path,
+    reviews_root: str | Path,
+    expected_content_id: str,
+    reason_code: str,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Recoverably quarantine one mistaken, empty pre-photo canonical selection."""
+
+    if reason_code not in _SELECTION_QUARANTINE_REASON_CODES:
+        raise IntakeViolation("ACTIVE_SELECTION_QUARANTINE_REASON_INVALID")
+    root = Path(output_root).resolve()
+    local_reviews = Path(reviews_root).resolve()
+    package = resolve_active_package(root)
+    _assert_expected_content_id(package, expected_content_id)
+    if package.metadata.get("lifecycle_state") != "photo_intake_pending":
+        raise IntakeViolation("ACTIVE_SELECTION_QUARANTINE_STATE_INVALID")
+    approvals = package.metadata.get("approvals")
+    if not isinstance(approvals, dict) or any(bool(value) for value in approvals.values()):
+        raise IntakeViolation("ACTIVE_SELECTION_QUARANTINE_APPROVAL_PRESENT")
+    if any(path.is_file() for path in package.image_dir.rglob("*")):
+        raise IntakeViolation("ACTIVE_SELECTION_QUARANTINE_PHOTOS_PRESENT")
+    allowed_files = {
+        ".source",
+        "APPROVAL_LOG.md",
+        "CURRENT_ARTIFACTS.json",
+        METADATA_FILENAME,
+        "STATUS.md",
+    }
+    for child in package.package_dir.iterdir():
+        if child == package.image_dir:
+            continue
+        if child.is_dir() or child.name not in allowed_files:
+            raise IntakeViolation("ACTIVE_SELECTION_QUARANTINE_DOWNSTREAM_ARTIFACTS_PRESENT")
+
+    review_source = package.metadata.get("review_source")
+    if not isinstance(review_source, dict):
+        raise IntakeViolation("ACTIVE_SELECTION_QUARANTINE_SOURCE_INVALID")
+    candidate_id = review_source.get("candidate_reference")
+    if not isinstance(candidate_id, str) or not _CANDIDATE_ID.fullmatch(candidate_id):
+        raise IntakeViolation("ACTIVE_SELECTION_QUARANTINE_SOURCE_INVALID")
+    source_value = review_source.get("path")
+    if not isinstance(source_value, str) or not source_value.strip():
+        raise IntakeViolation("ACTIVE_SELECTION_QUARANTINE_SOURCE_INVALID")
+    source_path = Path(source_value)
+    if not source_path.is_absolute():
+        source_path = REPOSITORY_ROOT / source_path
+    source_path = _inside(
+        local_reviews / "production_registry",
+        source_path,
+        code="ACTIVE_SELECTION_QUARANTINE_SOURCE_OUTSIDE_REGISTRY",
+    )
+    if not source_path.is_file():
+        raise IntakeViolation("ACTIVE_SELECTION_QUARANTINE_SOURCE_MISSING")
+
+    state_dir = root / POINTER_DIRECTORY
+    source_registry_path = state_dir / SOURCE_REGISTRY_FILENAME
+    inventory_path = state_dir / MATERIAL_BANK_INVENTORY_FILENAME
+    package_registry_path = state_dir / REGISTRY_FILENAME
+    active_pointer_path = state_dir / ACTIVE_POINTER_FILENAME
+    content_id = str(package.metadata.get("content_id") or "")
+    content_slug = str(package.metadata.get("content_slug") or "")
+    relative_package = package.package_dir.relative_to(root).as_posix()
+    clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    timestamp = clock.strftime("%Y%m%dT%H%M%SZ")
+    quarantine_root = state_dir / "quarantine" / timestamp / f"{content_id}_{content_slug}"
+
+    with _exclusive_allocation_lock(state_dir):
+        current = resolve_active_package(root)
+        _assert_expected_content_id(current, expected_content_id)
+        if current.package_dir != package.package_dir:
+            raise IntakeViolation("ACTIVE_PACKAGE_CONTENT_ID_MISMATCH")
+        source_registry = _load_source_registry(source_registry_path)
+        inventory = _load_material_bank_inventory(inventory_path)
+        package_registry = _load_package_registry(root)
+        source_matches = [
+            record
+            for record in source_registry["records"]
+            if isinstance(record, dict)
+            and record.get("content_id") == content_id
+            and record.get("candidate_reference") == candidate_id
+        ]
+        inventory_matches = [
+            record
+            for record in inventory["records"]
+            if isinstance(record, dict)
+            and record.get("content_id") == content_id
+            and record.get("candidate_reference") == candidate_id
+        ]
+        if len(source_matches) != 1 or len(inventory_matches) != 1:
+            raise IntakeViolation("ACTIVE_SELECTION_QUARANTINE_BINDING_INVALID")
+        if quarantine_root.exists():
+            raise IntakeViolation("ACTIVE_SELECTION_QUARANTINE_DESTINATION_EXISTS")
+
+        before_dir = quarantine_root / "before"
+        before_dir.mkdir(parents=True)
+        state_paths = [
+            active_pointer_path,
+            package_registry_path,
+            source_registry_path,
+            inventory_path,
+        ]
+        for state_path in state_paths:
+            if not state_path.is_file():
+                raise IntakeViolation("ACTIVE_SELECTION_QUARANTINE_STATE_FILE_MISSING")
+            shutil.copy2(state_path, before_dir / state_path.name)
+
+        moved_package = quarantine_root / "output" / package.package_dir.name
+        moved_source = (
+            quarantine_root / "reviews" / "production_registry" / source_path.name
+        )
+        moved_package.parent.mkdir(parents=True)
+        moved_source.parent.mkdir(parents=True)
+        source_registry["records"] = [
+            record for record in source_registry["records"] if record not in source_matches
+        ]
+        inventory["records"] = [
+            record for record in inventory["records"] if record not in inventory_matches
+        ]
+        package_registry["packages"] = [
+            record
+            for record in package_registry["packages"]
+            if not (
+                isinstance(record, dict)
+                and record.get("package_relative_path") == relative_package
+            )
+        ]
+        package_registry["active_package_relative_path"] = None
+
+        try:
+            package.package_dir.rename(moved_package)
+            source_path.rename(moved_source)
+            _atomic_write_json(source_registry_path, source_registry)
+            _atomic_write_json(inventory_path, inventory)
+            _atomic_write_json(package_registry_path, package_registry)
+            active_pointer_path.unlink()
+            manifest = {
+                "schema_version": "review-reel-selection-quarantine-v1",
+                "workflow": "review_reel_production",
+                "status": "quarantined",
+                "reason_code": reason_code,
+                "quarantined_at": clock.isoformat(),
+                "content_id": content_id,
+                "content_slug": content_slug,
+                "candidate_reference": candidate_id,
+                "identity": package.metadata.get("identity"),
+                "original_paths": [str(package.package_dir), str(source_path)],
+                "quarantine_paths": [str(moved_package), str(moved_source)],
+                "registry_backups": [
+                    {
+                        "path": str(before_dir / state_path.name),
+                        "bytes": (before_dir / state_path.name).stat().st_size,
+                        "sha256": hashlib.sha256(
+                            (before_dir / state_path.name).read_bytes()
+                        ).hexdigest(),
+                    }
+                    for state_path in state_paths
+                ],
+                "restore_hint": (
+                    "Move the quarantined package and source back to original_paths, "
+                    "then restore all four files from registry_backups."
+                ),
+            }
+            _atomic_write_json(quarantine_root / "manifest.json", manifest)
+        except Exception as error:
+            try:
+                if moved_source.exists() and not source_path.exists():
+                    source_path.parent.mkdir(parents=True, exist_ok=True)
+                    moved_source.rename(source_path)
+                if moved_package.exists() and not package.package_dir.exists():
+                    package.package_dir.parent.mkdir(parents=True, exist_ok=True)
+                    moved_package.rename(package.package_dir)
+                for state_path in state_paths:
+                    backup = before_dir / state_path.name
+                    if backup.is_file():
+                        shutil.copy2(backup, state_path)
+                _atomic_write_json(
+                    quarantine_root / "rollback.json",
+                    {
+                        "schema_version": "review-reel-selection-quarantine-rollback-v1",
+                        "status": "rolled_back_after_failure",
+                        "error_type": type(error).__name__,
+                    },
+                )
+            except Exception as rollback_error:
+                raise IntakeViolation("ACTIVE_SELECTION_QUARANTINE_ROLLBACK_FAILED") from rollback_error
+            raise IntakeViolation("ACTIVE_SELECTION_QUARANTINE_FAILED") from error
+
+    return {
+        "workflow": "review_reel_production",
+        "status": "quarantined",
+        "content_id": content_id,
+        "candidate_reference": candidate_id,
+        "quarantine_root": str(quarantine_root.resolve()),
+        "manifest": str((quarantine_root / "manifest.json").resolve()),
+        "next_action": "run_candidate_shortlist_then_select_a_new_candidate",
+    }
 
 
 def _pointer_payload(output_root: Path, package: CanonicalPackage, *, updated_at: str) -> dict[str, Any]:

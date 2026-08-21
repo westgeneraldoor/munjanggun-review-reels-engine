@@ -65,6 +65,20 @@ contract, planning scene 내레이션과 표준 `*_script.md` 내레이션의 �
 보고서만 허용한다. Windows SAPI, 임의 MP3, 수동 SRT는 one-shot production 입력이
 아니다. 이 명령은 HTML 또는 MP4 승인 상태를 바꾸지 않는다.
 
+실제 청취에서 첫 음절 손실 또는 비례 배분 타임라인 오차가 확인되면 기존 산출물을
+수정하지 않고 새 artifact stem으로 교정한다. 교정도 같은 공식 스크립트만 사용하며,
+원본 Gemini/Sulafat voice와 report, 해시 결속된 `review-reel-voice-alignment-v1`
+실측 파일을 함께 지정한다. 세 교정 입력은 일부만 사용할 수 없다.
+
+```powershell
+python scripts/generate_one_shot_tts.py --package "<package>" --planning "<planning>" --edit "<new edit>" --script "<new *_script.md>" --calibrate-from-voice "<approved source voice.mp3>" --calibrate-from-report "<source tts report.json>" --alignment "<measured alignment.json>" --lead-in-sec 0.4
+```
+
+교정 결과는 source voice hash, 실측 파일 hash, lead-in, 새 voice/SRT/edit hash를 새
+TTS report에 기록한다. 자막 경계는 실측 발화 사이의 무음 중간점에 결속하고, 강조
+시점도 해당 자막 안의 강조 단어 위치에서 다시 계산한다. 교정 뒤에도
+`voice-review-record`, preflight, HTML, `html-review-record`를 처음부터 다시 거친다.
+
 sync manifest는 one-shot scope와 recipe/privacy/voice hashes를 함께 기록한다. 어느 하나가
 바뀌거나 HTML 단계에서 flag가 누락되면 stale gate로 실패한다.
 

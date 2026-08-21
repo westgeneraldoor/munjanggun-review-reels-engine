@@ -33,6 +33,7 @@ PRODUCTION_ENTRYPOINT_DOCUMENTS = [
     "AGENTS.md",
     "README.md",
     "docs/review_reel_production_routing_v1.md",
+    "docs/review_reel_candidate_selection_policy_v1.md",
     "docs/brand/PROJECT_BRAND_ADAPTER.md",
     "docs/reels_operations_dashboard_v1.md",
     "docs/review_video_publish_workflow_v2.md",
@@ -526,6 +527,10 @@ class NarrationRhythmAndUnderlineAuthorityTests(unittest.TestCase):
         for code in (
             "REVIEW_EMPHASIS_SEGMENT_TEXT_MISMATCH",
             "REVIEW_EMPHASIS_SEGMENT_ORDER_INVALID",
+            "SHOT_MEANING_EVIDENCE_MISSING",
+            "ONE_SHOT_TRANSITION_ROLE_INVALID",
+            "ONE_SHOT_TRANSITION_USAGE_EXCESSIVE",
+            "SCENE_DENSITY_LOW",
         ):
             with self.subTest(code=code):
                 guidance = explain_error(code)

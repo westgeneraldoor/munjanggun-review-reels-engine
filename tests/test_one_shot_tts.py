@@ -5,7 +5,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from video_engine_v2.one_shot_tts import OneShotTTSViolation, generate_one_shot_tts
+from video_engine_v2.one_shot_tts import (
+    OneShotTTSViolation,
+    calibrate_one_shot_timeline,
+    generate_one_shot_tts,
+)
 
 
 SCRIPT = """---
@@ -280,6 +284,101 @@ class OneShotTTSTests(unittest.TestCase):
             )
 
         self.assertEqual(existing.read_bytes(), b"keep")
+
+    def test_calibration_uses_measured_speech_boundaries_and_adds_lead_in(self):
+        import generate
+
+        source_voice = self.package / "source_voice.mp3"
+        source_voice.write_bytes(b"source-gemini-sulafat")
+        source_report = self.package / "_work" / "source_tts_generation_report.json"
+        source_report.parent.mkdir(exist_ok=True)
+        source_report.write_text(
+            json.dumps(
+                {
+                    "schema_version": "review-reel-tts-generation-report-v1",
+                    "provider": "google_gemini_tts",
+                    "model": "gemini-3.1-flash-tts-preview",
+                    "voice": "Sulafat",
+                    "tts_text_sha256": hashlib.sha256(
+                        generate.prepare_tts_text(SCRIPT).encode("utf-8")
+                    ).hexdigest(),
+                    "voice_relative_path": source_voice.name,
+                    "voice_bytes": source_voice.stat().st_size,
+                    "voice_sha256": hashlib.sha256(source_voice.read_bytes()).hexdigest(),
+                    "raw_tts_duration_sec": 26.0,
+                    "final_voice_duration_sec": 25.0,
+                }
+            ),
+            encoding="utf-8",
+        )
+        alignment = self.package / "measured_alignment.json"
+        measured = [
+            (0.10, 2.40),
+            (2.44, 5.10),
+            (6.00, 8.70),
+            (9.40, 12.20),
+            (13.00, 15.50),
+            (16.20, 24.60),
+        ]
+        edit = json.loads(self.edit.read_text(encoding="utf-8"))
+        edit["beats"][0]["caption_emphasis"] = ["별"]
+        edit["beats"][0]["caption_accent"] = {"enabled": True, "start_sec": 1.0}
+        self.edit.write_text(json.dumps(edit, ensure_ascii=False), encoding="utf-8")
+        alignment.write_text(
+            json.dumps(
+                {
+                    "schema_version": "review-reel-voice-alignment-v1",
+                    "source_voice_relative_path": source_voice.name,
+                    "source_voice_sha256": hashlib.sha256(source_voice.read_bytes()).hexdigest(),
+                    "items": [
+                        {
+                            "beat_id": beat["id"],
+                            "chunk_index": 1,
+                            "text": beat["caption_chunks"][0]["text"],
+                            "start_sec": start,
+                            "end_sec": end,
+                        }
+                        for beat, (start, end) in zip(edit["beats"], measured, strict=True)
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        def fake_pad(source: Path, target: Path, lead_in_sec: float) -> None:
+            self.assertEqual(source, source_voice)
+            self.assertEqual(lead_in_sec, 0.4)
+            target.write_bytes(b"padded-gemini-sulafat")
+
+        with (
+            patch("video_engine_v2.one_shot_tts._prepend_silence_mp3", side_effect=fake_pad),
+            patch("video_engine_v2.one_shot_tts.generate.get_audio_duration_seconds", return_value=25.4),
+        ):
+            result = calibrate_one_shot_timeline(
+                package_dir=self.package,
+                planning_path=self.planning,
+                edit_path=self.edit,
+                script_path=self.script,
+                source_voice_path=source_voice,
+                source_report_path=source_report,
+                alignment_path=alignment,
+                lead_in_sec=0.4,
+            )
+
+        calibrated_edit = json.loads(self.edit.read_text(encoding="utf-8"))
+        first_chunk = calibrated_edit["beats"][0]["caption_chunks"][0]
+        self.assertEqual(calibrated_edit["beats"][0]["time"][0], 0.0)
+        self.assertEqual(calibrated_edit["beats"][0]["narration_start_sec"], 0.0)
+        self.assertEqual(first_chunk["start_sec"], 0.0)
+        self.assertEqual(first_chunk["end_sec"], 2.82)
+        compact = "".join(first_chunk["text"].split())
+        expected_accent = round(2.82 * (compact.find("별") / len(compact)), 3)
+        self.assertEqual(calibrated_edit["beats"][0]["caption_accent"]["start_sec"], expected_accent)
+        self.assertEqual(calibrated_edit["beats"][-1]["time"][1], 25.4)
+        report = json.loads(result["tts_report"].read_text(encoding="utf-8"))
+        self.assertEqual(report["timeline_source"], "review-reel-voice-alignment-v1")
+        self.assertEqual(report["derived_voice"]["lead_in_sec"], 0.4)
+        self.assertIn("00:00:00,000 --> 00:00:02,820", result["srt"].read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

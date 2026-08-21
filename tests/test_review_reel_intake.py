@@ -19,6 +19,7 @@ from video_engine_v2.manual_review import (
 )
 from video_engine_v2.qa_guidance import explain_error
 from video_engine_v2.reels_qa import validate_review_reels_one_shot_contract
+import video_engine_v2.review_reel_intake as review_intake
 from video_engine_v2.review_reel_intake import (
     IntakeViolation,
     active_package_status,
@@ -485,6 +486,444 @@ class ReviewReelIntakeTests(unittest.TestCase):
                 material_bank_path=malformed_bank,
                 candidate_id=malformed_id,
             )
+
+    def test_exact_candidate_provenance_inside_pilot_package_blocks_reuse(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        candidate_id = "CAND-20300102-0009"
+        material_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-PILOT-9",
+                    "review_id": "REVIEW-PILOT-9",
+                    "order_id": "ORDER-PILOT-9",
+                    "product_name": "현관중문 시공설치",
+                    "product_family": "중문",
+                    "review_text": "Pilot provenance fixture.",
+                    "candidate_id": candidate_id,
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        pilot_package = self.output_root / "pilot" / "002_old_pilot"
+        (pilot_package / "_work").mkdir(parents=True)
+        (pilot_package / "_work" / "source.json").write_text(
+            json.dumps({"candidate_reference": candidate_id}),
+            encoding="utf-8",
+        )
+
+        inspection = inspect_material_bank_candidate(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+        )
+
+        self.assertEqual(inspection["status"], "legacy_package_present")
+        self.assertEqual(inspection["blocker_code"], "CANDIDATE_LEGACY_PACKAGE_PRESENT")
+        self.assertEqual(inspection["legacy_package_relative_paths"], ["pilot/002_old_pilot"])
+
+    def test_candidate_policy_blocks_abs_door_before_package_allocation(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        candidate_id = "CAND-20300102-0001"
+        material_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-ABS-1",
+                    "review_id": "REVIEW-ABS-1",
+                    "order_id": "ORDER-ABS-1",
+                    "product_name": "셀프실측 방문교체 ABS도어 배송상품",
+                    "product_family": "ABS도어",
+                    "review_text": "Excluded ABS door fixture.",
+                    "candidate_id": candidate_id,
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        inspection = inspect_material_bank_candidate(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+        )
+
+        self.assertFalse(inspection["eligible_for_new_package"])
+        self.assertEqual(inspection["status"], "policy_excluded")
+        self.assertEqual(inspection["blocker_code"], "CANDIDATE_PRODUCT_EXCLUDED")
+        self.assertEqual(
+            inspection["exclusion_reason_codes"],
+            ["ABS_DOOR", "SELF_MEASUREMENT", "DELIVERY_ONLY"],
+        )
+        self.assertTrue(explain_error("CANDIDATE_PRODUCT_EXCLUDED")["known"])
+        with self.assertRaisesRegex(IntakeViolation, "CANDIDATE_PRODUCT_EXCLUDED"):
+            create_canonical_package_from_material_bank(
+                output_root=self.output_root,
+                reviews_root=self.root / "reviews",
+                material_bank_path=material_bank,
+                candidate_id=candidate_id,
+                content_slug="제외후보",
+                now=self.now,
+            )
+        self.assertFalse((self.output_root / ".review_reel_production").exists())
+
+    def test_candidate_with_same_review_identity_under_different_candidate_is_blocked(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        candidate_id = "CAND-20300102-0002"
+        material_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-DUP-2",
+                    "review_id": "4985538473",
+                    "order_id": "2026052161335791",
+                    "product_name": "현관중문 시공설치",
+                    "product_family": "중문",
+                    "review_text": "Exact duplicate fixture review.",
+                    "candidate_id": candidate_id,
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        legacy_package = self.output_root / "017_부모님반전"
+        (legacy_package / "_work").mkdir(parents=True)
+        (legacy_package / "_work" / "017_script.md").write_text(
+            "---\nreview_id: 4985538473\nproduct_order_number: 2026052161335791\n---\n",
+            encoding="utf-8",
+        )
+
+        inspection = inspect_material_bank_candidate(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+        )
+
+        self.assertEqual(inspection["status"], "legacy_identity_present")
+        self.assertEqual(inspection["blocker_code"], "REVIEW_ALREADY_USED")
+        self.assertTrue(explain_error("REVIEW_ALREADY_USED")["known"])
+        self.assertEqual(inspection["legacy_package_relative_paths"], [legacy_package.name])
+        with self.assertRaisesRegex(IntakeViolation, "REVIEW_ALREADY_USED"):
+            create_canonical_package_from_material_bank(
+                output_root=self.output_root,
+                reviews_root=self.root / "reviews",
+                material_bank_path=material_bank,
+                candidate_id=candidate_id,
+                content_slug="중복후보",
+                now=self.now,
+            )
+
+    def test_candidate_with_same_order_but_different_review_is_held_for_resolution(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        candidate_id = "CAND-20300102-0003"
+        material_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-FOLLOWUP-3",
+                    "review_id": "4985905386",
+                    "order_id": "2026033070992071",
+                    "product_name": "현관중문 시공설치",
+                    "product_family": "중문",
+                    "review_text": "One month follow-up fixture.",
+                    "candidate_id": candidate_id,
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        legacy_package = self.output_root / "077_반려동물에어컨효율_legacy"
+        legacy_package.mkdir(parents=True)
+        (legacy_package / "077_script.md").write_text(
+            "---\nreview_id: 4948039850\nproduct_order_number: 2026033070992071\n---\n",
+            encoding="utf-8",
+        )
+
+        inspection = inspect_material_bank_candidate(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+        )
+
+        self.assertFalse(inspection["eligible_for_new_package"])
+        self.assertEqual(inspection["status"], "related_review_hold")
+        self.assertEqual(inspection["blocker_code"], "PRODUCT_ORDER_ALREADY_USED")
+        self.assertTrue(explain_error("PRODUCT_ORDER_ALREADY_USED")["known"])
+        self.assertEqual(inspection["legacy_package_relative_paths"], [legacy_package.name])
+
+    def test_official_binding_does_not_hide_an_older_package_with_the_same_review(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        candidate_id = "CAND-20300102-0004"
+        material_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-OFFICIAL-4",
+                    "review_id": "4988296656",
+                    "order_id": "2026051963784331",
+                    "product_name": "현관중문 시공설치",
+                    "product_family": "중문",
+                    "review_text": "Official duplicate fixture.",
+                    "candidate_id": candidate_id,
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        created = create_canonical_package_from_material_bank(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+            content_slug="공식중복",
+            now=self.now,
+        )
+        legacy_package = self.output_root / "010_구축소음_legacy"
+        legacy_package.mkdir()
+        (legacy_package / "010_script.md").write_text(
+            "---\nreview_id: 4988296656\nproduct_order_number: 2026051963784331\n---\n",
+            encoding="utf-8",
+        )
+
+        inspection = inspect_material_bank_candidate(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+        )
+
+        self.assertEqual(inspection["status"], "legacy_identity_present")
+        self.assertEqual(inspection["blocker_code"], "REVIEW_ALREADY_USED")
+        self.assertIn(legacy_package.name, inspection["legacy_package_relative_paths"])
+        self.assertNotIn(created.package_dir.name, inspection["legacy_package_relative_paths"])
+
+    def test_candidate_shortlist_applies_policy_identity_and_order_holds_in_rank_order(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        rows = [
+            {
+                "inventory_id": "INV-1",
+                "review_id": "REVIEW-1",
+                "order_id": "ORDER-1",
+                "product_name": "ABS도어 배송상품",
+                "product_family": "ABS도어",
+                "review_text": "Excluded.",
+                "candidate_id": "CAND-20300102-0001",
+                "canonical_top60_rank": 1,
+                "tier": "A",
+                "story_score_60": 60,
+            },
+            {
+                "inventory_id": "INV-2",
+                "review_id": "REVIEW-2",
+                "order_id": "ORDER-2",
+                "product_name": "현관중문 시공설치",
+                "product_family": "중문",
+                "review_text": "Eligible.",
+                "candidate_id": "CAND-20300102-0002",
+                "canonical_top60_rank": 2,
+                "tier": "A",
+                "story_score_60": 55,
+            },
+            {
+                "inventory_id": "INV-3",
+                "review_id": "REVIEW-3-NEW",
+                "order_id": "ORDER-3",
+                "product_name": "현관중문 시공설치",
+                "product_family": "중문",
+                "review_text": "Follow-up.",
+                "candidate_id": "CAND-20300102-0003",
+                "canonical_top60_rank": 3,
+                "tier": "A",
+                "story_score_60": 50,
+            },
+        ]
+        material_bank.write_text(
+            "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
+            encoding="utf-8",
+        )
+        legacy_package = self.output_root / "003_existing"
+        legacy_package.mkdir(parents=True)
+        (legacy_package / "script.md").write_text(
+            "review_id: REVIEW-3-OLD\nproduct_order_number: ORDER-3\n",
+            encoding="utf-8",
+        )
+
+        shortlist = review_intake.shortlist_material_bank_candidates(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            limit=10,
+        )
+
+        self.assertEqual(shortlist["summary"]["evaluated"], 3)
+        self.assertEqual(shortlist["summary"]["eligible"], 1)
+        self.assertEqual(shortlist["summary"]["policy_excluded"], 1)
+        self.assertEqual(shortlist["summary"]["related_review_hold"], 1)
+        self.assertEqual(
+            [row["candidate_id"] for row in shortlist["eligible_candidates"]],
+            ["CAND-20300102-0002"],
+        )
+        self.assertEqual(
+            [row["candidate_id"] for row in shortlist["candidates"]],
+            ["CAND-20300102-0001", "CAND-20300102-0002", "CAND-20300102-0003"],
+        )
+
+    def test_pre_photo_active_selection_can_be_quarantined_without_deleting_evidence(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        candidate_id = "CAND-20300102-0005"
+        material_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-QUARANTINE-5",
+                    "review_id": "REVIEW-QUARANTINE-5",
+                    "order_id": "ORDER-QUARANTINE-5",
+                    "product_name": "현관중문 시공설치",
+                    "product_family": "중문",
+                    "review_text": "Quarantine fixture.",
+                    "candidate_id": candidate_id,
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        created = create_canonical_package_from_material_bank(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+            content_slug="잘못선택",
+            now=self.now,
+        )
+        source_path = Path(created.metadata["review_source"]["path"])
+
+        result = review_intake.quarantine_active_selection(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            expected_content_id=created.metadata["content_id"],
+            reason_code="duplicate_existing_review",
+            now=self.now,
+        )
+
+        quarantine_root = Path(result["quarantine_root"])
+        moved_package = quarantine_root / "output" / created.package_dir.name
+        moved_source = quarantine_root / "reviews" / "production_registry" / source_path.name
+        self.assertEqual(result["status"], "quarantined")
+        self.assertFalse(created.package_dir.exists())
+        self.assertFalse(source_path.exists())
+        self.assertTrue(moved_package.is_dir())
+        self.assertTrue(moved_source.is_file())
+        self.assertTrue((quarantine_root / "manifest.json").is_file())
+        self.assertFalse(
+            (self.output_root / ".review_reel_production" / "active_package.json").exists()
+        )
+        source_registry = json.loads(
+            (
+                self.output_root
+                / ".review_reel_production"
+                / "source_registry_private.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(source_registry["records"], [])
+        with self.assertRaisesRegex(IntakeViolation, "ACTIVE_PACKAGE_POINTER_MISSING"):
+            resolve_active_package(self.output_root)
+
+    def test_active_selection_quarantine_refuses_any_customer_photo(self):
+        created = self.create()
+        (created.image_dir / "customer.jpg").write_bytes(b"customer-media-fixture")
+
+        with self.assertRaisesRegex(IntakeViolation, "ACTIVE_SELECTION_QUARANTINE_PHOTOS_PRESENT"):
+            review_intake.quarantine_active_selection(
+                output_root=self.output_root,
+                reviews_root=self.root / "reviews",
+                expected_content_id=created.metadata["content_id"],
+                reason_code="wrong_selection",
+                now=self.now,
+            )
+
+        self.assertTrue(created.package_dir.is_dir())
+        self.assertTrue(resolve_active_package(self.output_root).package_dir.is_dir())
+
+    def test_candidate_shortlist_and_quarantine_commands_are_exposed_by_official_cli(self):
+        material_bank = self.root / "candidate_top60_private.jsonl"
+        candidate_id = "CAND-20300102-0006"
+        material_bank.write_text(
+            json.dumps(
+                {
+                    "inventory_id": "INV-CLI-6",
+                    "review_id": "REVIEW-CLI-6",
+                    "order_id": "ORDER-CLI-6",
+                    "product_name": "현관중문 시공설치",
+                    "product_family": "중문",
+                    "review_text": "CLI fixture.",
+                    "candidate_id": candidate_id,
+                    "canonical_top60_rank": 1,
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        script = Path(__file__).resolve().parents[1] / "scripts" / "review_reel_intake.py"
+        shortlist_result = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "candidate-shortlist",
+                "--output-root",
+                str(self.output_root),
+                "--reviews-root",
+                str(self.root / "reviews"),
+                "--material-bank",
+                str(material_bank),
+                "--limit",
+                "5",
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+        self.assertEqual(shortlist_result.returncode, 0, shortlist_result.stderr)
+        self.assertEqual(
+            json.loads(shortlist_result.stdout)["eligible_candidates"][0]["candidate_id"],
+            candidate_id,
+        )
+
+        created = create_canonical_package_from_material_bank(
+            output_root=self.output_root,
+            reviews_root=self.root / "reviews",
+            material_bank_path=material_bank,
+            candidate_id=candidate_id,
+            content_slug="CLI격리",
+            now=self.now,
+        )
+        quarantine_result = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "quarantine-active-selection",
+                "--output-root",
+                str(self.output_root),
+                "--reviews-root",
+                str(self.root / "reviews"),
+                "--expected-content-id",
+                created.metadata["content_id"],
+                "--reason-code",
+                "wrong_selection",
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+        self.assertEqual(quarantine_result.returncode, 0, quarantine_result.stderr)
+        self.assertEqual(json.loads(quarantine_result.stdout)["status"], "quarantined")
 
     def test_candidate_check_cli_and_error_guidance_explain_legacy_blocker(self):
         material_bank = self.root / "candidate_top60_private.jsonl"

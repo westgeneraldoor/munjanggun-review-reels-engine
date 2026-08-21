@@ -406,6 +406,22 @@
       animation: crossDissolveOut 380ms ease-out;
     }
 
+    .transition-hit.t-calm_slide .asset.main {
+      animation: calmSlideRevealIn 420ms cubic-bezier(.22,.7,.28,1);
+    }
+
+    .transition-hit.t-calm_slide .asset.previous {
+      animation: crossDissolveOut 420ms ease-out;
+    }
+
+    .transition-hit.t-soft_page_turn .asset.main {
+      animation: softPageTurnIn 440ms cubic-bezier(.2,.72,.25,1);
+    }
+
+    .transition-hit.t-soft_page_turn .asset.previous {
+      animation: crossDissolveOut 440ms ease-out;
+    }
+
     @keyframes flashBang {
       0% { opacity: 0.95; }
       100% { opacity: 0; }
@@ -420,6 +436,16 @@
     @keyframes calmDissolveIn {
       from { opacity: 0; }
       to { opacity: 1; }
+    }
+
+    @keyframes calmSlideRevealIn {
+      from { opacity: 0.72; clip-path: inset(0 100% 0 0); }
+      to { opacity: 1; clip-path: inset(0 0 0 0); }
+    }
+
+    @keyframes softPageTurnIn {
+      from { opacity: 0.68; clip-path: polygon(100% 0, 100% 0, 92% 100%, 92% 100%); }
+      to { opacity: 1; clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); }
     }
 
     @keyframes crossDissolveIn {
@@ -945,7 +971,7 @@
       stage.className = `stage ${motion} t-${classSafe(transitionIn)} out-${classSafe(beat.transition_out)}`;
       const url = assetUrls[shot.asset_id] || '';
       if (url) {
-        if (['cross_dissolve', 'soft_cut', 'soft_dissolve', 'calm_dissolve'].includes(transitionIn) && mainAsset.src && mainAsset.src !== url) {
+        if (['cross_dissolve', 'soft_cut', 'soft_dissolve', 'calm_dissolve', 'calm_slide', 'soft_page_turn'].includes(transitionIn) && mainAsset.src && mainAsset.src !== url) {
           previousAsset.src = mainAsset.src;
           previousAsset.style.transform = mainAsset.style.transform || getComputedStyle(mainAsset).transform;
         } else {

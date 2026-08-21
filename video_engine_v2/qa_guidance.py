@@ -4,6 +4,18 @@ from typing import Any
 
 
 ERROR_GUIDANCE: dict[str, dict[str, str]] = {
+    "CANDIDATE_PRODUCT_EXCLUDED": {
+        "authority": "docs/review_reel_candidate_selection_policy_v1.md",
+        "how_to_fix": "Do not allocate ABS-door, self-measurement, self-installation, or delivery-only products. Run candidate-shortlist and select an eligible installed middle-door review.",
+    },
+    "REVIEW_ALREADY_USED": {
+        "authority": "docs/review_reel_candidate_selection_policy_v1.md",
+        "how_to_fix": "Preserve the existing package as production evidence and select a different review. Do not create another candidate binding for the same review ID or review-text hash.",
+    },
+    "PRODUCT_ORDER_ALREADY_USED": {
+        "authority": "docs/review_reel_candidate_selection_policy_v1.md",
+        "how_to_fix": "This is a different review under an order already used by another package. Keep it on related-review hold unless the owner explicitly approves a separate-story resolution.",
+    },
     "CANDIDATE_LEGACY_PACKAGE_PRESENT": {
         "authority": "docs/review_reel_production_routing_v1.md",
         "how_to_fix": "Do not allocate this candidate as a new numeric package. Preserve the legacy package, select another eligible candidate, or request an explicit legacy-resolution decision.",
@@ -11,6 +23,14 @@ ERROR_GUIDANCE: dict[str, dict[str, str]] = {
     "ACTIVE_PACKAGE_CONTENT_ID_MISMATCH": {
         "authority": "docs/review_reel_production_routing_v1.md",
         "how_to_fix": "Run workflow-next, confirm the active content_id, and repeat the command with that exact --expected-content-id. Do not edit the pointer by hand.",
+    },
+    "ACTIVE_SELECTION_QUARANTINE_PHOTOS_PRESENT": {
+        "authority": "docs/review_reel_candidate_selection_policy_v1.md",
+        "how_to_fix": "Do not quarantine an active selection after customer photos were added. Stop and request an explicit media-preserving recovery plan.",
+    },
+    "ACTIVE_SELECTION_QUARANTINE_DOWNSTREAM_ARTIFACTS_PRESENT": {
+        "authority": "docs/review_reel_candidate_selection_policy_v1.md",
+        "how_to_fix": "The package has progressed beyond the empty pre-photo boundary. Preserve it and request a package-specific recovery decision instead of using the selection quarantine command.",
     },
     "PHOTO_PRIVACY_CATEGORY_INVALID": {
         "authority": "docs/reels_privacy_asset_qa_rules_v1.md",
@@ -103,6 +123,22 @@ ERROR_GUIDANCE: dict[str, dict[str, str]] = {
     "FINAL_RESULT_DWELL_INVALID": {
         "authority": "docs/review_reels_visual_edit_standard_v1.md",
         "how_to_fix": "End on the full installed-result asset and keep the final shot visible for the required dwell time.",
+    },
+    "SHOT_MEANING_EVIDENCE_MISSING": {
+        "authority": "docs/review_reels_visual_edit_standard_v1.md",
+        "how_to_fix": "For every shot, bind meaning_match_source to asset_evidence:<asset_id> and narration_fragment:<the spoken phrase shown by that photo>.",
+    },
+    "ONE_SHOT_TRANSITION_ROLE_INVALID": {
+        "authority": "docs/review_reels_visual_edit_standard_v1.md",
+        "how_to_fix": "Keep review proof and CTA shots on calm_dissolve. Use slide or page-turn only inside the story body.",
+    },
+    "ONE_SHOT_TRANSITION_USAGE_EXCESSIVE": {
+        "authority": "docs/review_reels_visual_edit_standard_v1.md",
+        "how_to_fix": "Use calm_slide no more than twice and soft_page_turn no more than once; use calm_dissolve for the remaining photo changes.",
+    },
+    "SCENE_DENSITY_LOW": {
+        "authority": "docs/review_reels_visual_edit_standard_v1.md",
+        "how_to_fix": "When at least eight narrative-safe photos exist, split grounded clauses into 9-12 photo shots. If matching evidence is insufficient, keep the warning and do not add unrelated filler.",
     },
 }
 

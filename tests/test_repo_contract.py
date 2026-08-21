@@ -1,6 +1,8 @@
 import ast
 import json
+import os
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -115,6 +117,41 @@ class RepoContractTest(unittest.TestCase):
         text = runner_path.read_text(encoding="utf-8")
         self.assertIn("unittest", text)
         self.assertIn("discover", text)
+
+    def test_python_test_runner_does_not_poison_system_python_with_workspace_dependencies(self):
+        runner_path = ROOT / "scripts" / "run-python-tests.cjs"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            tests_dir = temp_root / "tests"
+            tests_dir.mkdir()
+            (tests_dir / "test_smoke.py").write_text(
+                "import typing_extensions\n"
+                "import unittest\n\n"
+                "class SmokeTest(unittest.TestCase):\n"
+                "    def test_import(self):\n"
+                "        self.assertIsNotNone(typing_extensions)\n",
+                encoding="utf-8",
+            )
+            workspace_deps = temp_root / ".codex_deps"
+            workspace_deps.mkdir()
+            (workspace_deps / "typing_extensions.py").write_text(
+                'raise RuntimeError("poison workspace dependency")\n',
+                encoding="utf-8",
+            )
+
+            env = os.environ.copy()
+            env.pop("PYTHONPATH", None)
+            result = subprocess.run(
+                ["node", str(runner_path)],
+                cwd=temp_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_official_hyperframes_adoption_is_documented(self):
         plan_path = ROOT / "docs" / "hyperframes_official_adoption_plan_v1.md"

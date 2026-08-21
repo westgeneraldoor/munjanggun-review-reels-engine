@@ -9,6 +9,9 @@ edit recipe의 `asset_evidence`는 각 `asset_roles` 항목의 주 역할을 `ev
 사진 shot이 8개 이상인 긴 편집은 사용 가능한 비리뷰 근거 자산 중 최소
 `min(6, 사용 가능 자산 수, ceil(사진 shot 수 / 2))`개를 쓰는지 검사합니다. 부족하면
 `PHOTO_VARIETY_LOW` 경고를 내지만, 이야기와 무관한 사진 사용을 강제하지는 않습니다.
+narrative-safe 비리뷰 사진이 8장 이상이면 비리뷰 사진 shot 9개 이상을 권장하며,
+부족하면 `SCENE_DENSITY_LOW` 경고를 냅니다. 사진 근거가 부족한 편집을 하드 실패시키거나
+무관한 사진을 채우지는 않습니다.
 
 ```json
 {"asset_evidence":{"after_main":{"evidence_class":"installed_result","visual_quality":{"full_product_visible":true}},"before_entry":{"evidence_class":"before_state"},"review_capture":{"evidence_class":"review_capture"},"measure_width":{"evidence_class":"measurement","unused_reason":"리뷰와 대본에 실측 주장이 없어 보조 소스로만 보존"}}}
@@ -132,15 +135,18 @@ planning scene과 다른 의미를 말하거나 package 밖 asset을 암묵적�
 `caption_layout.theme`은 `white`, `warning`, `proof`, `clear`, `cta`, `stamp` 중 하나만
 사용합니다. 기본 production 팔레트인 `white`는 아이보리 본문과 민트 핵심어입니다.
 
-one-shot의 모든 beat는 `shots`로 실제 사진 순서와 시간을 기록합니다. 첫 세 shot은
+one-shot의 모든 beat는 `shots`로 실제 사진 순서와 시간을 기록합니다. 같은 문장 안에서도
+의미가 갈리고 해당 구절에 맞는 사진 근거가 있으면 별도 shot으로 나눕니다. 첫 세 shot은
 `result_asset_id → before_asset_id → result_asset_id`, 전환은
 `cut → calm_dissolve → calm_dissolve`, 체류는 각각 1.0초 이상이어야 합니다. 이후 shot도
-`calm_dissolve`를 사용하고 마지막 shot은 `result_asset_id`를 최소 2.5초 유지합니다.
+hard cut을 사용하지 않고 마지막 shot은 `result_asset_id`를 최소 2.5초 유지합니다.
 전체 12컷이 상한이며 최소 컷 수는 없습니다.
 
 허용 모션은 `static_hold`, `calm_push_in`, `calm_pull_out`, `calm_glide_left`,
 `calm_glide_right`, `calm_glide_up`, `review_capture_hold`, 허용 전환은 `cut`,
-`calm_dissolve`입니다. 비정지 motion에는 `motion_reason`이 필요하고 리뷰 증거는 한 장의
+`calm_dissolve`, `calm_slide`, `soft_page_turn`입니다. `calm_slide`는 전체 최대 2회,
+`soft_page_turn`은 최대 1회이고 리뷰 증거와 CTA는 `calm_dissolve`만 사용합니다.
+비정지 motion에는 `motion_reason`이 필요하고 리뷰 증거는 한 장의
 `review_capture_hold`여야 합니다. renderer 확정값은 `calm_dissolve 380ms`, 확대·축소
 scale 차이 0.05, 좌우 총 24px, 상하 총 20px입니다.
 한 beat에 shot이 여러 개면 모두 같은 motion을 써 카메라 방향을 유지합니다. calm 모션은
@@ -191,7 +197,7 @@ TTS 발음을 위한 `text`와 공식 제품 표기가 다를 때만 `display_te
 ```
 
 설치 결과 훅의 첫 3개 shot은 `caption_chunks`와 1:1 대응할 필요가 없습니다. 한 완결된
-훅 문장이 세 사진을 가로지를 수 있습니다. 각 shot의
+문장이 여러 사진을 가로지를 수 있지만 모든 shot의
 `meaning_match_source`에는 `asset_evidence:<asset_id>`와
 `narration_fragment:<해당 문맥>`을 함께 기록합니다. 이 결속이 없으면 사진 순서는
 맞아도 음성 의미가 다른 화면 위로 넘어갈 수 있으므로 preflight에서 실패합니다.

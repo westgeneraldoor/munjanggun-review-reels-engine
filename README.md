@@ -117,6 +117,7 @@ It also resolves the active package for the one-shot request below; it never
 provides an MP4 render route.
 
 ```powershell
+python scripts/review_reel_intake.py candidate-shortlist --output-root "output" --reviews-root "reviews" --material-bank "<candidate_top60_private.jsonl>" --limit 10
 python scripts/review_reel_intake.py candidate-check --output-root "output" --reviews-root "reviews" --material-bank "<candidate_top60_private.jsonl>" --candidate-id "<selected CAND-*>"
 # Run create only when candidate-check returns eligible_for_new_package: true.
 python scripts/review_reel_intake.py create-from-material-bank --output-root "output" --reviews-root "reviews" --material-bank "<candidate_top60_private.jsonl>" --candidate-id "<selected CAND-*>" --content-slug "<event-focused slug>"
@@ -126,8 +127,11 @@ The private source registry scans existing `reviews/` and `output/` IDs, assigns
 the next unused three-digit ID, and reuses that binding on every retry. Invalid
 registry data or changed source identity is a hard failure, never a silent
 reset.
-Legacy `CAND-*` package evidence also blocks a new allocation even when the
-newer source registry has no binding for that candidate.
+Legacy `CAND-*` evidence, an exact review ID/text-hash match, or a previously
+used product order blocks automatic allocation even when the newer source
+registry has no binding. ABS-door, self-measurement, self-installation, and
+delivery-only products are excluded by
+`docs/review_reel_candidate_selection_policy_v1.md`.
 
 For an explicit user instruction equivalent to `사진 다 넣었어. HTML까지 가자`, a
 review-reel package may use the HTML-only one-shot route. It never grants MP4
@@ -135,6 +139,12 @@ authority and does not bypass the script/SRT/TTS approval gate. The planning
 recipe must contain the `review-reels-one-shot-v2` contract with HTML scope
 authorized and MP4 scope explicitly false. Run both official phases with the
 same flag:
+
+When at least eight narrative-safe non-review photos exist, new one-shot edits
+target 9-12 photo moments. Every shot binds its asset evidence to the spoken
+fragment. The bounded transition palette is `calm_dissolve`, `calm_slide`
+(maximum two), and `soft_page_turn` (maximum one); review proof and CTA remain
+on `calm_dissolve`.
 
 ```powershell
 python scripts/produce_review_v2.py preflight --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --one-shot-html

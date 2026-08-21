@@ -822,11 +822,15 @@ SUPPORTED_MOTIONS = {
 
 STATIC_PHOTO_MOTIONS = {"review_capture_hold", "static_hold"}
 MAX_ONE_SHOT_TOTAL_SHOTS = 12
+MIN_RICH_ONE_SHOT_PHOTO_SHOTS = 9
+MIN_RICH_ONE_SHOT_AVAILABLE_PHOTOS = 8
+MAX_ONE_SHOT_CALM_SLIDES = 2
+MAX_ONE_SHOT_SOFT_PAGE_TURNS = 1
 ONE_SHOT_CALM_MOTIONS = {
     "calm_glide_left", "calm_glide_right", "calm_glide_up", "calm_pull_out", "calm_push_in",
     "review_capture_hold", "static_hold",
 }
-ONE_SHOT_CALM_TRANSITIONS = {"calm_dissolve", "cut"}
+ONE_SHOT_CALM_TRANSITIONS = {"calm_dissolve", "calm_slide", "cut", "soft_page_turn"}
 ONE_SHOT_BODY_CAPTION_SIZE = "medium"
 MIN_ONE_SHOT_BODY_CAPTION_FONT_PX = 44
 CAPTION_ACCENT_ONSET_EARLY_TOLERANCE_SEC = 0.20
@@ -849,7 +853,7 @@ MIN_ONE_SHOT_FINAL_RESULT_SEC = 2.5
 SUPPORTED_TRANSITIONS = {
     "card_pop", "caption_swap", "cross_dissolve", "cut", "flash_glow", "glow",
     "hit_flash", "paper_open", "pop", "slide_up", "smooth_cut", "smooth_slide",
-    "calm_dissolve", "soft_cut", "soft_dissolve",
+    "calm_dissolve", "calm_slide", "soft_cut", "soft_dissolve", "soft_page_turn",
     "zoom_snap",
 }
 
@@ -947,6 +951,19 @@ def _validate_result_first_hook_contract(edit_recipe: dict[str, Any]) -> list[di
         if isinstance(shot, dict) and _as_text(shot.get("asset_id")).strip() in available_photo_assets
     ]
     used_photo_assets = {_as_text(shot.get("asset_id")).strip() for shot in non_review_shots}
+    if (
+        len(available_photo_assets) >= MIN_RICH_ONE_SHOT_AVAILABLE_PHOTOS
+        and len(non_review_shots) < MIN_RICH_ONE_SHOT_PHOTO_SHOTS
+    ):
+        issues.append(
+            _issue(
+                "SCENE_DENSITY_LOW",
+                "The curated evidence can support a richer edit: "
+                f"found {len(non_review_shots)} photo shots with {len(available_photo_assets)} narrative-safe photos; "
+                f"target at least {MIN_RICH_ONE_SHOT_PHOTO_SHOTS} photo shots.",
+                severity="warn",
+            )
+        )
     if len(non_review_shots) >= 8:
         minimum_distinct = min(6, len(available_photo_assets), (len(non_review_shots) + 1) // 2)
         if len(used_photo_assets) < minimum_distinct:
@@ -1100,6 +1117,7 @@ def _validate_one_shot_visual_edit_contract(edit_recipe: dict[str, Any]) -> list
     beats = [beat for beat in edit_recipe.get("beats") or [] if isinstance(beat, dict)]
     contract = edit_recipe.get("hook_visual_contract") or {}
     result_asset_id = _as_text(contract.get("result_asset_id")).strip()
+    transition_usage = {"calm_slide": 0, "soft_page_turn": 0}
 
     for beat_index, beat in enumerate(beats):
         scene_id = _as_text(beat.get("id") or f"scene_{beat_index + 1:02d}")
@@ -1228,6 +1246,20 @@ def _validate_one_shot_visual_edit_contract(edit_recipe: dict[str, Any]) -> list
                 continue
             motion = _as_text(shot.get("motion") or beat.get("motion")).strip()
             transition = _as_text(shot.get("transition_in")).strip()
+            asset_id = _as_text(shot.get("asset_id")).strip()
+            meaning_source = _as_text(shot.get("meaning_match_source")).strip()
+            if (
+                not meaning_source
+                or f"asset_evidence:{asset_id}" not in meaning_source
+                or "narration_fragment:" not in meaning_source
+            ):
+                issues.append(
+                    _issue(
+                        "SHOT_MEANING_EVIDENCE_MISSING",
+                        "Every photo shot must bind its exact asset evidence and spoken narration fragment.",
+                        scene_id=scene_id,
+                    )
+                )
             if motion not in ONE_SHOT_CALM_MOTIONS:
                 issues.append(
                     _issue(
@@ -1244,11 +1276,21 @@ def _validate_one_shot_visual_edit_contract(edit_recipe: dict[str, Any]) -> list
                         scene_id=scene_id,
                     )
                 )
-            elif beat_index > 0 and transition != "calm_dissolve":
+            elif beat_index > 0 and transition == "cut":
                 issues.append(
                     _issue(
                         "ONE_SHOT_TRANSITION_NOT_CALM",
-                        "Photo changes after the opening must use calm_dissolve.",
+                        "Photo changes after the opening may not use a hard cut.",
+                        scene_id=scene_id,
+                    )
+                )
+            if transition in transition_usage:
+                transition_usage[transition] += 1
+            if _role(beat) in {"review_proof", "cta"} and transition != "calm_dissolve":
+                issues.append(
+                    _issue(
+                        "ONE_SHOT_TRANSITION_ROLE_INVALID",
+                        "Review proof and CTA shots must stay on calm_dissolve for readability.",
                         scene_id=scene_id,
                     )
                 )
@@ -1302,6 +1344,19 @@ def _validate_one_shot_visual_edit_contract(edit_recipe: dict[str, Any]) -> list
                     "REVIEW_PROOF_MUST_HOLD_STILL",
                     "Review proof must use one static review_capture_hold shot.",
                     scene_id=scene_id,
+                )
+            )
+
+    transition_limits = {
+        "calm_slide": MAX_ONE_SHOT_CALM_SLIDES,
+        "soft_page_turn": MAX_ONE_SHOT_SOFT_PAGE_TURNS,
+    }
+    for transition, limit in transition_limits.items():
+        if transition_usage[transition] > limit:
+            issues.append(
+                _issue(
+                    "ONE_SHOT_TRANSITION_USAGE_EXCESSIVE",
+                    f"{transition} may appear at most {limit} time(s); found {transition_usage[transition]}.",
                 )
             )
 

@@ -19,10 +19,12 @@ from video_engine_v2.review_reel_intake import (  # noqa: E402
     create_canonical_package,
     create_canonical_package_from_material_bank,
     inspect_material_bank_candidate,
+    quarantine_active_selection,
     record_photo_review,
     resolve_active_package,
     route_user_command,
     run_one_shot_html,
+    shortlist_material_bank_candidates,
     workflow_next,
     write_recipe_scaffold,
 )
@@ -72,6 +74,26 @@ def build_parser() -> argparse.ArgumentParser:
     candidate_check.add_argument("--reviews-root", required=True)
     candidate_check.add_argument("--material-bank", required=True, help="private candidate JSONL")
     candidate_check.add_argument("--candidate-id", required=True)
+    candidate_shortlist = commands.add_parser(
+        "candidate-shortlist",
+        help="Read-only ranked audit using product policy and legacy identity evidence",
+    )
+    candidate_shortlist.add_argument("--output-root", required=True)
+    candidate_shortlist.add_argument("--reviews-root", required=True)
+    candidate_shortlist.add_argument("--material-bank", required=True, help="private candidate JSONL")
+    candidate_shortlist.add_argument("--limit", type=int, default=10)
+    quarantine = commands.add_parser(
+        "quarantine-active-selection",
+        help="Recoverably quarantine one mistaken empty pre-photo active package",
+    )
+    quarantine.add_argument("--output-root", required=True)
+    quarantine.add_argument("--reviews-root", required=True)
+    quarantine.add_argument("--expected-content-id", required=True)
+    quarantine.add_argument(
+        "--reason-code",
+        required=True,
+        choices=("duplicate_existing_review", "policy_excluded", "wrong_selection"),
+    )
     photo_review = commands.add_parser(
         "photo-review",
         help="Bind complete photo decisions and privacy evidence to the active package",
@@ -134,6 +156,32 @@ def main(argv: list[str] | None = None) -> int:
                         reviews_root=args.reviews_root,
                         material_bank_path=args.material_bank,
                         candidate_id=args.candidate_id,
+                    ),
+                    ensure_ascii=False,
+                )
+            )
+            return 0
+        if args.command == "candidate-shortlist":
+            print(
+                json.dumps(
+                    shortlist_material_bank_candidates(
+                        output_root=args.output_root,
+                        reviews_root=args.reviews_root,
+                        material_bank_path=args.material_bank,
+                        limit=args.limit,
+                    ),
+                    ensure_ascii=False,
+                )
+            )
+            return 0
+        if args.command == "quarantine-active-selection":
+            print(
+                json.dumps(
+                    quarantine_active_selection(
+                        output_root=args.output_root,
+                        reviews_root=args.reviews_root,
+                        expected_content_id=args.expected_content_id,
+                        reason_code=args.reason_code,
                     ),
                     ensure_ascii=False,
                 )

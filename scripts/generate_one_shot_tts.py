@@ -11,7 +11,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from video_engine_v2.current_artifacts import CurrentArtifactsViolation  # noqa: E402
-from video_engine_v2.one_shot_tts import OneShotTTSViolation, generate_one_shot_tts  # noqa: E402
+from video_engine_v2.one_shot_tts import (  # noqa: E402
+    OneShotTTSViolation,
+    calibrate_one_shot_timeline,
+    generate_one_shot_tts,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -20,14 +24,39 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--planning", required=True)
     parser.add_argument("--edit", required=True)
     parser.add_argument("--script", required=True)
+    parser.add_argument("--calibrate-from-voice")
+    parser.add_argument("--calibrate-from-report")
+    parser.add_argument("--alignment")
+    parser.add_argument("--lead-in-sec", type=float, default=0.4)
     args = parser.parse_args(argv)
     try:
-        result = generate_one_shot_tts(
-            package_dir=args.package,
-            planning_path=args.planning,
-            edit_path=args.edit,
-            script_path=args.script,
+        calibration_inputs = (
+            args.calibrate_from_voice,
+            args.calibrate_from_report,
+            args.alignment,
         )
+        if any(calibration_inputs) and not all(calibration_inputs):
+            parser.error(
+                "--calibrate-from-voice, --calibrate-from-report, and --alignment must be supplied together"
+            )
+        if all(calibration_inputs):
+            result = calibrate_one_shot_timeline(
+                package_dir=args.package,
+                planning_path=args.planning,
+                edit_path=args.edit,
+                script_path=args.script,
+                source_voice_path=args.calibrate_from_voice,
+                source_report_path=args.calibrate_from_report,
+                alignment_path=args.alignment,
+                lead_in_sec=args.lead_in_sec,
+            )
+        else:
+            result = generate_one_shot_tts(
+                package_dir=args.package,
+                planning_path=args.planning,
+                edit_path=args.edit,
+                script_path=args.script,
+            )
     except (OneShotTTSViolation, CurrentArtifactsViolation) as exc:
         print(f"GATE_BLOCKED: {exc}", file=sys.stderr)
         return 2

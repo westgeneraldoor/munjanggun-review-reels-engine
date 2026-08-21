@@ -98,6 +98,7 @@ def _body_beat(
                 "motion": motion,
                 "motion_reason": "Keep the selected evidence legible with restrained movement.",
                 "transition_in": "calm_dissolve",
+                "meaning_match_source": f"asset_evidence:{asset}; narration_fragment:{text}",
             }
         ],
         "visual_relevance": "direct",

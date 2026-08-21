@@ -76,9 +76,16 @@ local-only source registry가 기존 번호를 스캔해 다음 미사용 세 �
 않고 실패해야 한다.
 
 후보를 신규 제작 대상으로 제시하거나 `create-from-material-bank`를 실행하기 전에는
-반드시 공식 `candidate-check`를 먼저 실행한다. 새 source registry에 미배정이어도
-과거 `CAND-*` legacy package가 남아 있으면 이미 사용한 후보이므로
-`CANDIDATE_LEGACY_PACKAGE_PRESENT`로 차단하고, legacy 산출물은 수정하지 않는다.
+먼저 공식 `candidate-shortlist`, 선택 직전에는 `candidate-check`를 실행한다.
+`docs/review_reel_candidate_selection_policy_v1.md`에 따라 ABS도어·셀프실측·셀프시공·
+배송상품은 하드 제외한다. 새 source registry에 미배정이어도 과거 `CAND-*` legacy
+package가 남아 있으면 `CANDIDATE_LEGACY_PACKAGE_PRESENT`, 다른 CAND ID라도 같은
+리뷰글번호 또는 review hash면 `REVIEW_ALREADY_USED`로 차단한다. 상품주문번호만 같은
+다른 리뷰는 `PRODUCT_ORDER_ALREADY_USED`로 보류하며 legacy 산출물은 수정하지 않는다.
+
+잘못 선택된 active package가 `photo_intake_pending`이고 사진·downstream artifact·승인이
+전혀 없을 때만 공식 `quarantine-active-selection`으로 복구 가능 격리한다. package나
+registry를 수동 삭제·수정하지 않으며, 사진이 하나라도 있으면 이 명령을 사용하지 않는다.
 
 Codex Git worktree에는 Git에서 제외된 `reviews/`·`output/`이 복제되지 않는다. 고객자료를
 쓰는 production 세션은 저장된 로컬 프로젝트에서 실행하거나 사용자가 지정한 원본
@@ -167,6 +174,10 @@ one-shot의 창작 기준은 `docs/review_reels_content_standard_v1.md`, 화면�
 완성→이전→완성 훅의 첫 3개 shot은 사진 경계와 자막 경계를 강제로 같게 하지 않습니다.
 대상·상황·변화를 보존한 한 완결 문장이 세 사진을 가로지를 수 있으며, shot별 사진 근거와
 해당 발화 문맥은 계속 `meaning_match_source`로 결속합니다.
+신규 one-shot은 narrative-safe 비리뷰 사진이 8장 이상이면 비리뷰 사진 shot 9~12개를
+목표로 합니다. 같은 문장도 의미가 갈리고 맞는 사진 근거가 있으면 별도 shot으로 나눕니다.
+허용 전환은 `cut`, `calm_dissolve`, `calm_slide`, `soft_page_turn`이며 첫 훅 뒤 hard cut은
+금지합니다. slide는 최대 2회, page turn은 최대 1회이고 리뷰 증거·CTA는 dissolve만 씁니다.
 `context`, `choice_turn`, 실측, 공정 설명은 고정 장면이 아니며 리뷰와 사진에 실제
 근거가 있을 때만 넣는다. 공식 음성은 Gemini TTS `Sulafat`이며 Windows SAPI 등
 임시 음성은 production HTML에 연결하지 않는다.
@@ -372,6 +383,7 @@ npm run validate
 
 - `README.md`
 - `docs/munjanggun_content_operating_principles_v1.md`
+- `docs/review_reel_candidate_selection_policy_v1.md`
 - `docs/review_video_publish_workflow_v2.md`
 - `docs/reels_operations_dashboard_v1.md`
 - `docs/review_reels_content_standard_v1.md`
