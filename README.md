@@ -155,13 +155,22 @@ python scripts/produce_review_v2.py preflight --package "<output review package>
 python scripts/produce_review_v2.py html --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --privacy-manifest "<privacy_asset_manifest.json>" --sync-manifest "<output review package>/sync_manifest.json" --one-shot-html
 ```
 
-The TTS command runs the full structural authoring check before any API call.
+The TTS command runs the full structural authoring check and disposable DOM
+layout probe before any API call. New authoring targets keep margin from the
+production limits: opening at most 3.5 seconds, review proof at most 5.4
+seconds, and the final result at least 3.0 seconds.
 Successful TTS binds and locks that edit revision. Visual-only changes use a
 new fork plus the official reuse check; changed narration creates new TTS, and
 changed caption timing requires measured alignment. A third Gemini/Sulafat API
-generation for the same narration hash is blocked. `layout-check` uses the real
+generation for the same narration hash is blocked, including valid API outputs
+whose later retime validation failed. Excess leading silence is normalized to
+a decoder-safe 0.15 seconds without another API call. Retimed timelines are
+revalidated before recipe write, ledger promotion, or lock. `layout-check` uses the real
 template in a disposable directory and writes no production preview or QA
 evidence; manual representative-frame review remains mandatory after HTML.
+One autonomous official HTML build is allowed per production session. If that
+build or its frame review fails, stop and fix the upstream cause; a second
+official build requires explicit user reauthorization for a new revision.
 
 The strict contract requires photo/privacy evidence, an actual review capture,
 the event-to-CTA narrative sequence, direct visual relevance, readable

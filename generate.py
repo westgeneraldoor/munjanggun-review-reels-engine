@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from itertools import count
@@ -37,6 +38,10 @@ TTS_VOICE = os.getenv("GEMINI_TTS_VOICE", "Sulafat")
 REFERENCE_NARRATION_CHARS_NO_SPACE = 244
 REFERENCE_VOICE_SECONDS = 35.02
 TARGET_TTS_CHARS_PER_SECOND = 6.97
+LEADING_SILENCE_NOISE_DB = -45
+LEADING_SILENCE_MIN_DETECT_SEC = 0.05
+LEADING_SILENCE_MAX_ACCEPTED_SEC = 0.25
+LEADING_SILENCE_TARGET_SEC = 0.15
 SCRIPT_GENERATION_MAX_ATTEMPTS = 3
 POSTING_COPY_INSTRUCTION = """
 
@@ -670,6 +675,79 @@ def speed_adjust_mp3(input_path: Path, output_path: Path, target_seconds: float)
     subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def detect_leading_silence_seconds(path: Path) -> float:
+    """Measure an initial silent region without treating later pauses as lead-in."""
+
+    try:
+        import imageio_ffmpeg
+    except ImportError as exc:
+        raise RuntimeError("선행 무음 확인을 위해 imageio-ffmpeg가 필요합니다.") from exc
+    result = subprocess.run(
+        [
+            imageio_ffmpeg.get_ffmpeg_exe(),
+            "-i", str(path),
+            "-af", f"silencedetect=noise={LEADING_SILENCE_NOISE_DB}dB:d={LEADING_SILENCE_MIN_DETECT_SEC}",
+            "-f", "null", "-",
+        ],
+        capture_output=True,
+    )
+    stderr = result.stderr.decode("utf-8", errors="replace")
+    start_match = re.search(r"silence_start:\s*([0-9.]+)", stderr)
+    end_match = re.search(r"silence_end:\s*([0-9.]+)", stderr)
+    if not start_match or not end_match or float(start_match.group(1)) > 0.03:
+        return 0.0
+    return round(float(end_match.group(1)), 6)
+
+
+def normalize_leading_silence_mp3(path: Path) -> dict[str, float | bool]:
+    """Trim only excess leading silence while retaining a decoder-safe 0.15-second lead-in."""
+
+    detected = detect_leading_silence_seconds(path)
+    result: dict[str, float | bool] = {
+        "applied": False,
+        "detected_leading_silence_sec": round(detected, 3),
+        "normalized_leading_silence_sec": round(detected, 3),
+        "target_leading_silence_sec": LEADING_SILENCE_TARGET_SEC,
+    }
+    if detected <= LEADING_SILENCE_MAX_ACCEPTED_SEC:
+        return result
+    trim_start = detected - LEADING_SILENCE_TARGET_SEC
+    try:
+        import imageio_ffmpeg
+    except ImportError as exc:
+        raise RuntimeError("선행 무음 정규화를 위해 imageio-ffmpeg가 필요합니다.") from exc
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".mp3", dir=path.parent, delete=False) as temporary:
+            temporary_path = Path(temporary.name)
+        command = [
+            imageio_ffmpeg.get_ffmpeg_exe(),
+            "-y",
+            "-i", str(path),
+            "-af", f"atrim=start={trim_start:.6f},asetpts=PTS-STARTPTS",
+            "-codec:a", "libmp3lame",
+            "-q:a", "2",
+            str(temporary_path),
+        ]
+        subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        os.replace(temporary_path, path)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+    normalized = detect_leading_silence_seconds(path)
+    if normalized > LEADING_SILENCE_MAX_ACCEPTED_SEC:
+        raise RuntimeError("선행 무음 정규화 결과가 허용 범위를 벗어났습니다.")
+    result.update(
+        {
+            "applied": True,
+            "trimmed_sec": round(trim_start, 3),
+            "normalized_leading_silence_sec": round(normalized, 3),
+        }
+    )
+    return result
+
+
 def get_srt_target_seconds(script_text: str) -> float:
     """스크립트 섹션의 마지막 종료 시간을 TTS 목표 길이로 사용한다."""
     sections = parse_script_sections(script_text)
@@ -694,6 +772,7 @@ def write_tts_generation_report(
     raw_tts_duration_sec: float,
     final_voice_path: Path,
     final_voice_duration_sec: float,
+    leading_silence_normalization: dict[str, float | bool] | None = None,
 ) -> Path:
     """Write hash-bound provenance for an approved Gemini/Sulafat voice."""
 
@@ -713,6 +792,8 @@ def write_tts_generation_report(
         "raw_tts_duration_sec": round(float(raw_tts_duration_sec), 3),
         "final_voice_duration_sec": round(float(final_voice_duration_sec), 3),
     }
+    if leading_silence_normalization is not None:
+        payload["leading_silence_normalization"] = leading_silence_normalization
     report_path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -764,6 +845,7 @@ def generate_voice(script_text: str, output_folder: Path, artifact_stem: str | N
         f"(레퍼런스 {REFERENCE_NARRATION_CHARS_NO_SPACE}자/{REFERENCE_VOICE_SECONDS:.2f}초)"
     )
     speed_adjust_mp3(raw_mp3_path, mp3_path, target_seconds=target_seconds)
+    leading_silence = normalize_leading_silence_mp3(mp3_path)
     final_duration = get_audio_duration_seconds(mp3_path)
     write_tts_generation_report(
         output_folder=output_folder,
@@ -772,6 +854,7 @@ def generate_voice(script_text: str, output_folder: Path, artifact_stem: str | N
         raw_tts_duration_sec=raw_duration,
         final_voice_path=mp3_path,
         final_voice_duration_sec=final_duration,
+        leading_silence_normalization=leading_silence,
     )
     wav_path.unlink(missing_ok=True)
     raw_mp3_path.unlink(missing_ok=True)

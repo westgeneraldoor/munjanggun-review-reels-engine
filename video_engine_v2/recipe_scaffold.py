@@ -149,9 +149,9 @@ def build_recipe_scaffold(
     asset_roles, asset_evidence = _select_evidence_assets(selected_assets)
 
     hook_text = "TODO_FROM_REVIEW: 중문 설치 뒤 왜 달라졌을까요?"
-    hook_ranges = ((0.0, 1.3), (1.3, 2.6), (2.6, 4.0))
+    hook_ranges = ((0.0, 1.15), (1.15, 2.3), (2.3, 3.5))
     hook_assets = ("installed_result", "before_state", "installed_result")
-    hook_chunks = [{"text": hook_text, "start_sec": 0.0, "end_sec": 4.0}]
+    hook_chunks = [{"text": hook_text, "start_sec": 0.0, "end_sec": 3.5}]
     hook_shots = [
         {
             "asset_id": asset,
@@ -227,7 +227,7 @@ def build_recipe_scaffold(
         "id": "b01",
         "narrative_role": "event",
         "planning_scene_id": "s01",
-        "time": [0.0, 4.0],
+        "time": [0.0, 3.5],
         "caption_start_sec": 0.0,
         "caption_chunks": hook_chunks,
         "narration_start_sec": 0.0,
@@ -281,11 +281,11 @@ def build_recipe_scaffold(
         },
         "beats": [
             hook_beat,
-            _body_beat(beat_id="b02", scene_id="s02", role="problem", start=4.0, end=8.0, asset="before_state", text="고객이 겪은 현관 문제를 리뷰 원문에서 정확히 작성합니다.", keyword="문제"),
-            _body_beat(beat_id="b03", scene_id="s03", role="resolution", start=8.0, end=12.0, asset="installed_result", text="문제 해결 과정과 선택 이유를 리뷰 근거로 정확히 작성합니다.", keyword="해결"),
-            _body_beat(beat_id="b04", scene_id="s04", role="felt_result", start=12.0, end=16.0, asset="installed_result", text="설치 뒤 고객이 실제로 느낀 변화를 리뷰 문장으로 작성합니다.", keyword="변화"),
-            _body_beat(beat_id="b05", scene_id="s05", role="review_proof", start=16.0, end=20.0, asset="review_capture", text="리뷰 원문에도 고객의 변화가 이렇게 남았습니다.", keyword="리뷰", review_quote=quote),
-            _body_beat(beat_id="b06", scene_id="s06", role="cta", start=20.0, end=24.0, asset="installed_result", text="우리 집 조건도 가능한지 현장에서 먼저 정확히 확인해보세요.", keyword="확인"),
+            _body_beat(beat_id="b02", scene_id="s02", role="problem", start=3.5, end=7.5, asset="before_state", text="고객이 겪은 현관 문제를 리뷰 원문에서 정확히 작성합니다.", keyword="문제"),
+            _body_beat(beat_id="b03", scene_id="s03", role="resolution", start=7.5, end=11.5, asset="installed_result", text="문제 해결 과정과 선택 이유를 리뷰 근거로 정확히 작성합니다.", keyword="해결"),
+            _body_beat(beat_id="b04", scene_id="s04", role="felt_result", start=11.5, end=15.5, asset="installed_result", text="설치 뒤 고객이 실제로 느낀 변화를 리뷰 문장으로 작성합니다.", keyword="변화"),
+            _body_beat(beat_id="b05", scene_id="s05", role="review_proof", start=15.5, end=19.5, asset="review_capture", text="리뷰 원문에도 고객의 변화가 이렇게 남았습니다.", keyword="리뷰", review_quote=quote),
+            _body_beat(beat_id="b06", scene_id="s06", role="cta", start=19.5, end=23.5, asset="installed_result", text="우리 집 조건도 가능한지 현장에서 먼저 정확히 확인해보세요.", keyword="확인"),
         ],
     }
     return planning, edit

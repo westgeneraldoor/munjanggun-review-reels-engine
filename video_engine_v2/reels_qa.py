@@ -849,6 +849,10 @@ MAX_CONTEXTUAL_CAPTION_CHUNKS = 4
 MIN_CONTEXTUAL_CAPTION_CHARS = 7
 MIN_ONE_SHOT_HOOK_SHOT_SEC = 1.0
 MIN_ONE_SHOT_FINAL_RESULT_SEC = 2.5
+AUTHORING_MAX_OPENING_BEAT_SEC = 3.5
+AUTHORING_MAX_REVIEW_PROOF_DWELL_SEC = 5.4
+AUTHORING_MIN_FINAL_RESULT_SEC = 3.0
+HOOK_CONTEXT_OVERHANG_TOLERANCE_SEC = 0.15
 
 SUPPORTED_TRANSITIONS = {
     "card_pop", "caption_swap", "cross_dissolve", "cut", "flash_glow", "glow",
@@ -1921,9 +1925,143 @@ _AUTHORING_DEFERRED_AUDIO_CODES = frozenset(
 )
 
 
+def _validate_authoring_safety_margins(edit_recipe: dict[str, Any]) -> list[dict[str, Any]]:
+    """Keep planned timing away from hard production boundaries before TTS retiming."""
+
+    issues: list[dict[str, Any]] = []
+    beats = [beat for beat in edit_recipe.get("beats") or [] if isinstance(beat, dict)]
+    if beats and _beat_duration(beats[0]) > AUTHORING_MAX_OPENING_BEAT_SEC + 0.001:
+        issues.append(
+            _issue(
+                "OPENING_BEAT_SAFETY_MARGIN_MISSING",
+                f"Pre-TTS opening target is at most {AUTHORING_MAX_OPENING_BEAT_SEC:.1f} seconds.",
+                scene_id=_as_text(beats[0].get("id") or "scene_opening"),
+            )
+        )
+    review_beat = next((beat for beat in beats if _role(beat) == "review_proof"), None)
+    if review_beat is not None and _beat_duration(review_beat) > AUTHORING_MAX_REVIEW_PROOF_DWELL_SEC + 0.001:
+        issues.append(
+            _issue(
+                "REVIEW_PROOF_SAFETY_MARGIN_MISSING",
+                f"Pre-TTS review-proof target is at most {AUTHORING_MAX_REVIEW_PROOF_DWELL_SEC:.1f} seconds.",
+                scene_id=_as_text(review_beat.get("id") or "scene_review_proof"),
+            )
+        )
+    if beats:
+        final_shots = beats[-1].get("shots") or []
+        final_shot = final_shots[-1] if isinstance(final_shots, list) and final_shots else {}
+        try:
+            final_dwell = float(final_shot["end_sec"]) - float(final_shot["start_sec"])
+        except (KeyError, TypeError, ValueError):
+            final_dwell = 0.0
+        if final_dwell < AUTHORING_MIN_FINAL_RESULT_SEC - 0.001:
+            issues.append(
+                _issue(
+                    "FINAL_RESULT_SAFETY_MARGIN_MISSING",
+                    f"Pre-TTS final-result target is at least {AUTHORING_MIN_FINAL_RESULT_SEC:.1f} seconds.",
+                    scene_id=_as_text(beats[-1].get("id") or "scene_final"),
+                )
+            )
+    return issues
+
+
+def _validate_hook_before_context_boundary(edit_recipe: dict[str, Any]) -> list[dict[str, Any]]:
+    """Prevent the before photo from leaking into the following result clause."""
+
+    beats = [beat for beat in edit_recipe.get("beats") or [] if isinstance(beat, dict)]
+    contract = edit_recipe.get("hook_visual_contract") or {}
+    before_asset_id = _as_text(contract.get("before_asset_id")).strip()
+    if not beats or not before_asset_id:
+        return []
+    hook = beats[0]
+    chunks = [chunk for chunk in hook.get("caption_chunks") or [] if isinstance(chunk, dict)]
+    issues: list[dict[str, Any]] = []
+    for shot in hook.get("shots") or []:
+        if not isinstance(shot, dict) or _as_text(shot.get("asset_id")).strip() != before_asset_id:
+            continue
+        source = _as_text(shot.get("meaning_match_source"))
+        match = re.search(r"(?:^|;\s*)narration_fragment:(.*?)(?=;\s*[a-z_]+:|$)", source, re.IGNORECASE)
+        fragment = _compact_text(match.group(1)) if match else ""
+        matching_chunks = [
+            chunk
+            for chunk in chunks
+            if fragment
+            and fragment in _compact_text(chunk.get("display_text") or chunk.get("text"))
+        ]
+        if not matching_chunks:
+            continue
+        try:
+            context_end = max(float(chunk["end_sec"]) for chunk in matching_chunks)
+            shot_end = float(shot["end_sec"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if shot_end > context_end + HOOK_CONTEXT_OVERHANG_TOLERANCE_SEC + 0.001:
+            issues.append(
+                _issue(
+                    "HOOK_BEFORE_CONTEXT_OVERHANG",
+                    "The before-state photo must end with its matching spoken context before the result clause begins.",
+                    scene_id=_as_text(hook.get("id") or "scene_opening"),
+                )
+            )
+    return issues
+
+
+def validate_review_reels_one_shot_post_retime(edit_recipe: dict[str, Any]) -> dict[str, Any]:
+    """Recheck duration-sensitive contracts after mapping the edit onto measured voice time."""
+
+    issues: list[dict[str, Any]] = []
+    beats = [beat for beat in edit_recipe.get("beats") or [] if isinstance(beat, dict)]
+    if not beats:
+        issues.append(_issue("NO_BEATS", "At least one timed beat is required after retiming."))
+    else:
+        if _beat_duration(beats[0]) > MAX_OPENING_BEAT_SEC + 0.001:
+            issues.append(
+                _issue(
+                    "OPENING_BEAT_TOO_LONG",
+                    f"The opening beat must finish within {MAX_OPENING_BEAT_SEC:.1f} seconds after retiming.",
+                    scene_id=_as_text(beats[0].get("id") or "scene_opening"),
+                )
+            )
+        review_beat = next((beat for beat in beats if _role(beat) == "review_proof"), None)
+        if review_beat is not None and _beat_duration(review_beat) > MAX_REVIEW_PROOF_DWELL_SEC + 0.001:
+            issues.append(
+                _issue(
+                    "REVIEW_PROOF_DWELL_TOO_LONG",
+                    f"Review proof must not exceed {MAX_REVIEW_PROOF_DWELL_SEC:.1f} seconds after retiming.",
+                    scene_id=_as_text(review_beat.get("id") or "scene_review_proof"),
+                )
+            )
+        result_asset_id = _as_text((edit_recipe.get("hook_visual_contract") or {}).get("result_asset_id")).strip()
+        if result_asset_id:
+            final_shots = beats[-1].get("shots") or []
+            final_shot = final_shots[-1] if isinstance(final_shots, list) and final_shots else {}
+            try:
+                final_dwell = float(final_shot["end_sec"]) - float(final_shot["start_sec"])
+            except (KeyError, TypeError, ValueError):
+                final_dwell = 0.0
+            if (
+                _as_text(final_shot.get("asset_id")).strip() != result_asset_id
+                or final_dwell < MIN_ONE_SHOT_FINAL_RESULT_SEC - 0.001
+            ):
+                issues.append(
+                    _issue(
+                        "FINAL_RESULT_DWELL_INVALID",
+                        f"The final result must remain visible for at least {MIN_ONE_SHOT_FINAL_RESULT_SEC:.1f} seconds after retiming.",
+                        scene_id=_as_text(beats[-1].get("id") or "scene_final"),
+                    )
+                )
+    issues.extend(_validate_hook_before_context_boundary(edit_recipe))
+    return {
+        "ok": not any(issue.get("severity") == "fail" for issue in issues),
+        "issues": issues,
+    }
+
+
 def validate_review_reels_one_shot_authoring(
     planning_recipe: dict[str, Any],
     edit_recipe: dict[str, Any],
+    *,
+    enforce_safety_margins: bool = False,
 ) -> dict[str, Any]:
     """Return every pre-TTS story/visual/caption failure while deferring real audio evidence."""
 
@@ -1937,6 +2075,9 @@ def validate_review_reels_one_shot_authoring(
         for issue in result["issues"]
         if issue.get("code") not in _AUTHORING_DEFERRED_AUDIO_CODES
     ]
+    issues.extend(_validate_hook_before_context_boundary(edit_recipe))
+    if enforce_safety_margins:
+        issues.extend(_validate_authoring_safety_margins(edit_recipe))
     return {
         "ok": not any(issue.get("severity") == "fail" for issue in issues),
         "issues": issues,

@@ -1445,7 +1445,9 @@ class ReviewReelIntakeTests(unittest.TestCase):
         first_beat = edit["beats"][0]
         first_beat["caption"] = hook_text
         first_beat["narration_ref"] = hook_text
-        first_beat["caption_chunks"] = [{"text": hook_text, "start_sec": 0.0, "end_sec": 4.0}]
+        first_beat["caption_chunks"] = [
+            {"text": hook_text, "start_sec": 0.0, "end_sec": first_beat["time"][1]}
+        ]
         first_beat["caption_focus_keywords"] = ["중문"]
         first_beat["caption_emphasis"] = ["중문"]
         first_beat["caption_accent"]["start_sec"] = 0.05

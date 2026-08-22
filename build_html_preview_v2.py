@@ -77,13 +77,22 @@ def build_layout_probe(
     destination_dir.mkdir(parents=True, exist_ok=False)
     font_path = resolve_engine_font_path(engine_font_path)
     image_dir = resolve_source(package_dir, recipe["source"]["image_dir"])
-    voice_path = resolve_source(package_dir, recipe["source"]["voice"])
+    voice_value = recipe["source"].get("voice")
+    voice_path = (
+        resolve_source(package_dir, voice_value)
+        if isinstance(voice_value, str) and voice_value.strip()
+        else None
+    )
 
     asset_urls: dict[str, str] = {
         role: rel_url(destination_dir, image_dir / filename)
         for role, filename in recipe["asset_roles"].items()
     }
-    asset_urls["voice"] = rel_url(destination_dir, voice_path)
+    asset_urls["voice"] = (
+        rel_url(destination_dir, voice_path)
+        if voice_path is not None and voice_path.is_file()
+        else "data:audio/mpeg;base64,"
+    )
     asset_urls["font_body"] = rel_url(destination_dir, font_path)
     display_title = recipe.get("title") or recipe_path.stem.replace("_edit_recipe_v2", "")
     display_desc = recipe.get("description") or "Disposable review-reel layout precheck"

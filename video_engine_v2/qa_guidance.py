@@ -66,7 +66,31 @@ ERROR_GUIDANCE: dict[str, dict[str, str]] = {
     },
     "TTS_ATTEMPT_BUDGET_EXCEEDED": {
         "authority": "docs/review_reels_one_shot_contract_v2.md",
-        "how_to_fix": "Stop production after two Gemini/Sulafat API generations for the same canonical narration hash. Inspect why the prior revisions failed; reuse intact voice evidence for visual-only changes or change the narration deliberately before any further generation.",
+        "how_to_fix": "Stop production after two Gemini/Sulafat API generations for the same canonical narration hash. Durable attempt receipts still count valid API outputs whose later retime validation failed. Inspect the upstream cause; reuse intact voice evidence or change narration deliberately instead of deleting evidence and retrying.",
+    },
+    "POST_RETIME_AUTHORING_CHECK_FAILED": {
+        "authority": "docs/review_reels_one_shot_contract_v2.md",
+        "how_to_fix": "Do not promote or lock this retimed edit. Fix the reported duration-sensitive contract in a new recipe revision; the original edit remains intact and the consumed TTS API attempt still counts.",
+    },
+    "OPENING_BEAT_SAFETY_MARGIN_MISSING": {
+        "authority": "docs/review_reels_visual_edit_standard_v1.md",
+        "how_to_fix": "Author the opening at 3.5 seconds or less before TTS so measured retiming remains below the 4.0-second production limit.",
+    },
+    "REVIEW_PROOF_SAFETY_MARGIN_MISSING": {
+        "authority": "docs/review_reels_visual_edit_standard_v1.md",
+        "how_to_fix": "Author the review capture at 5.4 seconds or less before TTS while keeping the quote readable.",
+    },
+    "FINAL_RESULT_SAFETY_MARGIN_MISSING": {
+        "authority": "docs/review_reels_visual_edit_standard_v1.md",
+        "how_to_fix": "Reserve at least 3.0 seconds for the final completed-result shot before TTS retiming.",
+    },
+    "HOOK_BEFORE_CONTEXT_OVERHANG": {
+        "authority": "docs/review_reels_visual_edit_standard_v1.md",
+        "how_to_fix": "End the before-state shot with its bound narration fragment before the following result clause; do not force every hook shot to a caption boundary.",
+    },
+    "LAYOUT_CHECK_FAILED": {
+        "authority": "docs/review_reels_visual_edit_standard_v1.md",
+        "how_to_fix": "Fix every reported caption line-count, safe-area, or overflow issue before calling Gemini TTS. The disposable probe can run without a voice artifact.",
     },
     "CAPTION_ACCENT_VOICE_SYNC_INVALID": {
         "authority": "docs/review_reels_visual_edit_standard_v1.md",

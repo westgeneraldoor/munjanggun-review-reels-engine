@@ -41,6 +41,39 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
         self.assertNotIn("TTS_PROVENANCE_MISSING", codes)
         self.assertNotIn("TTS_EVIDENCE_HASH_MISSING", codes)
 
+    def test_authoring_safety_margins_block_boundary_level_timing_before_tts(self):
+        fixture = load_fixture()
+        fixture["edit"]["beats"][6]["time"] = [24.0, 29.5]
+        fixture["edit"]["beats"][6]["shots"][0]["end_sec"] = 29.5
+        fixture["edit"]["beats"][-1]["shots"][-1]["start_sec"] = 29.2
+
+        result = validate_review_reels_one_shot_authoring(
+            fixture["planning"],
+            fixture["edit"],
+            enforce_safety_margins=True,
+        )
+
+        codes = {issue["code"] for issue in result["issues"]}
+        self.assertIn("OPENING_BEAT_SAFETY_MARGIN_MISSING", codes)
+        self.assertIn("REVIEW_PROOF_SAFETY_MARGIN_MISSING", codes)
+        self.assertIn("FINAL_RESULT_SAFETY_MARGIN_MISSING", codes)
+
+    def test_authoring_blocks_before_photo_that_outlives_its_spoken_context(self):
+        fixture = load_fixture()
+        hook = fixture["edit"]["beats"][0]
+        hook["shots"][1]["end_sec"] = 3.2
+        hook["shots"][2]["start_sec"] = 3.2
+
+        result = validate_review_reels_one_shot_authoring(
+            fixture["planning"],
+            fixture["edit"],
+        )
+
+        self.assertIn(
+            "HOOK_BEFORE_CONTEXT_OVERHANG",
+            {issue["code"] for issue in result["issues"]},
+        )
+
     def apply_calm_c_visual_language(self, fixture):
         motion_rows = (
             ("calm_push_in", "calm_push_in", "calm_push_in"),

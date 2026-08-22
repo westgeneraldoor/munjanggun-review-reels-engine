@@ -31,6 +31,7 @@ from generate import (
     get_artifact_stem,
     get_artifact_stem_from_script_path,
     normalize_tts_text,
+    normalize_leading_silence_mp3,
     parse_review_record,
     prepare_tts_text,
     save_script,
@@ -459,6 +460,37 @@ class ValidateScriptTest(unittest.TestCase):
         filter_arg = command[command.index("-filter:a") + 1]
         self.assertEqual(filter_arg, "atempo=0.846")
 
+    def test_leading_silence_normalization_trims_excess_without_regenerating_speech(self):
+        import imageio_ffmpeg
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            voice = Path(tempdir) / "voice.mp3"
+            subprocess_result = generate.subprocess.run(
+                [
+                    imageio_ffmpeg.get_ffmpeg_exe(),
+                    "-y",
+                    "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono:d=0.5",
+                    "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=24000:duration=1.0",
+                    "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1",
+                    "-codec:a", "libmp3lame",
+                    "-q:a", "2",
+                    str(voice),
+                ],
+                capture_output=True,
+            )
+            self.assertEqual(subprocess_result.returncode, 0, subprocess_result.stderr)
+            before_duration = generate.get_audio_duration_seconds(voice)
+
+            result = normalize_leading_silence_mp3(voice)
+            after_duration = generate.get_audio_duration_seconds(voice)
+
+        self.assertTrue(result["applied"])
+        self.assertGreaterEqual(result["detected_leading_silence_sec"], 0.45)
+        self.assertGreaterEqual(result["normalized_leading_silence_sec"], 0.10)
+        self.assertLessEqual(result["normalized_leading_silence_sec"], 0.25)
+        self.assertGreater(before_duration - after_duration, 0.20)
+        self.assertLess(before_duration - after_duration, 0.45)
+
     def test_tts_generation_report_binds_gemini_voice_text_duration_and_file_hashes(self):
         with tempfile.TemporaryDirectory() as tempdir:
             output = Path(tempdir)
@@ -472,6 +504,13 @@ class ValidateScriptTest(unittest.TestCase):
                 raw_tts_duration_sec=31.2344,
                 final_voice_path=voice,
                 final_voice_duration_sec=27.8916,
+                leading_silence_normalization={
+                    "applied": True,
+                    "detected_leading_silence_sec": 0.489,
+                    "normalized_leading_silence_sec": 0.152,
+                    "target_leading_silence_sec": 0.15,
+                    "trimmed_sec": 0.339,
+                },
             )
             payload = json.loads(report_path.read_text(encoding="utf-8"))
 
@@ -480,6 +519,7 @@ class ValidateScriptTest(unittest.TestCase):
         self.assertEqual(payload["voice_relative_path"], "fixture_voice.mp3")
         self.assertEqual(payload["raw_tts_duration_sec"], 31.234)
         self.assertEqual(payload["final_voice_duration_sec"], 27.892)
+        self.assertEqual(payload["leading_silence_normalization"]["normalized_leading_silence_sec"], 0.152)
         self.assertEqual(
             payload["tts_text_sha256"],
             hashlib.sha256("같은 대본을 읽습니다.".encode("utf-8")).hexdigest(),

@@ -188,6 +188,14 @@ class OneShotTTSTests(unittest.TestCase):
         )
         return voice
 
+    def fake_long_voice(self, script_text: str, output_folder: Path, artifact_stem: str) -> Path:
+        voice = self.fake_voice(script_text, output_folder, artifact_stem)
+        report_path = output_folder / "_work" / f"{artifact_stem}_tts_generation_report.json"
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        report["final_voice_duration_sec"] = 30.0
+        report_path.write_text(json.dumps(report), encoding="utf-8")
+        return voice
+
     def test_generates_standard_srt_and_gemini_voice_without_granting_mp4(self):
         with patch("video_engine_v2.one_shot_tts.generate.generate_voice", side_effect=self.fake_voice):
             result = generate_one_shot_tts(
@@ -314,6 +322,79 @@ class OneShotTTSTests(unittest.TestCase):
         with (
             patch("video_engine_v2.one_shot_tts.generate.generate_voice") as external_generator,
             self.assertRaisesRegex(OneShotTTSViolation, "TTS_ATTEMPT_BUDGET_EXCEEDED"),
+        ):
+            generate_one_shot_tts(
+                package_dir=self.package,
+                planning_path=self.planning,
+                edit_path=self.edit,
+                script_path=self.script,
+            )
+        external_generator.assert_not_called()
+
+    def test_post_retime_failure_restores_recipe_before_ledger_or_lock(self):
+        edit = json.loads(self.edit.read_text(encoding="utf-8"))
+        edit["beats"][0]["time"][1] = 3.5
+        edit["beats"][0]["caption_chunks"][0]["end_sec"] = 3.5
+        edit["beats"][0]["shots"][0]["end_sec"] = 3.5
+        self.edit.write_text(json.dumps(edit, ensure_ascii=False), encoding="utf-8")
+        original_edit = self.edit.read_bytes()
+
+        with (
+            patch("video_engine_v2.one_shot_tts.generate.generate_voice", side_effect=self.fake_long_voice),
+            self.assertRaisesRegex(OneShotTTSViolation, "POST_RETIME_AUTHORING_CHECK_FAILED"),
+        ):
+            generate_one_shot_tts(
+                package_dir=self.package,
+                planning_path=self.planning,
+                edit_path=self.edit,
+                script_path=self.script,
+            )
+
+        self.assertEqual(self.edit.read_bytes(), original_edit)
+        self.assertFalse((self.package / "117_month_later_gold_v2_voice.mp3").exists())
+        self.assertFalse((self.package / "117_month_later_gold_v2.srt").exists())
+        self.assertEqual(list((self.package / "_work" / "recipe_locks").glob("*.json")), [])
+
+    def test_cleaned_post_retime_failures_still_consume_the_two_attempt_budget(self):
+        edit = json.loads(self.edit.read_text(encoding="utf-8"))
+        edit["beats"][0]["time"][1] = 3.5
+        edit["beats"][0]["caption_chunks"][0]["end_sec"] = 3.5
+        edit["beats"][0]["shots"][0]["end_sec"] = 3.5
+        self.edit.write_text(json.dumps(edit, ensure_ascii=False), encoding="utf-8")
+
+        for _ in range(2):
+            with (
+                patch("video_engine_v2.one_shot_tts.generate.generate_voice", side_effect=self.fake_long_voice),
+                self.assertRaisesRegex(OneShotTTSViolation, "POST_RETIME_AUTHORING_CHECK_FAILED"),
+            ):
+                generate_one_shot_tts(
+                    package_dir=self.package,
+                    planning_path=self.planning,
+                    edit_path=self.edit,
+                    script_path=self.script,
+                )
+
+        with (
+            patch("video_engine_v2.one_shot_tts.generate.generate_voice") as external_generator,
+            self.assertRaisesRegex(OneShotTTSViolation, "TTS_ATTEMPT_BUDGET_EXCEEDED"),
+        ):
+            generate_one_shot_tts(
+                package_dir=self.package,
+                planning_path=self.planning,
+                edit_path=self.edit,
+                script_path=self.script,
+            )
+        external_generator.assert_not_called()
+        self.assertEqual(len(list((self.package / "_work" / "tts_attempts").glob("*.json"))), 2)
+
+    def test_corrupt_attempt_receipt_fails_closed_before_calling_tts(self):
+        attempts = self.package / "_work" / "tts_attempts"
+        attempts.mkdir(parents=True)
+        (attempts / "broken.json").write_text("{not-json", encoding="utf-8")
+
+        with (
+            patch("video_engine_v2.one_shot_tts.generate.generate_voice") as external_generator,
+            self.assertRaisesRegex(OneShotTTSViolation, "TTS_ATTEMPT_RECEIPT_INVALID"),
         ):
             generate_one_shot_tts(
                 package_dir=self.package,

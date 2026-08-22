@@ -121,7 +121,16 @@ approval record가 현재 HTML 해시에 결속된 뒤에만 생긴다.
 기존 voice/SRT/report를 재사용합니다. narration이 바뀌면 새 TTS가 필요하고,
 caption chunk 또는 timing이 바뀌면 실측 alignment를 사용한 공식 calibration이 필요합니다.
 같은 narration hash의 Gemini/Sulafat API 생성은 두 번까지만 허용하며 세 번째는
-`TTS_ATTEMPT_BUDGET_EXCEEDED`로 중단하고 원인을 먼저 고칩니다.
+`TTS_ATTEMPT_BUDGET_EXCEEDED`로 중단하고 원인을 먼저 고칩니다. API가 실제 음성을
+반환한 시도는 이후 retime 검사가 실패해 산출물이 정리되어도 `_work/tts_attempts/`의
+영구 영수증으로 예산에 남습니다. 생성기는 0.25초를 넘는 시작 무음만 0.15초로
+정규화하고 voice hash·길이·보고서를 다시 결속합니다. 무음 때문에 TTS를 재호출하지 않습니다.
+
+TTS 전 authoring 목표는 첫 훅 3.5초 이하, 리뷰 캡처 5.4초 이하, 마지막 완성 결과
+3.0초 이상입니다. 기존 production 하드 한계 4.0초/6.0초/2.5초는 과거 산출물
+호환을 위해 유지하되 신규 기획은 안전 여유 목표를 사용합니다. `before_state` 훅 shot은
+자신과 결속된 발화 문맥 종료를 0.15초 넘겨 다음 결과 문구까지 침범할 수 없습니다.
+첫 3컷 전체의 사진 경계를 자막 경계에 강제로 맞추라는 뜻은 아닙니다.
 
 ## 포맷 상태
 
@@ -231,7 +240,7 @@ python scripts/review_reel_intake.py recipe-fork-reuse-voice --output-root "outp
 python scripts/review_reel_intake.py voice-reuse-check --output-root "output" --expected-content-id "<content-id>" --edit "<new edit_recipe.json>"
 
 # 0. one-shot HTML용 표준 SRT 및 Gemini/Sulafat 최종 음성 생성
-# 이 명령은 API 호출 전에 one-shot authoring contract 전체를 먼저 검사한다.
+# 이 명령은 API 호출 전에 안전 여유를 포함한 authoring contract와 무산출 DOM layout을 먼저 검사한다.
 python scripts/generate_one_shot_tts.py --package "<output review package>" --planning "<planning_recipe.json>" --edit "<edit_recipe.json>" --script "<*_script.md>"
 
 # 0.5. 실제 음성을 듣고 발음·톤·자막 싱크를 확인한 뒤 해시 결속 영수증 기록
@@ -292,6 +301,12 @@ legacy의
 사용자에게 `HTML 검수 준비 완료`라고 보고할 수 있습니다. 브라우저 접근이 안 되거나
 대표 프레임을 보지 못했다면 `HTML 생성, 내부 시각 QA 대기`라고 보고하며 완료라고
 말하지 않습니다.
+
+한 production 세션의 자율 HTML 빌드는 1회입니다. 첫 공식 HTML 또는 대표 프레임
+검수가 실패하면 즉시 중단해 원인을 recipe가 아니라 엔진·기획 앞단에서 고칩니다.
+사용자가 원인 설명과 새 revision을 확인하고 재시도를 명시 승인하기 전에는 두 번째
+공식 HTML을 만들지 않습니다. 이 회로차단기는 사람 검수에서 발견한 실제 품질 문제의
+수정을 영구 차단하는 package-level 삭제·봉쇄 규칙이 아닙니다.
 
 HTML/render gate receipt는 일회용입니다. 내부 builder/renderer는 artifact 생성 직전
 receipt 파일 SHA-256에 결속된 consumed marker를
