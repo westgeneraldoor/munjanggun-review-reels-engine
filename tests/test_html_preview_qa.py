@@ -33,6 +33,9 @@ class HtmlPreviewQaTests(unittest.TestCase):
             html_path = build_layout_probe(edit, temp / "probe")
             html = html_path.read_text(encoding="utf-8")
 
+            self.assertTrue((temp / "probe" / "engine_font.ttf").is_file())
+            self.assertIn("engine_font.ttf", html)
+
         self.assertIn("data:audio/mpeg;base64,", html)
 
     def test_layout_precheck_accepts_two_wrapped_lines_with_visible_caption_effects(self):

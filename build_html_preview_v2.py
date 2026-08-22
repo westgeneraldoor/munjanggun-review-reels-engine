@@ -11,6 +11,7 @@ import argparse
 import html
 import json
 import os
+import shutil
 from pathlib import Path
 from urllib.parse import quote
 
@@ -76,6 +77,8 @@ def build_layout_probe(
     destination_dir = destination_dir.resolve()
     destination_dir.mkdir(parents=True, exist_ok=False)
     font_path = resolve_engine_font_path(engine_font_path)
+    probe_font_path = destination_dir / "engine_font.ttf"
+    shutil.copyfile(font_path, probe_font_path)
     image_dir = resolve_source(package_dir, recipe["source"]["image_dir"])
     voice_value = recipe["source"].get("voice")
     voice_path = (
@@ -93,7 +96,7 @@ def build_layout_probe(
         if voice_path is not None and voice_path.is_file()
         else "data:audio/mpeg;base64,"
     )
-    asset_urls["font_body"] = rel_url(destination_dir, font_path)
+    asset_urls["font_body"] = rel_url(destination_dir, probe_font_path)
     display_title = recipe.get("title") or recipe_path.stem.replace("_edit_recipe_v2", "")
     display_desc = recipe.get("description") or "Disposable review-reel layout precheck"
     output_path = destination_dir / "index.html"
