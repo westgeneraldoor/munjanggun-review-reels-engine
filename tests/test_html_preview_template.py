@@ -172,6 +172,67 @@ const { chromium } = require('playwright');
             )
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
+    def test_review_capture_hold_can_select_a_chronological_review_card_asset(self):
+        """Catch regressions that replace an initial-review card with the canonical later review."""
+        recipe = {
+            "title": "chronological review card test",
+            "audio_plan": {"sync_policy": {"final_voice_duration_sec": 4.0}},
+            "asset_roles": {
+                "initial_review_capture": "initial.png",
+                "review_capture": "month.png",
+            },
+            "beats": [
+                {
+                    "id": "b01",
+                    "phase": "felt_result",
+                    "time": [0.0, 4.0],
+                    "asset": "initial_review_capture",
+                    "review_card_asset_id": "initial_review_capture",
+                    "motion": "review_capture_hold",
+                    "transition_in": "cut",
+                    "transition_out": "none",
+                    "caption": "initial review",
+                }
+            ],
+        }
+        initial = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E%23initial"
+        month = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E%23month"
+        html = render_preview_html(
+            recipe=recipe,
+            asset_urls={
+                "initial_review_capture": initial,
+                "review_capture": month,
+                "voice": "data:audio/mp3;base64,",
+                "font_body": "data:font/woff2;base64,",
+            },
+            preview_title="chronological review card test",
+            preview_description="browser behavior test",
+        )
+        browser_check = r"""
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  await page.goto(process.argv[1] + '?t=1');
+  const reviewSrc = await page.locator('#reviewImg').getAttribute('src');
+  await browser.close();
+  if (!reviewSrc.includes('%23initial')) process.exit(2);
+  if (reviewSrc.includes('%23month')) process.exit(3);
+})().catch(error => { console.error(error); process.exit(1); });
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / "preview.html"
+            html_path.write_text(html, encoding="utf-8")
+            result = subprocess.run(
+                ["node", "-e", browser_check, html_path.as_uri()],
+                cwd=TEMPLATE_PATH.parent.parent.parent,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
     def test_static_hold_keeps_the_photo_transform_unchanged(self):
         recipe = {
             "title": "static hold test",

@@ -1158,7 +1158,7 @@
 
       paperBall.textContent = splitCaption(beat.caption)[0] || '문장군';
       productImg.src = assetUrls.product_thumbnail || '';
-      reviewImg.src = assetUrls.review_capture || '';
+      reviewImg.src = assetUrls[beat.review_card_asset_id] || assetUrls.review_capture || '';
       configureReviewEmphasis(beat);
 
       flashLayer.style.transition = 'none';
