@@ -30,7 +30,11 @@ class HtmlPreviewQaTests(unittest.TestCase):
             edit = temp / "edit.json"
             edit.write_text(json.dumps(recipe, ensure_ascii=False), encoding="utf-8")
 
-            html_path = build_layout_probe(edit, temp / "probe")
+            html_path = build_layout_probe(
+                edit,
+                temp / "probe",
+                engine_font_path=ROOT / "package.json",
+            )
             html = html_path.read_text(encoding="utf-8")
 
             self.assertTrue((temp / "probe" / "engine_font.ttf").is_file())
