@@ -62,17 +62,37 @@ python scripts/produce_review_v2.py html --package "<output review package>" --p
 
 첫 명령은 API를 호출하기 전에 canonical package의 `photo_reviewed` 상태와 review source
 hash, one-shot contract, shot·hook·review proof·CTA·자막 chunk 등 authoring contract
-전체, planning scene 내레이션과 표준 `*_script.md` 내레이션의 일치를 검사한다.
+전체, planning scene 내레이션과 표준 `*_script.md` 내레이션의 일치를 검사한다. 음성이
+아직 없을 때는 silent placeholder로 실제 production 템플릿의 DOM layout probe까지
+실행해 3줄·안전영역·overflow 실패를 TTS 전에 차단한다.
 기존 SRT/voice/report를 덮어쓰지 않으며 Gemini TTS `Sulafat`과 hash-bound 생성
 보고서만 허용한다. Windows SAPI, 임의 MP3, 수동 SRT는 one-shot production 입력이
-아니다. 같은 canonical narration hash로 API 생성에 성공한 보고서가 이미 두 개면
+아니다. 같은 canonical narration hash로 API 생성에 성공한 시도가 이미 두 개면
 세 번째 호출은 `TTS_ATTEMPT_BUDGET_EXCEEDED`로 중단한다. 이 명령은 HTML 또는 MP4
-승인 상태를 바꾸지 않는다.
+승인 상태를 바꾸지 않는다. API가 유효한 voice/report를 반환한 순간
+`_work/tts_attempts/`에 영구 영수증을 남기므로 이후 retime 계약 실패로 voice/report가
+정리되어도 시도 예산은 복구되지 않는다.
+
+신규 authoring은 첫 훅 3.5초 이하, 리뷰 증거 5.4초 이하, 마지막 완성 결과 3.0초
+이상을 목표로 한다. 이는 TTS 편차를 흡수하는 기획 안전 여유이며 production 하드 한계
+4.0초/6.0초/2.5초를 바꾸지 않는다. Gemini 속도 보정 뒤 0.25초를 넘는 시작 무음은
+발화를 자르지 않고 0.15초로 정규화한다. 정규화된 voice의 새 bytes/hash/최종 길이를
+TTS report에 기록하며 무음만을 이유로 API를 다시 호출하지 않는다.
+
+최종 음성 길이 또는 실측 alignment로 retime한 edit은 파일 저장, current-artifact ledger
+기록, immutable lock 전에 duration-sensitive authoring 계약을 다시 검사한다. 실패하면
+원래 edit bytes를 복구하고 SRT/voice/report 파생 산출물을 정리하며 ledger와 lock은
+만들지 않는다.
 
 두 번째 명령은 실제 production HTML 템플릿을 임시 폴더에만 렌더해 모든 caption
 chunk의 실제 줄수, 1080x1920 안전영역, overflow를 브라우저 DOM으로 측정한다. 공식
 HTML, QA frame, gate receipt, approval evidence는 만들지 않으며 임시 probe는 명령 종료와
 함께 폐기한다. 이 검사가 실패하면 caption/edit을 새 revision에서 고친 뒤 다시 검사한다.
+
+한 production 세션의 자율 공식 HTML 빌드는 1회다. 공식 HTML 또는 대표 프레임 검수가
+실패하면 재빌드 루프를 돌지 않고 중단해 앞단 원인을 수정한다. 사용자가 원인과 새
+revision을 확인하고 재시도를 명시 승인한 경우에만 두 번째 공식 HTML을 허용한다.
+package 전체를 영구 봉쇄해 사람 검수에서 찾은 품질 수정까지 막는 규칙으로 해석하지 않는다.
 
 ## 결속 후 revision과 음성 재사용
 

@@ -34,7 +34,9 @@ class ProduceReviewV2SubprocessTest(unittest.TestCase):
 
             self.assertEqual(result, 0)
             self.assertEqual(json.loads(stdout.getvalue())["status"], "pass")
-            precheck.assert_called_once_with(edit, engine_font_path=None)
+            precheck.assert_called_once()
+            self.assertTrue(Path(precheck.call_args.args[0]).samefile(edit))
+            self.assertEqual(precheck.call_args.kwargs, {"engine_font_path": None})
             self.assertEqual(sorted(path.name for path in package.iterdir()), [edit.name])
 
     def test_parser_exposes_background_start_and_status_commands(self):

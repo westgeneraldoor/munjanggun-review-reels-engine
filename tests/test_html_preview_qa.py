@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from build_html_preview_v2 import render_preview_html
+from build_html_preview_v2 import build_layout_probe, render_preview_html
 from video_engine_v2.reels_qa import CAPTION_SAFE_BOTTOM_PX, CAPTION_SAFE_TOP_PX
 
 
@@ -12,6 +12,36 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class HtmlPreviewQaTests(unittest.TestCase):
+    def test_layout_probe_uses_silent_audio_before_voice_exists(self):
+        recipe = {
+            "title": "pre tts layout",
+            "source": {"image_dir": "images", "voice": "voice_not_created_yet.mp3"},
+            "asset_roles": {"photo": "photo.jpg"},
+            "beats": [{
+                "id": "b01",
+                "time": [0.0, 3.5],
+                "asset": "photo",
+                "caption": "음성 생성 전 레이아웃",
+                "caption_chunks": [{"text": "음성 생성 전 레이아웃", "start_sec": 0.0, "end_sec": 3.5}],
+            }],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = Path(temp_dir)
+            edit = temp / "edit.json"
+            edit.write_text(json.dumps(recipe, ensure_ascii=False), encoding="utf-8")
+
+            html_path = build_layout_probe(
+                edit,
+                temp / "probe",
+                engine_font_path=ROOT / "package.json",
+            )
+            html = html_path.read_text(encoding="utf-8")
+
+            self.assertTrue((temp / "probe" / "engine_font.ttf").is_file())
+            self.assertIn("engine_font.ttf", html)
+
+        self.assertIn("data:audio/mpeg;base64,", html)
+
     def test_layout_precheck_accepts_two_wrapped_lines_with_visible_caption_effects(self):
         recipe = {
             "title": "layout precheck valid",

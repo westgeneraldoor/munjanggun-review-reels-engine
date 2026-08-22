@@ -18,6 +18,8 @@ from video_engine_v2.one_shot_tts import (  # noqa: E402
     generate_one_shot_tts,
 )
 from video_engine_v2.reels_qa import validate_review_reels_one_shot_authoring  # noqa: E402
+from video_engine_v2.production_gate import GateViolation  # noqa: E402
+from scripts.produce_review_v2 import run_layout_precheck  # noqa: E402
 
 
 def _read_recipe(path: str, *, code: str) -> dict:
@@ -45,12 +47,27 @@ def main(argv: list[str] | None = None) -> int:
         authoring = validate_review_reels_one_shot_authoring(
             _read_recipe(args.planning, code="PLANNING_RECIPE_INVALID"),
             _read_recipe(args.edit, code="EDIT_RECIPE_INVALID"),
+            enforce_safety_margins=True,
         )
         if not authoring["ok"]:
             codes = ",".join(
                 sorted({str(issue.get("code") or "") for issue in authoring["issues"]})
             )
             raise OneShotTTSViolation(f"AUTHORING_CHECK_FAILED:{codes}")
+        layout = run_layout_precheck(args.edit)
+        if layout.get("status") != "pass":
+            codes = sorted(
+                {
+                    str(code)
+                    for check in layout.get("checks") or []
+                    if isinstance(check, dict)
+                    for code in check.get("issues") or []
+                    if str(code)
+                }
+            )
+            if not codes:
+                codes = ["LAYOUT_PRECHECK_FAILED"]
+            raise OneShotTTSViolation(f"LAYOUT_CHECK_FAILED:{','.join(codes)}")
         calibration_inputs = (
             args.calibrate_from_voice,
             args.calibrate_from_report,
@@ -78,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
                 edit_path=args.edit,
                 script_path=args.script,
             )
-    except (OneShotTTSViolation, CurrentArtifactsViolation) as exc:
+    except (OneShotTTSViolation, CurrentArtifactsViolation, GateViolation) as exc:
         print(f"GATE_BLOCKED: {exc}", file=sys.stderr)
         return 2
     for name in ("script", "edit", "srt", "voice", "tts_report"):

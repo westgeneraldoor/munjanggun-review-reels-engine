@@ -53,6 +53,9 @@ visual은 narration보다 0.05초를 초과해 먼저 시작하지 않습니다.
   `meaning_match_source`는 해당
   `asset_evidence`와 실제 `narration_fragment`를 함께 결속하고, 시공 전 화면에 설치 후
   결과처럼 의미가 반대인 발화를 얹으면 실패합니다.
+- `before_state` shot은 자신이 결속한 `narration_fragment`의 자막 문맥이 끝난 뒤
+  0.15초를 넘겨 다음 설치 결과 문구까지 남아 있을 수 없습니다. 이 제한은 의미가
+  반대인 화면 누수를 막는 것이며 첫 3컷 전체를 자막 chunk 경계에 맞추는 규칙이 아닙니다.
 - 자막은 짧고 크게, 한 화면 한 생각을 원칙으로 합니다.
 - 실제 사진을 계속 어둡게 하거나 흐리게 처리하지 않습니다.
 - 공간 동선, 제품 선택, 실측, 공정 장면은 실제 근거와 asset이 있을 때만 사용합니다.
@@ -77,6 +80,13 @@ visual은 narration보다 0.05초를 초과해 먼저 시작하지 않습니다.
 - 공식 one-shot TTS는 측정된 최종 음성 길이에 edit의 모든 beat·shot·caption chunk를
   한 번에 재결속하고, 같은 `caption_timeline`으로 SRT를 생성합니다. SRT와 HTML recipe가
   서로 다른 시간표를 쓰면 `VOICE_CAPTION_TIMELINE_STALE`로 실패합니다.
+- 신규 기획은 retime 편차를 흡수하도록 첫 훅 3.5초 이하, 리뷰 캡처 5.4초 이하,
+  마지막 완성 결과 3.0초 이상으로 작성합니다. production 하드 한계는 기존
+  4.0초/6.0초/2.5초를 유지합니다.
+- 공식 생성기는 0.25초를 넘는 시작 무음만 0.15초로 줄이고 새 voice hash와 길이를
+  보고서에 결속합니다. 무음 교정은 Gemini 재호출 사유가 아닙니다.
+- 최종 음성 retime과 실측 alignment calibration은 새 edit을 쓰거나 잠그기 전에
+  duration-sensitive 계약을 다시 검사합니다. 실패한 recipe는 current artifact가 될 수 없습니다.
 - `VOICE_CAPTION_TIMELINE_STALE`은 무조건 재생성 지시가 아닙니다. narration과 전체
   caption timeline이 같으면 immutable revision을 fork하고 기존 voice/SRT/report를
   재사용합니다. caption chunk나 timing이 바뀌었을 때만 실측 alignment 기반 calibration을

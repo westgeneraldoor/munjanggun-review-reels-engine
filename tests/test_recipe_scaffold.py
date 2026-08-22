@@ -2,10 +2,36 @@ import unittest
 
 from scripts import review_reel_intake as intake_cli
 from video_engine_v2 import review_reel_intake
-from video_engine_v2.reels_qa import validate_html_preflight, validate_review_reels_one_shot_contract
+from video_engine_v2.reels_qa import (
+    validate_html_preflight,
+    validate_review_reels_one_shot_authoring,
+    validate_review_reels_one_shot_contract,
+)
 
 
 class RecipeScaffoldTests(unittest.TestCase):
+    def test_scaffold_starts_inside_the_pre_tts_timing_safety_margins(self):
+        planning, edit = review_reel_intake.build_recipe_scaffold(
+            content_id="120",
+            review_text="현관 사용이 불편했는데 설치 후 동선이 편해졌습니다.",
+            selected_assets=[
+                {"relative_path": "after.jpg", "evidence_classes": ["installed_result"], "visual_quality": {"full_product_visible": True}},
+                {"relative_path": "before.jpg", "evidence_classes": ["before_state"], "visual_quality": {}},
+                {"relative_path": "review.png", "evidence_classes": ["review_capture"], "visual_quality": {}},
+            ],
+        )
+
+        result = validate_review_reels_one_shot_authoring(
+            planning,
+            edit,
+            enforce_safety_margins=True,
+        )
+
+        codes = {issue["code"] for issue in result["issues"]}
+        self.assertNotIn("OPENING_BEAT_SAFETY_MARGIN_MISSING", codes)
+        self.assertNotIn("REVIEW_PROOF_SAFETY_MARGIN_MISSING", codes)
+        self.assertNotIn("FINAL_RESULT_SAFETY_MARGIN_MISSING", codes)
+
     def test_fresh_session_contract_routes_and_reaches_html_preflight_shape_after_required_inputs(self):
         routed = review_reel_intake.route_user_command(
             "이 리뷰와 사진들로 신규 리뷰 숏폼 만들자. 사진 검수부터 HTML까지 진행해."
@@ -23,7 +49,7 @@ class RecipeScaffoldTests(unittest.TestCase):
         )
         initial_validation = validate_html_preflight(planning, edit)
         self.assertEqual(
-            {issue["code"] for issue in initial_validation["issues"]},
+            {issue["code"] for issue in initial_validation["issues"] if issue["severity"] == "fail"},
             {"RECIPE_SCAFFOLD_INCOMPLETE"},
         )
 
@@ -49,7 +75,7 @@ class RecipeScaffoldTests(unittest.TestCase):
         first_beat = edit["beats"][0]
         first_beat["caption"] = hook_text
         first_beat["narration_ref"] = hook_text
-        first_beat["caption_chunks"] = [{"text": hook_text, "start_sec": 0.0, "end_sec": 4.0}]
+        first_beat["caption_chunks"] = [{"text": hook_text, "start_sec": 0.0, "end_sec": first_beat["time"][1]}]
         first_beat["caption_focus_keywords"] = ["중문"]
         first_beat["caption_emphasis"] = ["중문"]
         first_beat["caption_accent"]["start_sec"] = 0.05

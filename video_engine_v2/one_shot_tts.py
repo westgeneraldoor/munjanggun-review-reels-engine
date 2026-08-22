@@ -20,6 +20,7 @@ ONE_SHOT_CONTRACT = "review-reels-one-shot-v2"
 TTS_REPORT_SCHEMA = "review-reel-tts-generation-report-v1"
 VOICE_TIMELINE_SCHEMA = "review-reel-voice-caption-timeline-v1"
 VOICE_ALIGNMENT_SCHEMA = "review-reel-voice-alignment-v1"
+TTS_ATTEMPT_SCHEMA = "review-reel-tts-api-attempt-v1"
 SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 MAX_TTS_API_ATTEMPTS_PER_NARRATION = 2
 
@@ -71,6 +72,19 @@ def _count_tts_api_attempts(package: Path, tts_text_sha256: str) -> int:
     if not work.is_dir():
         return 0
     attempts = 0
+    receipt_report_paths: set[str] = set()
+    attempt_dir = work / "tts_attempts"
+    if attempt_dir.is_dir():
+        for receipt_path in attempt_dir.glob("*.json"):
+            receipt = _read_json(receipt_path, code="TTS_ATTEMPT_RECEIPT_INVALID")
+            if (
+                receipt.get("schema_version") == TTS_ATTEMPT_SCHEMA
+                and receipt.get("tts_text_sha256") == tts_text_sha256
+            ):
+                attempts += 1
+                report_relative = receipt.get("tts_report_relative_path")
+                if isinstance(report_relative, str) and report_relative:
+                    receipt_report_paths.add(report_relative)
     for report_path in work.glob("*_tts_generation_report.json"):
         try:
             report = _read_json(report_path, code="TTS_PROVENANCE_INVALID")
@@ -83,9 +97,50 @@ def _count_tts_api_attempts(package: Path, tts_text_sha256: str) -> int:
             and report.get("tts_text_sha256") == tts_text_sha256
             and not report.get("derived_voice")
             and report.get("timeline_source") != VOICE_ALIGNMENT_SCHEMA
+            and report_path.relative_to(package).as_posix() not in receipt_report_paths
         ):
             attempts += 1
     return attempts
+
+
+def _record_tts_api_attempt(package: Path, report_path: Path, tts_text_sha256: str) -> Path:
+    """Persist a non-deletable budget receipt once Gemini produced a valid voice report."""
+
+    report = _read_json(report_path, code="TTS_PROVENANCE_INVALID")
+    attempt_dir = package / "_work" / "tts_attempts"
+    attempt_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": TTS_ATTEMPT_SCHEMA,
+        "tts_text_sha256": tts_text_sha256,
+        "tts_report_relative_path": report_path.relative_to(package).as_posix(),
+        "tts_report_sha256": _sha256(report_path),
+        "voice_relative_path": report.get("voice_relative_path"),
+        "voice_sha256": report.get("voice_sha256"),
+        "provider": report.get("provider"),
+        "model": report.get("model"),
+        "voice": report.get("voice"),
+    }
+    for attempt_number in range(1, MAX_TTS_API_ATTEMPTS_PER_NARRATION + 2):
+        receipt = attempt_dir / f"{tts_text_sha256[:16]}_{attempt_number:02d}.json"
+        try:
+            with receipt.open("x", encoding="utf-8") as output:
+                json.dump(payload, output, ensure_ascii=False, indent=2)
+                output.write("\n")
+                output.flush()
+                os.fsync(output.fileno())
+            return receipt
+        except FileExistsError:
+            continue
+    raise OneShotTTSViolation("TTS_ATTEMPT_RECEIPT_COLLISION")
+
+
+def _validate_post_retime(edit: dict[str, Any]) -> None:
+    from video_engine_v2.reels_qa import validate_review_reels_one_shot_post_retime
+
+    result = validate_review_reels_one_shot_post_retime(edit)
+    if not result["ok"]:
+        codes = ",".join(sorted({str(issue.get("code") or "") for issue in result["issues"]}))
+        raise OneShotTTSViolation(f"POST_RETIME_AUTHORING_CHECK_FAILED:{codes}")
 
 
 def _retime_edit_to_voice(edit: dict[str, Any], final_duration_sec: float) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -466,6 +521,7 @@ def calibrate_one_shot_timeline(
             lead_in_sec=float(lead_in_sec),
             final_duration_sec=final_duration,
         )
+        _validate_post_retime(updated_edit)
         source = updated_edit.setdefault("source", {})
         source.update(
             {
@@ -612,10 +668,12 @@ def generate_one_shot_tts(
     if not report_path.is_file():
         raise OneShotTTSViolation("TTS_PROVENANCE_MISSING")
     _validate_tts_report(package, report_path, voice_path, script_text)
+    _record_tts_api_attempt(package, report_path, tts_hash)
 
     try:
         report = _read_json(report_path, code="TTS_PROVENANCE_INVALID")
         updated_edit, timeline = _retime_edit_to_voice(edit, float(report["final_voice_duration_sec"]))
+        _validate_post_retime(updated_edit)
         source = updated_edit.setdefault("source", {})
         source.update(
             {
