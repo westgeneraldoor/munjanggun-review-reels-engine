@@ -1078,7 +1078,17 @@ def _validate_sync_manifest(
 ) -> dict[str, Any]:
     path = _ensure_inside(package_dir, sync_manifest_path, outside_code="SYNC_MANIFEST_OUTSIDE_PACKAGE")
     payload = _read_json(path, missing_code="SYNC_MANIFEST_MISSING", invalid_code="SYNC_MANIFEST_INVALID")
-    if payload.get("ok") is not True or payload.get("issues"):
+    issues = payload.get("issues") or []
+    blocking_issues = [
+        issue
+        for issue in issues
+        if not (
+            isinstance(issue, dict)
+            and issue.get("code") == "SCENE_CPS_NEEDS_REVIEW"
+            and issue.get("severity") == "warn"
+        )
+    ]
+    if payload.get("ok") is not True or blocking_issues:
         raise GateViolation("SYNC_MANIFEST_NOT_OK")
     gate_inputs = payload.get("gate_inputs") or {}
     expected = {

@@ -157,7 +157,7 @@ scale 차이 0.05, 좌우 총 24px, 상하 총 20px입니다.
 `hero-calm 58px`, 이후 본문·proof·CTA는 모두 `medium 46px`입니다.
 `caption_accent.start_sec`는 강조 단어가 포함된 chunk 안의 절대 영상 시각이며 단어 위치로
 산정한 발화 예상 시점에 결속합니다. chunk 시작 고정 delay는 production 증거가 아닙니다.
-pop 길이는 420ms이며 브라우저 실제 시간이 아니라 영상 시간에 결속됩니다.
+pop 길이는 160ms이며 브라우저 실제 시간이 아니라 영상 시간에 결속됩니다.
 모든 one-shot beat는 내레이션 음성 전문을 연속으로 덮는 `caption_chunks` 1~4개를
 가집니다. 최대 4개이며, 여러 chunk를 쓸 때 각 문구는 공백·문장부호 제외 최소 7자이고
 합친 문구는 narration과 같아야 합니다. 시간은 beat를 빈틈·겹침 없이 덮고 최종 음성의

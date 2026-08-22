@@ -465,14 +465,13 @@
     }
 
     /* 구절 자막은 말하는 순간마다 통통 튀어 올라온다. */
-    .caption.chunk-pop {
-      animation: captionChunkPop 260ms cubic-bezier(.18, 1.3, .32, 1) both;
+    .stage .caption.chunk-pop {
+      animation: captionChunkPop 140ms cubic-bezier(.18, 1.15, .32, 1) both;
     }
 
     @keyframes captionChunkPop {
-      0% { opacity: 0; transform: translateY(22px) scale(0.86); }
-      55% { opacity: 1; transform: translateY(-7px) scale(1.07); }
-      78% { transform: translateY(2px) scale(0.985); }
+      0% { opacity: 1; transform: translateY(8px) scale(0.96); }
+      48% { opacity: 1; transform: translateY(-3px) scale(1.025); }
       100% { opacity: 1; transform: translateY(0) scale(1); }
     }
 
@@ -866,7 +865,7 @@
     const beats = recipe.beats;
     const totalDuration = Math.max(...beats.map(b => b.time[1]));
     const CAPTION_ACCENT_MIN_DELAY_MS = 520;
-    const CAPTION_ACCENT_POP_MS = 420;
+    const CAPTION_ACCENT_POP_MS = 160;
 
     const stage = document.getElementById('stage');
     const mainAsset = document.getElementById('mainAsset');
@@ -1052,6 +1051,7 @@
     }
 
     function applyCaptionLayout(beat) {
+      const retainChunkPop = caption.classList.contains('chunk-pop');
       const layout = beat.caption_layout || {};
       const position = layout.position || 'center';
       const size = layout.size || 'medium';
@@ -1060,7 +1060,7 @@
       const accent = beat.caption_accent || {};
       const accentEnabled = accent.enabled === true && Array.isArray(beat.caption_emphasis) && beat.caption_emphasis.length > 0;
       const accentStyle = classSafe(accent.style || 'soft');
-      caption.className = `caption pos-${position} size-${size} theme-${theme}${accentEnabled ? ` accent-keyword accent-${accentStyle}` : ''}`;
+      caption.className = `caption pos-${position} size-${size} theme-${theme}${accentEnabled ? ` accent-keyword accent-${accentStyle}` : ''}${retainChunkPop ? ' chunk-pop' : ''}`;
       caption.style.textAlign = align;
       if (accentEnabled) {
         const requestedStart = Number(accent.start_sec);
@@ -1089,16 +1089,16 @@
       let opacity;
       let translateY;
       let scale;
-      if (progress <= 0.55) {
-        const rise = progress / 0.55;
-        opacity = 0.78 + rise * 0.22;
-        translateY = 4 - rise * 9;
-        scale = 0.94 + rise * 0.16;
-      } else {
-        const settle = (progress - 0.55) / 0.45;
+      if (progress <= 0.35) {
+        const rise = progress / 0.35;
         opacity = 1;
-        translateY = -5 + settle * 5;
-        scale = 1.1 - settle * 0.1;
+        translateY = 2 - rise * 6;
+        scale = 0.97 + rise * 0.11;
+      } else {
+        const settle = (progress - 0.35) / 0.65;
+        opacity = 1;
+        translateY = -4 + settle * 4;
+        scale = 1.08 - settle * 0.08;
       }
       for (const keyword of keywords) {
         keyword.style.opacity = String(Number(opacity.toFixed(3)));

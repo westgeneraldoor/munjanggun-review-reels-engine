@@ -233,6 +233,138 @@ const { chromium } = require('playwright');
             )
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
+    def test_caption_chunk_change_keeps_a_fast_immediately_legible_pop(self):
+        """Catch layout refreshes that erase the phrase-change animation or hide speech text."""
+        recipe = {
+            "title": "responsive caption chunk test",
+            "audio_plan": {"sync_policy": {"final_voice_duration_sec": 4.0}},
+            "asset_roles": {"hero": "hero.jpg"},
+            "beats": [
+                {
+                    "id": "b01",
+                    "phase": "result",
+                    "time": [0.0, 4.0],
+                    "asset": "hero",
+                    "motion": "static_hold",
+                    "transition_in": "cut",
+                    "transition_out": "none",
+                    "caption": "first phrase second phrase",
+                    "caption_chunks": [
+                        {"start_sec": 0.0, "end_sec": 2.0, "text": "first phrase"},
+                        {"start_sec": 2.0, "end_sec": 4.0, "text": "second phrase"},
+                    ],
+                }
+            ],
+        }
+        image = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E%23hero"
+        html = render_preview_html(
+            recipe=recipe,
+            asset_urls={"hero": image, "voice": "data:audio/mp3;base64,", "font_body": "data:font/woff2;base64,"},
+            preview_title="responsive caption chunk test",
+            preview_description="browser behavior test",
+        )
+        browser_check = r"""
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  await page.goto(process.argv[1] + '?t=1.9');
+  const state = await page.evaluate(() => {
+    renderAt(2.001);
+    const style = getComputedStyle(caption);
+    return {
+      text: caption.innerText,
+      animationName: style.animationName,
+      animationDuration: style.animationDuration,
+      opacity: Number(style.opacity),
+    };
+  });
+  await browser.close();
+  if (state.animationName !== 'captionChunkPop') console.error(JSON.stringify(state));
+  if (state.text !== 'second phrase') process.exit(2);
+  if (state.animationName !== 'captionChunkPop') process.exit(3);
+  if (state.animationDuration !== '0.14s') process.exit(4);
+  if (state.opacity < 0.99) process.exit(5);
+})().catch(error => { console.error(error); process.exit(1); });
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / "preview.html"
+            html_path.write_text(html, encoding="utf-8")
+            result = subprocess.run(
+                ["node", "-e", browser_check, html_path.as_uri()],
+                cwd=TEMPLATE_PATH.parent.parent.parent,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+    def test_caption_keyword_accent_is_legible_at_onset_and_settles_quickly(self):
+        """Catch emphasis motion that visibly trails the emphasized spoken word."""
+        recipe = {
+            "title": "responsive caption accent test",
+            "audio_plan": {"sync_policy": {"final_voice_duration_sec": 3.0}},
+            "asset_roles": {"hero": "hero.jpg"},
+            "beats": [
+                {
+                    "id": "b01",
+                    "phase": "result",
+                    "time": [0.0, 3.0],
+                    "asset": "hero",
+                    "motion": "static_hold",
+                    "transition_in": "cut",
+                    "transition_out": "none",
+                    "caption": "꿈이 완성됐어요",
+                    "caption_chunks": [
+                        {"start_sec": 0.0, "end_sec": 3.0, "text": "꿈이 완성됐어요"},
+                    ],
+                    "caption_emphasis": ["완성"],
+                    "caption_accent": {"enabled": True, "style": "result", "start_sec": 1.0},
+                }
+            ],
+        }
+        image = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E%23hero"
+        html = render_preview_html(
+            recipe=recipe,
+            asset_urls={"hero": image, "voice": "data:audio/mp3;base64,", "font_body": "data:font/woff2;base64,"},
+            preview_title="responsive caption accent test",
+            preview_description="browser behavior test",
+        )
+        browser_check = r"""
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  await page.goto(process.argv[1] + '?t=0.9');
+  const state = await page.evaluate(() => {
+    const sample = (time) => {
+      renderAt(time);
+      const keyword = caption.querySelector('.em');
+      const style = getComputedStyle(keyword);
+      return { opacity: Number(style.opacity), scale: new DOMMatrix(style.transform).a };
+    };
+    return { onset: sample(1.0), peak: sample(1.06), settled: sample(1.16) };
+  });
+  await browser.close();
+  if (state.onset.opacity < 0.99) process.exit(2);
+  if (state.peak.scale < 1.05) process.exit(3);
+  if (Math.abs(state.settled.scale - 1) > 0.01) process.exit(4);
+})().catch(error => { console.error(error); process.exit(1); });
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / "preview.html"
+            html_path.write_text(html, encoding="utf-8")
+            result = subprocess.run(
+                ["node", "-e", browser_check, html_path.as_uri()],
+                cwd=TEMPLATE_PATH.parent.parent.parent,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
     def test_static_hold_keeps_the_photo_transform_unchanged(self):
         recipe = {
             "title": "static hold test",
@@ -613,9 +745,9 @@ const { chromium } = require('playwright');
             )
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
-    def test_keyword_accent_waits_for_scene_settle_and_follows_video_time(self):
+    def test_keyword_accent_is_legible_at_onset_and_follows_video_time(self):
         recipe = {
-            "title": "delayed keyword accent test",
+            "title": "responsive keyword accent test",
             "audio_plan": {"sync_policy": {"final_voice_duration_sec": 4.0}},
             "asset_roles": {"hero": "hero.jpg"},
             "beats": [{
@@ -632,7 +764,7 @@ const { chromium } = require('playwright');
         html = render_preview_html(
             recipe=recipe,
             asset_urls={"hero": hero, "voice": "data:audio/mp3;base64,", "font_body": "data:font/woff2;base64,"},
-            preview_title="delayed keyword accent test",
+            preview_title="responsive keyword accent test",
             preview_description="browser behavior test",
         )
         browser_check = r"""
@@ -646,16 +778,16 @@ const { chromium } = require('playwright');
     const keyword = document.querySelector('#caption .em');
     return {opacity: keyword.style.opacity, transform: keyword.style.transform};
   }, time);
-  const before = await sample(1.40);
-  const peak = await sample(1.731);
-  const settled = await sample(2.00);
+  const onset = await sample(1.50);
+  const peak = await sample(1.56);
+  const settled = await sample(1.66);
   await page.waitForTimeout(600);
-  const sameVideoTimeAfterWallClockWait = await sample(1.40);
+  const sameVideoTimeAfterWallClockWait = await sample(1.50);
   await browser.close();
-  if (before.opacity !== '0.78' || before.transform !== 'translateY(4px) scale(0.94)') process.exit(2);
-  if (peak.opacity !== '1' || peak.transform !== 'translateY(-5px) scale(1.1)') process.exit(3);
+  if (onset.opacity !== '1' || onset.transform !== 'translateY(2px) scale(0.97)') process.exit(2);
+  if (peak.opacity !== '1' || peak.transform !== 'translateY(-3.846px) scale(1.077)') process.exit(3);
   if (settled.opacity !== '1' || settled.transform !== 'translateY(0px) scale(1)') process.exit(4);
-  if (JSON.stringify(sameVideoTimeAfterWallClockWait) !== JSON.stringify(before)) process.exit(5);
+  if (JSON.stringify(sameVideoTimeAfterWallClockWait) !== JSON.stringify(onset)) process.exit(5);
 })().catch(error => { console.error(error); process.exit(1); });
 """
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -130,6 +130,11 @@ TTS report에 기록한다. 자막 경계는 실측 발화 사이의 무음 중�
 sync manifest는 one-shot scope와 recipe/privacy/voice hashes를 함께 기록한다. 어느 하나가
 바뀌거나 HTML 단계에서 flag가 누락되면 stale gate로 실패한다.
 
+sync manifest의 `severity: fail` issue와 사진 다양성·장면 밀도 같은 미해결 품질 경고는
+HTML을 계속 차단한다. 단, 현재 voice/SRT/report 해시에 결속된 `voice-review-record`가
+이미 존재하는 one-shot에서 `SCENE_CPS_NEEDS_REVIEW`만 남은 경우에는 청취 검토가 끝난
+soft warning으로 취급한다. 이 예외는 전체 CPS hard limit이나 다른 warning을 완화하지 않는다.
+
 ## TTS 해시와 시작 시점 결속
 
 one-shot recipe의 `audio_plan.tts_text_sha256`와 `audio_plan.final_voice_sha256`는 모두 정확히 64자의 소문자 hexadecimal SHA-256 값이어야 한다. 빈 값, 대문자, 길이가 다른 값은 실패한다.

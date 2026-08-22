@@ -429,7 +429,7 @@ class AuthorityDocumentsTest(unittest.TestCase):
         self.assertIn("투명도만", combined)
         self.assertIn(f"{CAPTION_ACCENT_ONSET_EARLY_TOLERANCE_SEC:.2f}초 이상 빠르", combined)
         self.assertIn(f"{CAPTION_ACCENT_ONSET_LATE_TOLERANCE_SEC:.2f}초 이상 늦", combined)
-        self.assertIn("420ms", combined)
+        self.assertIn("160ms", combined)
         self.assertIn("영상 시간", combined)
 
     def test_legacy_documents_are_archived_and_cannot_be_live_authority(self):
