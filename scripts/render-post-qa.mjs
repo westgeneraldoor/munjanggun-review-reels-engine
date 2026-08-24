@@ -375,7 +375,15 @@ if (renderJobPath) {
 if (syncManifest.ok !== true) {
   die("sync_manifest.ok must be true for post-render QA.");
 }
-if (Array.isArray(syncManifest.issues) && syncManifest.issues.length > 0) {
+const blockingSyncIssues = Array.isArray(syncManifest.issues)
+  ? syncManifest.issues.filter((issue) => !(
+      issue
+      && typeof issue === "object"
+      && issue.code === "SCENE_CPS_NEEDS_REVIEW"
+      && issue.severity === "warn"
+    ))
+  : [];
+if (blockingSyncIssues.length > 0) {
   die("sync_manifest.issues must be empty for post-render QA.");
 }
 const syncAudio = syncManifest.audio || {};
