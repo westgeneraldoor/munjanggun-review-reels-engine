@@ -21,6 +21,7 @@ from video_engine_v2.production_gate import (
     validate_html_receipt,
     write_html_artifact_evidence,
 )
+from video_engine_v2.reels_qa import ONE_SHOT_MOTION_TIMING_MS
 
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "video_engine_v2" / "templates" / "v2_preview.html"
@@ -59,6 +60,7 @@ def render_preview_html(
     return (
         template.replace("__RECIPE_JSON__", script_json(recipe))
         .replace("__ASSET_URLS_JSON__", script_json(asset_urls))
+        .replace("__MOTION_TIMING_JSON__", script_json(ONE_SHOT_MOTION_TIMING_MS))
         .replace("__FONT_BODY_URL__", asset_urls["font_body"])
         .replace("__PREVIEW_TITLE__", html.escape(preview_title))
         .replace("__PREVIEW_DESC__", html.escape(preview_description))

@@ -29,7 +29,8 @@ MIN_LINE_HEIGHT_PX = 4
 # Korean glyphs can leave a one-row white gap between the main body and a
 # lower stroke.  Treating that stroke as another review line makes visually
 # correct consecutive underlines fail while a crossing coordinate can pass.
-MAX_INTRA_LINE_ROW_GAP_PX = 1
+MAX_INTRA_LINE_ROW_GAP_RATIO = 0.0025
+MAX_INTRA_LINE_ROW_GAP_PX_CAP = 4
 # 줄이 이보다 적게 검출되면 캡처 구조를 신뢰할 수 없으므로 픽셀 판정을 하지 않는다.
 MIN_DETECTED_LINES = 3
 # 밑줄은 글자 바로 아래에 붙는다. 한 줄 간격의 이 비율 안에 있어야 그 줄의 밑줄이다.
@@ -97,8 +98,12 @@ def detect_text_lines(path: str | Path) -> list[TextLine]:
             start = None
 
     merged_bands: list[tuple[int, int]] = []
+    max_intra_line_gap = min(
+        MAX_INTRA_LINE_ROW_GAP_PX_CAP,
+        max(1, round(height * MAX_INTRA_LINE_ROW_GAP_RATIO)),
+    )
     for top, bottom in bands:
-        if merged_bands and top - merged_bands[-1][1] <= MAX_INTRA_LINE_ROW_GAP_PX:
+        if merged_bands and top - merged_bands[-1][1] <= max_intra_line_gap:
             merged_bands[-1] = (merged_bands[-1][0], bottom)
         else:
             merged_bands.append((top, bottom))

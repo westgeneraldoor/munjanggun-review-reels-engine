@@ -1464,6 +1464,24 @@ class ReviewReelIntakeTests(unittest.TestCase):
         script = package.package_dir / source["script"]
         script.write_text("# fixture script\n", encoding="utf-8")
         guidance = workflow_next(self.output_root)
+        self.assertEqual(guidance["next_action"], "record_hash_bound_script_review")
+        self.assertEqual(guidance["blocking_issue_codes"], ["SCRIPT_REVIEW_BINDING_MISSING"])
+
+        planning["script_review"] = {
+            "status": "approved",
+            "reviewer": "fixture-pd",
+            "evidence_reference": "fixture story-spine and script review",
+            "script_sha256": "c" * 64,
+            "checked_story_stages": ["problem", "action", "change", "proof", "cta"],
+        }
+        planning_path.write_text(json.dumps(planning, ensure_ascii=False), encoding="utf-8")
+        guidance = workflow_next(self.output_root)
+        self.assertEqual(guidance["next_action"], "record_hash_bound_script_review")
+        self.assertEqual(guidance["blocking_issue_codes"], ["SCRIPT_REVIEW_HASH_MISMATCH"])
+
+        planning["script_review"]["script_sha256"] = hashlib.sha256(script.read_bytes()).hexdigest()
+        planning_path.write_text(json.dumps(planning, ensure_ascii=False), encoding="utf-8")
+        guidance = workflow_next(self.output_root)
         self.assertEqual(guidance["next_action"], "generate_official_one_shot_tts")
         self.assertIn("generate_one_shot_tts.py", guidance["next_command"])
 

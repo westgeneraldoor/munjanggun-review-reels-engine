@@ -42,6 +42,10 @@ planning recipe는 무엇을 왜 말하는지 기록합니다. 최소 책임은 
 - `story_mode`, timeline/scenes, review proof, CTA
 - 최종 narration과 화면 의미 계획
 - privacy·claim·quality 확인 결과
+- `writer_brief.story_spine`: problem/action/change/proof/cta의 순서, 각 단계의
+  원문·사진 evidence와 실제 beat/caption reference
+- `script_review`: 현재 표준 script의 승인 상태, reviewer, evidence reference,
+  SHA-256, story-spine 단계별 확인
 
 HTML preflight에서 항상 확인하는 planning 필드는 아래와 같습니다. `hooks`는
 `analysis` 내부가 아니라 top-level 배열입니다.
@@ -64,6 +68,11 @@ HTML preflight에서 항상 확인하는 planning 필드는 아래와 같습니�
 top-level analysis 필드는 호환 입력으로 읽을 수 있지만 새 recipe는 중첩 `analysis`를
 사용합니다. `selected_hook.text`는 `caption` 또는 `headline` 호환 필드로 읽을 수 있어도
 새 recipe에서는 `text`를 사용합니다.
+
+`story_spine`의 CTA는 `recovers_stage: "problem"`으로 첫 갈등을 회수해야 하며,
+각 단계는 존재하는 beat와 caption chunk를 참조해야 합니다. `script_review.script_sha256`은
+TTS 호출 직전 실제 `*_script.md` bytes의 SHA-256과 정확히 같아야 합니다. 서사 결속이나
+해시 승인이 없거나 stale이면 음성 생성 전에 실패합니다.
 
 one-shot HTML이면 다음 범위가 명시되어야 합니다.
 

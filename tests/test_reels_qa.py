@@ -55,6 +55,26 @@ class ReelsQaTest(unittest.TestCase):
         self.assertIn("HOOK_TENSION_MISSING", {issue["code"] for issue in result["issues"]})
         self.assertTrue(explain_error("HOOK_TENSION_MISSING")["known"])
 
+    def test_hook_formula_rejects_target_description_even_when_it_contains_a_number(self):
+        """Catch a decorative number turning a plain target introduction into a passing hook."""
+        result = validate_hook_formula("30평 구축 아파트에 중문을 시공했습니다")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["triggers"], ["concrete_number", "target_callout"])
+        self.assertIn("HOOK_TENSION_MISSING", {issue["code"] for issue in result["issues"]})
+
+    def test_hook_formula_accepts_a_sourced_time_bound_result_as_narrative_tension(self):
+        result = validate_hook_formula("구축 아파트 중문, 3일 만에 끝냈습니다")
+
+        self.assertTrue(result["ok"], result["issues"])
+        self.assertIn("result_promise", result["triggers"])
+
+    def test_hook_formula_accepts_a_concrete_problem_not_just_its_target_and_number(self):
+        result = validate_hook_formula("로봇청소기 쓰는 집, 3cm 때문에 문이 닫히지 않았습니다")
+
+        self.assertTrue(result["ok"], result["issues"])
+        self.assertIn("problem_conflict", result["triggers"])
+
     def test_preflight_rejects_hook_without_formula_trigger(self):
         planning = {
             "customer_problem": "중문 설치 후기",

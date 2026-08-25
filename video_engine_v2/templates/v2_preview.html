@@ -79,7 +79,7 @@
       object-fit: cover;
       transform-origin: center;
       will-change: transform, opacity, filter;
-      transition: opacity 180ms ease, filter 180ms ease;
+      transition: none;
     }
 
     .asset.backdrop {
@@ -505,7 +505,7 @@
       border-radius: 18px;
       overflow: hidden;
       opacity: 0;
-      transition: opacity 260ms ease-out;
+      transition: none;
       z-index: 4;
       background: #fff;
       box-shadow: 0 28px 70px rgba(0,0,0,0.58);
@@ -848,16 +848,13 @@
   <script>
     const recipe = __RECIPE_JSON__;
     const assetUrls = __ASSET_URLS_JSON__;
+    const motionTimingMs = __MOTION_TIMING_JSON__;
     const beats = recipe.beats;
     const totalDuration = Math.max(...beats.map(b => b.time[1]));
     const CAPTION_ACCENT_MIN_DELAY_MS = 520;
-    const CAPTION_ACCENT_POP_MS = 240;
-    const CAPTION_CHUNK_POP_MS = 220;
-    const PHOTO_TRANSITION_MS = {
-      calm_dissolve: 520,
-      calm_slide: 600,
-      soft_page_turn: 640,
-    };
+    const CAPTION_ACCENT_POP_MS = motionTimingMs.caption_accent_pop_ms;
+    const CAPTION_CHUNK_POP_MS = motionTimingMs.caption_chunk_pop_ms;
+    const PHOTO_TRANSITION_MS = motionTimingMs.photo_transitions_ms;
 
     const stage = document.getElementById('stage');
     const mainAsset = document.getElementById('mainAsset');
@@ -1121,7 +1118,17 @@
       caption.style.transform = `translateY(${Number(translateY.toFixed(3))}px) scale(${Number(scale.toFixed(3))})`;
     }
 
-    function applyPhotoTransitionMotion(beat, shot, time) {
+    function transitionOwnerLayers(motion) {
+      if (motion === 'review_capture_hold' || motion === 'review_capture_scroll') {
+        return [reviewCard, backdrop];
+      }
+      if (motion === 'product_card_flash') {
+        return [productCard, backdrop];
+      }
+      return [mainAsset];
+    }
+
+    function applyPhotoTransitionMotion(beat, shot, time, motion) {
       const transitionIn = String(shot?.transition_in || beat.transition_in || 'cut');
       const durationMs = PHOTO_TRANSITION_MS[transitionIn];
       mainAsset.style.removeProperty('clip-path');
@@ -1134,6 +1141,15 @@
       const progress = clamp(((time - startSec) * 1000) / durationMs, 0, 1);
       mainAsset.dataset.transitionDurationMs = String(durationMs);
       previousAsset.style.opacity = Number((1 - progress).toFixed(4));
+      const ownerLayers = transitionOwnerLayers(motion);
+      if (ownerLayers[0] !== mainAsset) {
+        mainAsset.style.opacity = 0;
+        for (const layer of ownerLayers) {
+          const intendedOpacity = clamp(Number(layer.style.opacity || 0), 0, 1);
+          layer.style.opacity = Number((intendedOpacity * progress).toFixed(4));
+        }
+        return;
+      }
       if (transitionIn === 'calm_dissolve') {
         mainAsset.style.opacity = Number(progress.toFixed(4));
         return;
@@ -1496,7 +1512,7 @@
         caption.style.transform = 'none';
       }
 
-      applyPhotoTransitionMotion(beat, shotNow, time);
+      applyPhotoTransitionMotion(beat, shotNow, time, motion);
       applyCaptionChunkMotion(time, activeCaptionChunk);
 
       const reviewEmphasis = beat.review_emphasis;

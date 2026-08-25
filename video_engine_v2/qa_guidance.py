@@ -92,6 +92,58 @@ ERROR_GUIDANCE: dict[str, dict[str, str]] = {
         "authority": "docs/review_reels_visual_edit_standard_v1.md",
         "how_to_fix": "Fix every reported caption line-count, safe-area, or overflow issue before calling Gemini TTS. The disposable probe can run without a voice artifact.",
     },
+    "STORY_SPINE_MISSING": {
+        "authority": "docs/review_reels_content_standard_v1.md",
+        "how_to_fix": "Bind problem, action, change, proof, and CTA in writer_brief.story_spine. Each stage needs real review/photo evidence and at least one exact caption-chunk reference; the CTA must recover the problem stage.",
+    },
+    "STORY_SPINE_SEQUENCE_INVALID": {
+        "authority": "docs/review_reels_content_standard_v1.md",
+        "how_to_fix": "Use each story stage exactly once and in this order: problem, action, change, proof, CTA.",
+    },
+    "STORY_SPINE_ITEM_INVALID": {
+        "authority": "docs/review_recipe_contract_v2.md",
+        "how_to_fix": "Replace the invalid story_spine entry with an object containing stage, source_evidence, and caption_refs.",
+    },
+    "STORY_SPINE_SOURCE_EVIDENCE_INVALID": {
+        "authority": "docs/review_recipe_contract_v2.md",
+        "how_to_fix": "Bind the stage to an exact review quote, a declared photo asset, or a non-empty supported analysis field. Do not invent a generic source label.",
+    },
+    "STORY_SPINE_CAPTION_BINDING_MISSING": {
+        "authority": "docs/review_recipe_contract_v2.md",
+        "how_to_fix": "Add at least one caption_refs entry with the exact beat_id and 1-based caption chunk index that speaks this story stage.",
+    },
+    "STORY_SPINE_CAPTION_BINDING_INVALID": {
+        "authority": "docs/review_recipe_contract_v2.md",
+        "how_to_fix": "Point each story stage at an existing caption chunk and do not reuse the same beat/chunk reference for two stages.",
+    },
+    "CTA_CONFLICT_RECOVERY_MISSING": {
+        "authority": "docs/review_reels_content_standard_v1.md",
+        "how_to_fix": "Make the CTA explicitly recover the opening problem and set the CTA story-spine entry recovers_stage to problem.",
+    },
+    "SCRIPT_REVIEW_BINDING_MISSING": {
+        "authority": "docs/review_reels_content_standard_v1.md",
+        "how_to_fix": "After the standard script exists, review all five story stages and record approved status, reviewer, evidence reference, exact script SHA-256, and the complete checked_story_stages list.",
+    },
+    "SCRIPT_REVIEW_HASH_MISMATCH": {
+        "authority": "docs/review_reels_content_standard_v1.md",
+        "how_to_fix": "Review the finalized script against every story_spine stage, then update script_review with the exact current script file SHA-256. Do not reuse approval from an earlier script revision.",
+    },
+    "HOOK_ALIGNMENT_INFEASIBLE": {
+        "authority": "docs/review_reels_visual_edit_standard_v1.md",
+        "how_to_fix": "The measured opening cannot fit result-before-result while keeping all three shots at least 1.0 second and ending the before shot within its spoken context. Revise the hook wording or pacing; do not clamp into an invalid negative or sub-minimum shot.",
+    },
+    "HOOK_ALIGNMENT_SAFETY_MARGIN_MISSING": {
+        "authority": "docs/review_reels_visual_edit_standard_v1.md",
+        "how_to_fix": "Before TTS, reserve at least 3.0 seconds for the three result-before-result hook shots. Shorten later beats or revise the hook plan instead of starting an alignment that cannot satisfy three 1.0-second shots.",
+    },
+    "SYNC_MANIFEST_REVISION_REQUIRED": {
+        "authority": "docs/review_reels_one_shot_contract_v2.md",
+        "how_to_fix": "Fork the changed edit into an explicit _vN_edit_recipe.json revision, then run the official one-shot preflight so it selects a matching sync_manifest_vN.json. Do not overwrite or rename prior sync evidence.",
+    },
+    "SYNC_MANIFEST_EXISTS": {
+        "authority": "docs/review_reels_one_shot_contract_v2.md",
+        "how_to_fix": "The selected sync manifest is immutable evidence and already exists. Reuse it only when all bound inputs are unchanged; otherwise fork a new recipe revision and create the corresponding new versioned sync manifest.",
+    },
     "HOOK_TENSION_MISSING": {
         "authority": "docs/review_reels_content_standard_v1.md",
         "how_to_fix": "A target label alone is a description, not a hook. Keep the review-grounded subject, then add a supported conflict, surprise, loss, or concrete result before approving the first caption.",

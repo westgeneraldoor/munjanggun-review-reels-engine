@@ -2,6 +2,7 @@ import unittest
 
 from scripts import review_reel_intake as intake_cli
 from video_engine_v2 import review_reel_intake
+from video_engine_v2.qa_guidance import explain_error
 from video_engine_v2.reels_qa import (
     validate_html_preflight,
     validate_review_reels_one_shot_authoring,
@@ -10,6 +11,24 @@ from video_engine_v2.reels_qa import (
 
 
 class RecipeScaffoldTests(unittest.TestCase):
+    def test_scaffold_reserves_story_spine_and_script_review_bindings(self):
+        planning, _ = review_reel_intake.build_recipe_scaffold(
+            content_id="120",
+            review_text="현관 사용이 불편했는데 설치 후 동선이 편해졌습니다.",
+            selected_assets=[
+                {"relative_path": "after.jpg", "evidence_classes": ["installed_result"], "visual_quality": {"full_product_visible": True}},
+                {"relative_path": "before.jpg", "evidence_classes": ["before_state"], "visual_quality": {}},
+                {"relative_path": "review.png", "evidence_classes": ["review_capture"], "visual_quality": {}},
+            ],
+        )
+
+        self.assertEqual(
+            [item["stage"] for item in planning["writer_brief"]["story_spine"]],
+            ["problem", "action", "change", "proof", "cta"],
+        )
+        self.assertEqual(planning["script_review"]["status"], "pending")
+        self.assertIn("script review hash", planning["scaffold"]["pending_fields"])
+
     def test_scaffold_starts_inside_the_pre_tts_timing_safety_margins(self):
         planning, edit = review_reel_intake.build_recipe_scaffold(
             content_id="120",
@@ -68,6 +87,13 @@ class RecipeScaffoldTests(unittest.TestCase):
         planning["writer_brief"]["one_line_story"] = "불편했던 현관 동선이 설치 후 편해진 리뷰 이야기"
         planning["writer_brief"]["hook_candidates"] = [{"text": hook_text}]
         planning["writer_brief"]["recommended_hook"] = hook_text
+        planning["script_review"] = {
+            "status": "approved",
+            "reviewer": "fixture-pd",
+            "evidence_reference": "fixture story-spine and script review",
+            "script_sha256": "c" * 64,
+            "checked_story_stages": ["problem", "action", "change", "proof", "cta"],
+        }
         planning["scenes"][0]["caption"] = {"text": hook_text}
         planning["scenes"][0]["narration"] = hook_text
         for scene in planning["scenes"]:
@@ -128,6 +154,27 @@ class RecipeScaffoldTests(unittest.TestCase):
 
         self.assertEqual(args.command, "explain-error")
         self.assertEqual(args.code, "VOICE_CAPTION_TIMELINE_STALE")
+
+    def test_new_revision_and_story_gate_errors_have_actionable_guidance(self):
+        for code in (
+            "SYNC_MANIFEST_REVISION_REQUIRED",
+            "SYNC_MANIFEST_EXISTS",
+            "HOOK_ALIGNMENT_INFEASIBLE",
+            "HOOK_ALIGNMENT_SAFETY_MARGIN_MISSING",
+            "STORY_SPINE_MISSING",
+            "STORY_SPINE_SEQUENCE_INVALID",
+            "STORY_SPINE_ITEM_INVALID",
+            "STORY_SPINE_SOURCE_EVIDENCE_INVALID",
+            "STORY_SPINE_CAPTION_BINDING_MISSING",
+            "STORY_SPINE_CAPTION_BINDING_INVALID",
+            "CTA_CONFLICT_RECOVERY_MISSING",
+            "SCRIPT_REVIEW_BINDING_MISSING",
+            "SCRIPT_REVIEW_HASH_MISMATCH",
+        ):
+            with self.subTest(code=code):
+                guidance = explain_error(code)
+                self.assertTrue(guidance["known"], guidance)
+                self.assertTrue(guidance["how_to_fix"], guidance)
 
     def test_official_intake_cli_exposes_recipe_scaffold_with_identity_guard(self):
         args = intake_cli.build_parser().parse_args(

@@ -39,6 +39,8 @@ planning recipe는 다음 필드를 모두 가져야 한다.
 - 원문 review quote, 공개되지 않은 위험 소재/감정/강한 claim 차단
 - `writer_brief.story_mode`, 실제 고객 사진 첫 프레임, 실제 리뷰 캡처 증명,
   사건부터 CTA까지의 핵심 서사 역할
+- `writer_brief.story_spine`의 문제→행동→변화→증명→CTA 원문·사진·자막 결속,
+  첫 갈등을 회수하는 CTA, 현재 script SHA-256에 결속된 `script_review` 승인
 - planning/edit의 역할 연결, 직접 관련된 사진, 반복 filler 차단
 - 1~2줄·32px 이상·안전영역·피사체 비가림 자막 근거
 - Gemini TTS `Sulafat` 생성 보고서, 5.0~8.5자/초, 최종 TTS를 유일한
@@ -65,6 +67,9 @@ hash, one-shot contract, shot·hook·review proof·CTA·자막 chunk 등 authori
 전체, planning scene 내레이션과 표준 `*_script.md` 내레이션의 일치를 검사한다. 음성이
 아직 없을 때는 silent placeholder로 실제 production 템플릿의 DOM layout probe까지
 실행해 3줄·안전영역·overflow 실패를 TTS 전에 차단한다.
+이 단계에서 `script_review.script_sha256`도 실제 script bytes와 대조한다. 훅 첫 3컷을
+각 1.0초 이상 배치할 최소 3.0초가 없거나 실측 alignment 뒤 배치 가능 구간이 없으면
+`HOOK_ALIGNMENT_INFEASIBLE`로 중단하며 음수 shot을 만들지 않는다.
 기존 SRT/voice/report를 덮어쓰지 않으며 Gemini TTS `Sulafat`과 hash-bound 생성
 보고서만 허용한다. Windows SAPI, 임의 MP3, 수동 SRT는 one-shot production 입력이
 아니다. 같은 canonical narration hash로 API 생성에 성공한 시도가 이미 두 개면

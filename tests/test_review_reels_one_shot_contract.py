@@ -19,6 +19,18 @@ def load_fixture():
 
 
 class ReviewReelsOneShotContractTest(unittest.TestCase):
+    def test_contract_requires_hash_bound_story_spine_review_before_tts(self):
+        """Catch structurally valid recipes that never bind story stages or the reviewed script."""
+        fixture = load_fixture()
+        fixture["planning"]["writer_brief"].pop("story_spine")
+        fixture["planning"].pop("script_review")
+
+        result = validate_review_reels_one_shot_authoring(fixture["planning"], fixture["edit"])
+        codes = {issue["code"] for issue in result["issues"]}
+
+        self.assertIn("STORY_SPINE_MISSING", codes)
+        self.assertIn("SCRIPT_REVIEW_BINDING_MISSING", codes)
+
     def test_authoring_check_defers_voice_artifacts_but_reports_all_structural_failures(self):
         fixture = load_fixture()
         source = fixture["edit"]["source"]
@@ -57,6 +69,25 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
         self.assertIn("OPENING_BEAT_SAFETY_MARGIN_MISSING", codes)
         self.assertIn("REVIEW_PROOF_SAFETY_MARGIN_MISSING", codes)
         self.assertIn("FINAL_RESULT_SAFETY_MARGIN_MISSING", codes)
+
+    def test_authoring_safety_margin_rejects_a_planned_hook_too_short_for_three_shots(self):
+        fixture = load_fixture()
+        hook = fixture["edit"]["beats"][0]
+        hook["time"] = [0.0, 2.9]
+        hook["shots"][0]["start_sec"], hook["shots"][0]["end_sec"] = 0.0, 0.967
+        hook["shots"][1]["start_sec"], hook["shots"][1]["end_sec"] = 0.967, 1.934
+        hook["shots"][2]["start_sec"], hook["shots"][2]["end_sec"] = 1.934, 2.9
+
+        result = validate_review_reels_one_shot_authoring(
+            fixture["planning"],
+            fixture["edit"],
+            enforce_safety_margins=True,
+        )
+
+        self.assertIn(
+            "HOOK_ALIGNMENT_SAFETY_MARGIN_MISSING",
+            {issue["code"] for issue in result["issues"]},
+        )
 
     def test_authoring_blocks_before_photo_that_outlives_its_spoken_context(self):
         fixture = load_fixture()

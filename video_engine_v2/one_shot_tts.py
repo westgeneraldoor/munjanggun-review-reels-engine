@@ -379,10 +379,10 @@ def _apply_measured_alignment(
                 second_chunk_start + HOOK_BEFORE_CONTEXT_OVERHANG_TOLERANCE_SEC,
                 new_end - HOOK_MIN_SHOT_DURATION_SEC,
             )
-            before_start = max(
-                new_start + HOOK_MIN_SHOT_DURATION_SEC,
-                before_end - HOOK_MIN_SHOT_DURATION_SEC,
-            )
+            earliest_feasible_before_end = new_start + (2 * HOOK_MIN_SHOT_DURATION_SEC)
+            if before_end < earliest_feasible_before_end - 0.001:
+                raise OneShotTTSViolation("HOOK_ALIGNMENT_INFEASIBLE")
+            before_start = before_end - HOOK_MIN_SHOT_DURATION_SEC
             shots[0]["end_sec"] = round(before_start, 3)
             shots[1]["start_sec"] = round(before_start, 3)
             shots[1]["end_sec"] = round(before_end, 3)
@@ -434,7 +434,13 @@ def _validate_package_state(package: Path) -> dict[str, Any]:
     return metadata
 
 
-def _validate_planning(metadata: dict[str, Any], planning: dict[str, Any], script_text: str) -> None:
+def _validate_planning(
+    metadata: dict[str, Any],
+    planning: dict[str, Any],
+    script_text: str,
+    *,
+    script_sha256: str | None = None,
+) -> None:
     contract = planning.get("workflow_contract") or {}
     if contract.get("name") != ONE_SHOT_CONTRACT:
         raise OneShotTTSViolation("ONE_SHOT_CONTRACT_MISSING")
@@ -458,6 +464,13 @@ def _validate_planning(metadata: dict[str, Any], planning: dict[str, Any], scrip
     )
     if planning_narration != generate.prepare_tts_text(script_text):
         raise OneShotTTSViolation("SCRIPT_PLANNING_NARRATION_MISMATCH")
+    script_review = planning.get("script_review") or {}
+    expected_script_hash = script_sha256 or hashlib.sha256(script_text.encode("utf-8")).hexdigest()
+    if (
+        script_review.get("status") != "approved"
+        or str(script_review.get("script_sha256") or "") != expected_script_hash
+    ):
+        raise OneShotTTSViolation("SCRIPT_REVIEW_HASH_MISMATCH")
 
 
 def _validate_tts_report(
@@ -516,7 +529,7 @@ def calibrate_one_shot_timeline(
         script_text = script_file.read_text(encoding="utf-8-sig")
     except (OSError, UnicodeError) as exc:
         raise OneShotTTSViolation("SCRIPT_ARTIFACT_INVALID") from exc
-    _validate_planning(metadata, planning, script_text)
+    _validate_planning(metadata, planning, script_text, script_sha256=_sha256(script_file))
     _validate_tts_report(package, source_report, source_voice, script_text)
     items = _load_alignment(package, alignment_file, source_voice, edit)
 
@@ -660,7 +673,7 @@ def generate_one_shot_tts(
     failures = [issue for issue in generate.validate_script(script_text) if issue.startswith("[FAIL]")]
     if failures:
         raise OneShotTTSViolation("SCRIPT_STANDARD_INVALID: " + " | ".join(failures))
-    _validate_planning(metadata, planning, script_text)
+    _validate_planning(metadata, planning, script_text, script_sha256=_sha256(script_file))
 
     artifact_stem = generate.get_artifact_stem_from_script_path(script_file)
     srt_path = package / f"{artifact_stem}.srt"

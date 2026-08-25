@@ -64,6 +64,17 @@ class UnderlinePlacementTest(unittest.TestCase):
 
         self.assertEqual(len(detect_text_lines(split_line)), 1)
 
+    def test_high_dpi_two_pixel_gap_inside_glyphs_stays_one_visual_text_line(self):
+        """Catch fixed-pixel row merging that breaks on taller customer captures."""
+        split_line = self.tmp / "high-dpi-split-line.png"
+        image = Image.new("RGB", (WIDTH * 2, HEIGHT * 2), "white")
+        canvas = ImageDraw.Draw(image)
+        canvas.rectangle([40, 400, WIDTH * 2 - 50, 406], fill=(20, 20, 20))
+        canvas.rectangle([40, 409, WIDTH * 2 - 50, 415], fill=(20, 20, 20))
+        image.save(split_line)
+
+        self.assertEqual(len(detect_text_lines(split_line)), 1)
+
     def test_underline_sitting_below_consecutive_lines_passes(self):
         segments = [{"top_pct": under(4)}, {"top_pct": under(5)}]
 

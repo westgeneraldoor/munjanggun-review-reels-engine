@@ -4,7 +4,11 @@ import re
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
+from PIL import Image, ImageChops
+
+import build_html_preview_v2 as preview_builder
 from build_html_preview_v2 import TEMPLATE_PATH, render_preview_html
 
 
@@ -156,7 +160,7 @@ const { chromium } = require('playwright');
   await browser.close();
   if (state.first.opacity !== '1' || state.second.opacity !== '1') process.exit(2);
   if (state.first.transform !== 'translate(-50%, -50%) scale(1)' || state.second.transform !== state.first.transform) process.exit(3);
-  if (state.first.opacityTransition !== '0.26s') process.exit(4);
+  if (state.first.opacityTransition !== '0s') process.exit(4);
 })().catch(error => { console.error(error); process.exit(1); });
 """
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1242,6 +1246,291 @@ const { chromium } = require('playwright');
   if (settled.currentOpacity !== '1' || settled.previousOpacity !== '0') process.exit(4);
   if (middle.duration !== '520') process.exit(5);
   if (JSON.stringify(sameVideoTimeAfterWait) !== JSON.stringify(middle)) process.exit(6);
+})().catch(error => { console.error(error); process.exit(1); });
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / "preview.html"
+            html_path.write_text(html, encoding="utf-8")
+            result = subprocess.run(
+                ["node", "-e", browser_check, html_path.as_uri()],
+                cwd=TEMPLATE_PATH.parent.parent.parent,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+    def test_review_capture_hold_owns_its_calm_dissolve_without_revealing_the_main_asset(self):
+        """Catch calm transitions that overwrite the review motion's hidden main photo."""
+        recipe = {
+            "title": "review card transition ownership",
+            "audio_plan": {"sync_policy": {"final_voice_duration_sec": 4.0}},
+            "asset_roles": {"photo": "photo.jpg", "review_capture": "review.png"},
+            "beats": [
+                {
+                    "id": "b01", "phase": "result", "time": [0.0, 2.0], "asset": "photo",
+                    "motion": "calm_push_in", "transition_in": "cut", "caption": "photo",
+                    "shots": [{
+                        "asset_id": "photo", "motion": "calm_push_in", "transition_in": "cut",
+                        "start_sec": 0.0, "end_sec": 2.0,
+                    }],
+                },
+                {
+                    "id": "b02", "phase": "review_proof", "time": [2.0, 4.0],
+                    "asset": "review_capture", "review_card_asset_id": "review_capture",
+                    "motion": "review_capture_hold", "transition_in": "calm_dissolve", "caption": "review",
+                    "shots": [{
+                        "asset_id": "review_capture", "motion": "review_capture_hold",
+                        "transition_in": "calm_dissolve", "start_sec": 2.0, "end_sec": 4.0,
+                    }],
+                },
+            ],
+        }
+        image = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E"
+        html = render_preview_html(
+            recipe=recipe,
+            asset_urls={
+                "photo": image + "%23photo",
+                "review_capture": image + "%23review",
+                "voice": "data:audio/mp3;base64,",
+                "font_body": "data:font/woff2;base64,",
+            },
+            preview_title="review card transition ownership",
+            preview_description="browser behavior test",
+        )
+        browser_check = r"""
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  await page.goto(process.argv[1] + '?t=0');
+  const sample = async (time) => page.evaluate((t) => {
+    renderAt(t);
+    return {
+      mainInline: mainAsset.style.opacity,
+      mainComputed: getComputedStyle(mainAsset).opacity,
+      reviewInline: reviewCard.style.opacity,
+      reviewComputed: getComputedStyle(reviewCard).opacity,
+      previousInline: previousAsset.style.opacity,
+    };
+  }, time);
+  await sample(1.99);
+  const onset = await sample(2.00);
+  const middle = await sample(2.26);
+  const settled = await sample(2.52);
+  await browser.close();
+  if ([onset, middle, settled].some(state => state.mainInline !== '0' || state.mainComputed !== '0')) process.exit(2);
+  if (onset.reviewInline !== '0' || middle.reviewInline !== '0.5' || settled.reviewInline !== '1') process.exit(3);
+  if (middle.reviewComputed !== middle.reviewInline) process.exit(4);
+  if (onset.previousInline !== '1' || middle.previousInline !== '0.5' || settled.previousInline !== '0') process.exit(5);
+})().catch(error => { console.error(error); process.exit(1); });
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / "preview.html"
+            html_path.write_text(html, encoding="utf-8")
+            result = subprocess.run(
+                ["node", "-e", browser_check, html_path.as_uri()],
+                cwd=TEMPLATE_PATH.parent.parent.parent,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+    def test_calm_dissolve_midpoint_pixels_match_video_time_without_wall_clock_settle(self):
+        """Catch CSS transitions that make an immediate rendered frame lag behind renderAt(time)."""
+        recipe = {
+            "title": "pixel deterministic dissolve",
+            "audio_plan": {"sync_policy": {"final_voice_duration_sec": 4.0}},
+            "asset_roles": {"red": "red.svg", "blue": "blue.svg"},
+            "beats": [{
+                "id": "b01", "phase": "event", "time": [0.0, 4.0], "asset": "red",
+                "motion": "static_hold", "transition_in": "cut", "caption": "",
+                "shots": [
+                    {"asset_id": "red", "motion": "static_hold", "transition_in": "cut", "start_sec": 0.0, "end_sec": 2.0},
+                    {"asset_id": "blue", "motion": "static_hold", "transition_in": "calm_dissolve", "start_sec": 2.0, "end_sec": 4.0},
+                ],
+            }],
+        }
+        red = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1080' height='1920'%3E%3Crect width='1080' height='1920' fill='%23ff0000'/%3E%3C/svg%3E"
+        blue = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1080' height='1920'%3E%3Crect width='1080' height='1920' fill='%230000ff'/%3E%3C/svg%3E"
+        html = render_preview_html(
+            recipe=recipe,
+            asset_urls={"red": red, "blue": blue, "voice": "data:audio/mp3;base64,", "font_body": "data:font/woff2;base64,"},
+            preview_title="pixel deterministic dissolve",
+            preview_description="browser pixel regression",
+        )
+        browser_check = r"""
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1080, height: 1920 } });
+  await page.goto(process.argv[1] + '?t=0');
+  await page.evaluate(() => { document.querySelectorAll('.caption, .chrome, .top-title, .bottom-brand').forEach(node => node.style.display = 'none'); });
+  await page.evaluate(() => { renderAt(1.99); renderAt(2.26); });
+  await page.locator('#stage').screenshot({ path: process.argv[2] });
+  await page.waitForTimeout(300);
+  await page.locator('#stage').screenshot({ path: process.argv[3] });
+  await browser.close();
+})().catch(error => { console.error(error); process.exit(1); });
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / "preview.html"
+            frame_path = Path(temp_dir) / "midpoint.png"
+            settled_frame_path = Path(temp_dir) / "midpoint-settled.png"
+            html_path.write_text(html, encoding="utf-8")
+            result = subprocess.run(
+                ["node", "-e", browser_check, html_path.as_uri(), str(frame_path), str(settled_frame_path)],
+                cwd=TEMPLATE_PATH.parent.parent.parent,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+            with (
+                Image.open(frame_path).convert("RGB") as immediate,
+                Image.open(settled_frame_path).convert("RGB") as settled,
+            ):
+                difference = ImageChops.difference(immediate, settled)
+                self.assertIsNone(difference.getbbox())
+
+    def test_rendered_preview_consumes_the_authority_motion_timing_payload(self):
+        """Catch template timing numbers drifting away from the Python contract authority."""
+        recipe = {
+            "title": "motion timing authority",
+            "audio_plan": {"sync_policy": {"final_voice_duration_sec": 4.0}},
+            "asset_roles": {"one": "one.jpg", "two": "two.jpg"},
+            "beats": [{
+                "id": "b01", "phase": "event", "time": [0.0, 4.0], "asset": "one",
+                "motion": "calm_push_in", "transition_in": "cut", "caption": "완성 장면",
+                "caption_chunks": [{"text": "완성 장면", "start_sec": 0.0, "end_sec": 4.0}],
+                "caption_emphasis": ["완성"],
+                "caption_accent": {"enabled": True, "style": "result", "start_sec": 0.5},
+                "shots": [
+                    {"asset_id": "one", "motion": "calm_push_in", "transition_in": "cut", "start_sec": 0.0, "end_sec": 2.0},
+                    {"asset_id": "two", "motion": "calm_push_in", "transition_in": "calm_dissolve", "start_sec": 2.0, "end_sec": 4.0},
+                ],
+            }],
+        }
+        timing = {
+            "caption_accent_pop_ms": 333,
+            "caption_chunk_pop_ms": 444,
+            "photo_transitions_ms": {"calm_dissolve": 777, "calm_slide": 888, "soft_page_turn": 999},
+        }
+        image = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E"
+        with patch.object(preview_builder, "ONE_SHOT_MOTION_TIMING_MS", timing, create=True):
+            html = render_preview_html(
+                recipe=recipe,
+                asset_urls={
+                    "one": image + "%23one", "two": image + "%23two",
+                    "voice": "data:audio/mp3;base64,", "font_body": "data:font/woff2;base64,",
+                },
+                preview_title="motion timing authority",
+                preview_description="browser behavior test",
+            )
+        browser_check = r"""
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  await page.goto(process.argv[1] + '?t=0');
+  const state = await page.evaluate(() => {
+    renderAt(2.1);
+    return {
+      transition: mainAsset.dataset.transitionDurationMs,
+      chunk: caption.dataset.chunkPopDurationMs,
+      accent: caption.dataset.accentPopDurationMs,
+    };
+  });
+  await browser.close();
+  if (state.transition !== '777' || state.chunk !== '444' || state.accent !== '333') {
+    console.error(JSON.stringify(state));
+    process.exit(2);
+  }
+})().catch(error => { console.error(error); process.exit(1); });
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / "preview.html"
+            html_path.write_text(html, encoding="utf-8")
+            result = subprocess.run(
+                ["node", "-e", browser_check, html_path.as_uri()],
+                cwd=TEMPLATE_PATH.parent.parent.parent,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+    def test_product_card_flash_owns_its_calm_dissolve_without_revealing_the_main_asset(self):
+        recipe = {
+            "title": "product card transition ownership",
+            "audio_plan": {"sync_policy": {"final_voice_duration_sec": 4.0}},
+            "asset_roles": {
+                "photo": "photo.jpg", "product_thumbnail": "product.png",
+                "measure_wall": "wall.jpg",
+            },
+            "beats": [
+                {
+                    "id": "b01", "phase": "result", "time": [0.0, 2.0], "asset": "photo",
+                    "motion": "calm_push_in", "transition_in": "cut", "caption": "photo",
+                    "shots": [{
+                        "asset_id": "photo", "motion": "calm_push_in", "transition_in": "cut",
+                        "start_sec": 0.0, "end_sec": 2.0,
+                    }],
+                },
+                {
+                    "id": "b02", "phase": "choice", "time": [2.0, 4.0], "asset": "product_thumbnail",
+                    "motion": "product_card_flash", "transition_in": "calm_dissolve", "caption": "product",
+                    "shots": [{
+                        "asset_id": "product_thumbnail", "motion": "product_card_flash",
+                        "transition_in": "calm_dissolve", "start_sec": 2.0, "end_sec": 4.0,
+                    }],
+                },
+            ],
+        }
+        image = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E"
+        html = render_preview_html(
+            recipe=recipe,
+            asset_urls={
+                "photo": image + "%23photo", "product_thumbnail": image + "%23product",
+                "measure_wall": image + "%23wall", "voice": "data:audio/mp3;base64,",
+                "font_body": "data:font/woff2;base64,",
+            },
+            preview_title="product card transition ownership",
+            preview_description="browser behavior test",
+        )
+        browser_check = r"""
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  await page.goto(process.argv[1] + '?t=0');
+  const sample = async (time) => page.evaluate((t) => {
+    renderAt(t);
+    return {
+      mainInline: mainAsset.style.opacity,
+      mainComputed: getComputedStyle(mainAsset).opacity,
+      productInline: productCard.style.opacity,
+      productComputed: getComputedStyle(productCard).opacity,
+      previousInline: previousAsset.style.opacity,
+    };
+  }, time);
+  await sample(1.99);
+  const onset = await sample(2.00);
+  const middle = await sample(2.26);
+  const settled = await sample(2.52);
+  await browser.close();
+  if ([onset, middle, settled].some(state => state.mainInline !== '0' || state.mainComputed !== '0')) process.exit(2);
+  if (Number(onset.productInline) !== 0 || !(Number(middle.productInline) > 0 && Number(middle.productInline) < 1) || !(Number(settled.productInline) > Number(middle.productInline))) {
+    console.error(JSON.stringify({onset, middle, settled}));
+    process.exit(3);
+  }
+  if (middle.productComputed !== middle.productInline) process.exit(4);
+  if (onset.previousInline !== '1' || middle.previousInline !== '0.5' || settled.previousInline !== '0') process.exit(5);
 })().catch(error => { console.error(error); process.exit(1); });
 """
         with tempfile.TemporaryDirectory() as temp_dir:

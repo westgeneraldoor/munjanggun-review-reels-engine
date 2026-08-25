@@ -110,6 +110,23 @@ HOOK_TRIGGER_PATTERNS = {
         "추가 비용",
         "주의",
     ),
+    "problem_conflict": (
+        "닫히지",
+        "안 닫",
+        "못 닫",
+        "막혔",
+        "막히",
+        "걸리",
+        "불편",
+        "고민",
+        "문제",
+        "반대",
+        "미뤘",
+        "미루",
+        "아쉬",
+        "걱정",
+        "좁았",
+    ),
     "result_promise": (
         "달라졌",
         "바뀌",
@@ -118,9 +135,20 @@ HOOK_TRIGGER_PATTERNS = {
         "줄인",
         "해결",
         "완성",
+        "끝냈",
+        "마쳤",
+        "시공까지",
         "구해줬",
     ),
 }
+HOOK_NARRATIVE_TRIGGERS = {
+    "curiosity_gap",
+    "counter_belief",
+    "loss_aversion",
+    "problem_conflict",
+    "result_promise",
+}
+REQUIRED_STORY_SPINE_STAGES = ("problem", "action", "change", "proof", "cta")
 RISK_TOPIC_KEYWORDS = {
     "noise": ("소음", "층간소음", "방음", "시끄", "소리", "복도소리"),
     "smell": ("냄새", "악취"),
@@ -560,6 +588,122 @@ def _analysis_missing(analysis: dict[str, Any]) -> list[str]:
     return missing
 
 
+def _validate_story_spine_contract(
+    planning_recipe: dict[str, Any],
+    edit_recipe: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Bind the five editorial stages to real evidence, caption chunks, and a reviewed script hash."""
+
+    issues: list[dict[str, Any]] = []
+    writer_brief = planning_recipe.get("writer_brief") or {}
+    spine = writer_brief.get("story_spine")
+    if not isinstance(spine, list) or not spine:
+        issues.append(_issue("STORY_SPINE_MISSING", "writer_brief.story_spine is required before TTS."))
+        spine = []
+
+    stages = [_as_text(item.get("stage")).strip() for item in spine if isinstance(item, dict)]
+    if spine and stages != list(REQUIRED_STORY_SPINE_STAGES):
+        issues.append(
+            _issue(
+                "STORY_SPINE_SEQUENCE_INVALID",
+                "story_spine must bind problem -> action -> change -> proof -> cta exactly once and in order.",
+            )
+        )
+
+    beats_by_id = {
+        _as_text(beat.get("id")).strip(): beat
+        for beat in edit_recipe.get("beats") or []
+        if isinstance(beat, dict) and _as_text(beat.get("id")).strip()
+    }
+    review_text = _as_text((planning_recipe.get("review_source") or {}).get("text"))
+    analysis = _planning_analysis(planning_recipe)
+    asset_evidence = edit_recipe.get("asset_evidence") or {}
+    used_caption_refs: set[tuple[str, int]] = set()
+
+    for item in spine:
+        if not isinstance(item, dict):
+            issues.append(_issue("STORY_SPINE_ITEM_INVALID", "Every story_spine item must be an object."))
+            continue
+        stage = _as_text(item.get("stage")).strip()
+        evidence = item.get("source_evidence") or {}
+        evidence_kind = _as_text(evidence.get("kind")).strip() if isinstance(evidence, dict) else ""
+        evidence_valid = False
+        if evidence_kind == "review_quote":
+            quote = _as_text(evidence.get("quote")).strip()
+            evidence_valid = bool(quote and quote in review_text)
+        elif evidence_kind == "photo_asset":
+            asset_id = _as_text(evidence.get("asset_id")).strip()
+            evidence_valid = bool(asset_id and isinstance(asset_evidence.get(asset_id), dict))
+        elif evidence_kind == "analysis_field":
+            field = _as_text(evidence.get("field")).strip()
+            evidence_valid = field in {"customer_problem", "before_pain", "after_change"} and bool(
+                _as_text(analysis.get(field)).strip()
+            )
+        if not evidence_valid:
+            issues.append(
+                _issue(
+                    "STORY_SPINE_SOURCE_EVIDENCE_INVALID",
+                    f"Story stage {stage or '<missing>'} must bind a real review quote, photo asset, or planning analysis field.",
+                )
+            )
+
+        refs = item.get("caption_refs")
+        if not isinstance(refs, list) or not refs:
+            issues.append(
+                _issue(
+                    "STORY_SPINE_CAPTION_BINDING_MISSING",
+                    f"Story stage {stage or '<missing>'} must reference at least one spoken caption chunk.",
+                )
+            )
+        else:
+            for ref in refs:
+                beat_id = _as_text(ref.get("beat_id")).strip() if isinstance(ref, dict) else ""
+                chunk_index = ref.get("chunk_index") if isinstance(ref, dict) else None
+                beat = beats_by_id.get(beat_id)
+                chunks = beat.get("caption_chunks") if isinstance(beat, dict) else None
+                valid_ref = (
+                    isinstance(chunk_index, int)
+                    and chunk_index >= 1
+                    and isinstance(chunks, list)
+                    and chunk_index <= len(chunks)
+                )
+                key = (beat_id, int(chunk_index)) if valid_ref else ("", 0)
+                if not valid_ref or key in used_caption_refs:
+                    issues.append(
+                        _issue(
+                            "STORY_SPINE_CAPTION_BINDING_INVALID",
+                            f"Story stage {stage or '<missing>'} has an invalid or duplicate caption reference.",
+                        )
+                    )
+                else:
+                    used_caption_refs.add(key)
+
+        if stage == "cta" and _as_text(item.get("recovers_stage")).strip() != "problem":
+            issues.append(
+                _issue(
+                    "CTA_CONFLICT_RECOVERY_MISSING",
+                    "The CTA story stage must explicitly recover the problem stage.",
+                )
+            )
+
+    script_review = planning_recipe.get("script_review") or {}
+    checked_stages = script_review.get("checked_story_stages")
+    if (
+        script_review.get("status") != "approved"
+        or not _as_text(script_review.get("reviewer")).strip()
+        or not _as_text(script_review.get("evidence_reference")).strip()
+        or not SHA256_HEX.fullmatch(_as_text(script_review.get("script_sha256")).strip())
+        or checked_stages != list(REQUIRED_STORY_SPINE_STAGES)
+    ):
+        issues.append(
+            _issue(
+                "SCRIPT_REVIEW_BINDING_MISSING",
+                "script_review must approve the exact script hash after checking every story_spine stage.",
+            )
+        )
+    return issues
+
+
 def _planning_analysis(planning_recipe: dict[str, Any]) -> dict[str, Any]:
     nested = planning_recipe.get("analysis")
     if isinstance(nested, dict):
@@ -610,7 +754,7 @@ def validate_hook_formula(text: str) -> dict[str, Any]:
                 "최종 훅에 호기심/숫자/타깃/통념반박/손실/결과 트리거가 없습니다.",
             )
         )
-    elif triggers == ["target_callout"]:
+    elif not any(trigger in HOOK_NARRATIVE_TRIGGERS for trigger in triggers):
         issues.append(
             _issue(
                 "HOOK_TENSION_MISSING",
@@ -847,11 +991,20 @@ MAX_REVIEW_UNDERLINE_START_DELAY_SEC = 0.10
 MAX_REVIEW_UNDERLINE_DRAW_SEC = 0.20
 # 렌더된 리뷰 캡처에서 한 줄 높이는 최소 이만큼은 떨어진다.
 MIN_REVIEW_UNDERLINE_LINE_GAP_PCT = 1.0
-CALM_DISSOLVE_MS = 520
-CALM_SLIDE_MS = 600
-SOFT_PAGE_TURN_MS = 640
-CAPTION_ACCENT_POP_MS = 240
-CAPTION_CHUNK_POP_MS = 220
+ONE_SHOT_MOTION_TIMING_MS = {
+    "caption_accent_pop_ms": 240,
+    "caption_chunk_pop_ms": 220,
+    "photo_transitions_ms": {
+        "calm_dissolve": 520,
+        "calm_slide": 600,
+        "soft_page_turn": 640,
+    },
+}
+CALM_DISSOLVE_MS = ONE_SHOT_MOTION_TIMING_MS["photo_transitions_ms"]["calm_dissolve"]
+CALM_SLIDE_MS = ONE_SHOT_MOTION_TIMING_MS["photo_transitions_ms"]["calm_slide"]
+SOFT_PAGE_TURN_MS = ONE_SHOT_MOTION_TIMING_MS["photo_transitions_ms"]["soft_page_turn"]
+CAPTION_ACCENT_POP_MS = ONE_SHOT_MOTION_TIMING_MS["caption_accent_pop_ms"]
+CAPTION_CHUNK_POP_MS = ONE_SHOT_MOTION_TIMING_MS["caption_chunk_pop_ms"]
 CALM_SCALE_DELTA = 0.05
 CALM_HORIZONTAL_TRAVEL_PX = 24
 CALM_VERTICAL_TRAVEL_PX = 20
@@ -1635,9 +1788,10 @@ def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edi
     """Validate the HTML-only one-shot contract without granting MP4 authority."""
     issues: list[dict[str, Any]] = []
     scaffold = planning_recipe.get("scaffold") or edit_recipe.get("scaffold")
-    if isinstance(scaffold, dict) and (
+    scaffold_incomplete = isinstance(scaffold, dict) and (
         scaffold.get("status") != "complete" or scaffold.get("pending_fields")
-    ):
+    )
+    if scaffold_incomplete:
         issues.append(
             _issue(
                 "RECIPE_SCAFFOLD_INCOMPLETE",
@@ -1679,6 +1833,8 @@ def validate_review_reels_one_shot_contract(planning_recipe: dict[str, Any], edi
     story_mode = _as_text(writer_brief.get("story_mode")).strip()
     if story_mode and story_mode not in SUPPORTED_STORY_MODES:
         issues.append(_issue("STORY_MODE_INVALID", f"Unsupported one-shot story mode: {story_mode}"))
+    if not scaffold_incomplete:
+        issues.extend(_validate_story_spine_contract(planning_recipe, edit_recipe))
 
     photo_qa = planning_recipe.get("photo_qa") or {}
     if photo_qa.get("checked") is not True:
@@ -1959,6 +2115,17 @@ def _validate_authoring_safety_margins(edit_recipe: dict[str, Any]) -> list[dict
 
     issues: list[dict[str, Any]] = []
     beats = [beat for beat in edit_recipe.get("beats") or [] if isinstance(beat, dict)]
+    if beats:
+        hook_shots = beats[0].get("shots") or []
+        required_hook_span = len(hook_shots) * MIN_ONE_SHOT_HOOK_SHOT_SEC
+        if len(hook_shots) == 3 and _beat_duration(beats[0]) < required_hook_span - 0.001:
+            issues.append(
+                _issue(
+                    "HOOK_ALIGNMENT_SAFETY_MARGIN_MISSING",
+                    f"Pre-TTS opening needs at least {required_hook_span:.1f} seconds to fit three minimum hook shots.",
+                    scene_id=_as_text(beats[0].get("id") or "scene_opening"),
+                )
+            )
     if beats and _beat_duration(beats[0]) > AUTHORING_MAX_OPENING_BEAT_SEC + 0.001:
         issues.append(
             _issue(

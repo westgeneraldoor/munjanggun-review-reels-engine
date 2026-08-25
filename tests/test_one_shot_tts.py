@@ -9,6 +9,7 @@ from unittest.mock import patch
 from video_engine_v2.one_shot_tts import (
     OneShotTTSViolation,
     _apply_measured_alignment,
+    _validate_planning,
     calibrate_one_shot_timeline,
     generate_one_shot_tts,
 )
@@ -68,6 +69,39 @@ status: html_preview_only
 
 
 class OneShotTTSTests(unittest.TestCase):
+    def test_script_review_hash_must_match_the_exact_script_bytes(self):
+        metadata = {
+            "content_id": "117",
+            "identity": {"review_text_sha256": "a" * 64},
+        }
+        planning = {
+            "content_id": "117",
+            "workflow_contract": {
+                "name": "review-reels-one-shot-v2",
+                "html_scope_authorized": True,
+                "mp4_scope_authorized": False,
+            },
+            "review_source": {"canonical_text_sha256": "a" * 64},
+            "scenes": [
+                {"narration": "같은 고객님이 한 달 뒤, 별 다섯 개를 또 남겼습니다."},
+                {"narration": "처음에는 집 분위기가 달라졌다고 했고요."},
+                {"narration": "진짜 궁금한 건 한 달을 써본 뒤였습니다."},
+                {"narration": "슬라이딩은 여전히 부드럽고 소음도 적었습니다."},
+                {"narration": "채광이 좋아 실내도 한층 밝아졌습니다."},
+                {"narration": "한 달 뒤에도 만족은 그대로였습니다. 문장군 리뷰에서 가져왔어요."},
+            ],
+            "script_review": {
+                "status": "approved",
+                "reviewer": "pd",
+                "evidence_reference": "approved script",
+                "script_sha256": "b" * 64,
+                "checked_story_stages": ["problem", "action", "change", "proof", "cta"],
+            },
+        }
+
+        with self.assertRaisesRegex(OneShotTTSViolation, "SCRIPT_REVIEW_HASH_MISMATCH"):
+            _validate_planning(metadata, planning, SCRIPT)
+
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
@@ -115,6 +149,13 @@ class OneShotTTSTests(unittest.TestCase):
                     "review_source": {
                         "canonical_text_sha256": source_hash,
                     },
+                    "script_review": {
+                        "status": "approved",
+                        "reviewer": "fixture-pd",
+                        "evidence_reference": "fixture exact script review",
+                        "script_sha256": hashlib.sha256(SCRIPT.encode("utf-8")).hexdigest(),
+                        "checked_story_stages": ["problem", "action", "change", "proof", "cta"],
+                    },
                     "scenes": [
                         {"narration": "같은 고객님이 한 달 뒤, 별 다섯 개를 또 남겼습니다."},
                         {"narration": "처음에는 집 분위기가 달라졌다고 했고요."},
@@ -130,6 +171,9 @@ class OneShotTTSTests(unittest.TestCase):
         )
         self.script = self.package / "117_month_later_gold_v2_script.md"
         self.script.write_text(SCRIPT, encoding="utf-8")
+        planning_payload = json.loads(self.planning.read_text(encoding="utf-8"))
+        planning_payload["script_review"]["script_sha256"] = hashlib.sha256(self.script.read_bytes()).hexdigest()
+        self.planning.write_text(json.dumps(planning_payload, ensure_ascii=False), encoding="utf-8")
         self.edit = self.package / "117_gold_edit_recipe.json"
         sections = [
             (0, 3, "같은 고객님이 한 달 뒤, 별 다섯 개를 또 남겼습니다."),
@@ -535,6 +579,36 @@ class OneShotTTSTests(unittest.TestCase):
         self.assertGreaterEqual(shots[0]["end_sec"] - shots[0]["start_sec"], 1.0)
         self.assertGreaterEqual(shots[1]["end_sec"] - shots[1]["start_sec"], 1.0)
         self.assertEqual(shots[1]["end_sec"], shots[2]["start_sec"])
+
+    def test_measured_alignment_rejects_a_hook_that_cannot_fit_three_minimum_shots(self):
+        """Catch retiming that silently emits a negative-duration before shot."""
+        edit = {
+            "beats": [{
+                "id": "b01",
+                "time": [0.0, 3.0],
+                "caption_chunks": [
+                    {"text": "첫 문장", "start_sec": 0.0, "end_sec": 1.5},
+                    {"text": "둘째 문장", "start_sec": 1.5, "end_sec": 3.0},
+                ],
+                "shots": [
+                    {"asset_id": "result_a", "start_sec": 0.0, "end_sec": 1.0},
+                    {"asset_id": "before", "start_sec": 1.0, "end_sec": 2.0},
+                    {"asset_id": "result_b", "start_sec": 2.0, "end_sec": 3.0},
+                ],
+            }],
+        }
+        items = [
+            {"start_sec": 0.3, "end_sec": 0.9},
+            {"start_sec": 1.05, "end_sec": 2.4},
+        ]
+
+        with self.assertRaisesRegex(OneShotTTSViolation, "HOOK_ALIGNMENT_INFEASIBLE"):
+            _apply_measured_alignment(
+                edit,
+                items,
+                lead_in_sec=0.0,
+                final_duration_sec=2.6,
+            )
 
 
 if __name__ == "__main__":
