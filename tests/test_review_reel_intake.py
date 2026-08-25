@@ -2234,6 +2234,40 @@ class ReviewReelIntakeTests(unittest.TestCase):
         self.assertTrue(all("render" not in command for command in commands))
         self.assertTrue(all("--out" not in command for command in commands))
 
+    def test_one_shot_html_retry_uses_revisioned_sync_manifest_without_overwriting_prior_evidence(self):
+        result = self.create()
+        planning = result.package_dir / "125_story_one_shot_v5_planning_recipe.json"
+        planning.write_text(
+            json.dumps(
+                {
+                    "workflow_contract": {
+                        "name": "review-reels-one-shot-v2",
+                        "html_scope_authorized": True,
+                        "mp4_scope_authorized": False,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        edit = result.package_dir / "125_story_one_shot_v5_edit_recipe.json"
+        privacy = result.package_dir / "privacy.json"
+        edit.write_text("{}", encoding="utf-8")
+        privacy.write_text("{}", encoding="utf-8")
+        prior_sync = result.package_dir / "sync_manifest.json"
+        prior_sync.write_text('{"revision":"v3"}', encoding="utf-8")
+
+        commands = build_one_shot_html_commands(
+            output_root=self.output_root,
+            planning_path=planning,
+            edit_path=edit,
+            privacy_manifest_path=privacy,
+        )
+
+        expected = str(result.package_dir / "sync_manifest_v5.json")
+        self.assertEqual(commands[1][commands[1].index("--sync-manifest") + 1], expected)
+        self.assertEqual(commands[2][commands[2].index("--sync-manifest") + 1], expected)
+        self.assertEqual(prior_sync.read_text(encoding="utf-8"), '{"revision":"v3"}')
+
     def test_one_shot_html_rejects_any_mp4_scope_before_running_production_commands(self):
         self.create()
         planning = self.root / "planning.json"

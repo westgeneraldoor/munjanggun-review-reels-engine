@@ -2748,6 +2748,11 @@ def build_one_shot_html_commands(
     edit = Path(edit_path).resolve()
     privacy = Path(privacy_manifest_path).resolve()
     sync_manifest = package.package_dir / "sync_manifest.json"
+    if sync_manifest.exists():
+        revision_match = re.search(r"_v(?P<revision>\d+)_edit_recipe\.json$", edit.name)
+        if revision_match is None:
+            raise IntakeViolation("SYNC_MANIFEST_REVISION_REQUIRED")
+        sync_manifest = package.package_dir / f"sync_manifest_v{revision_match.group('revision')}.json"
     shared = [
         "--package",
         str(package.package_dir),

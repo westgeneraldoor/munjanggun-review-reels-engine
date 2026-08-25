@@ -201,6 +201,10 @@ one-shot의 창작 기준은 `docs/review_reels_content_standard_v1.md`, 화면�
 근거가 있을 때만 넣는다. 공식 음성은 Gemini TTS `Sulafat`이며 Windows SAPI 등
 임시 음성은 production HTML에 연결하지 않는다.
 
+대본과 자막은 첫 자막부터 후킹하고 한 화면 한 생각으로 이어간다. CTA는 첫 갈등을 회수해
+무료 실측 등 근거 있는 다음 행동으로 연결하며, 어느 리뷰에도 붙는 일반론 CTA로 끝내지
+않는다. 이는 글자 수 하드 게이트가 아니라 작가·총괄 PD의 기획 및 대표 프레임 검수 항목이다.
+
 일반 승인 제작에서 `generate.py`를 사용하는 경우 `--approval-package`가 필수입니다.
 사진검수 완료 뒤 사용자가 one-shot HTML을 명시 승인한 경우에만
 `scripts/generate_one_shot_tts.py`가 별도 PD 승인 패키지 없이 SRT/TTS를 생성할 수

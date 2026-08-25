@@ -92,6 +92,10 @@ ERROR_GUIDANCE: dict[str, dict[str, str]] = {
         "authority": "docs/review_reels_visual_edit_standard_v1.md",
         "how_to_fix": "Fix every reported caption line-count, safe-area, or overflow issue before calling Gemini TTS. The disposable probe can run without a voice artifact.",
     },
+    "HOOK_TENSION_MISSING": {
+        "authority": "docs/review_reels_content_standard_v1.md",
+        "how_to_fix": "A target label alone is a description, not a hook. Keep the review-grounded subject, then add a supported conflict, surprise, loss, or concrete result before approving the first caption.",
+    },
     "CAPTION_ACCENT_VOICE_SYNC_INVALID": {
         "authority": "docs/review_reels_visual_edit_standard_v1.md",
         "how_to_fix": "Move caption_accent.start_sec to the estimated spoken onset of the emphasized word inside its caption chunk.",

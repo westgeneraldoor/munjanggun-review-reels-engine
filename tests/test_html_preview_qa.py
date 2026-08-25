@@ -283,7 +283,7 @@ class HtmlPreviewQaTests(unittest.TestCase):
         self.assertTrue(all(sample["line_count"] <= 2 for sample in samples), samples)
         accent_samples = [sample for sample in samples if sample.get("accent_start_sec") is not None]
         self.assertEqual([sample["accent_start_sec"] for sample in accent_samples], [0.6, 0.6])
-        self.assertTrue(all(sample.get("accent_pop_duration_ms") == 160 for sample in accent_samples), samples)
+        self.assertTrue(all(sample.get("accent_pop_duration_ms") == 240 for sample in accent_samples), samples)
 
     def test_actual_three_line_caption_is_rejected(self):
         recipe = {

@@ -209,6 +209,45 @@ class ReviewReelsOneShotContractTest(unittest.TestCase):
 
         self.assertIn("RESULT_FIRST_HOOK_SEQUENCE_INVALID", {issue["code"] for issue in result["issues"]})
 
+    def test_contract_allows_a_distinct_full_product_result_for_the_closing_hook_shot(self):
+        fixture = load_fixture()
+        fixture["edit"]["asset_roles"]["after_secondary"] = "after-secondary.jpg"
+        fixture["edit"]["asset_evidence"]["after_secondary"] = {
+            "evidence_class": "installed_result",
+            "visual_quality": {"full_product_visible": True},
+        }
+        fixture["edit"]["hook_visual_contract"]["closing_result_asset_id"] = "after_secondary"
+        closing_shot = fixture["edit"]["beats"][0]["shots"][2]
+        closing_shot["asset_id"] = "after_secondary"
+        closing_shot["meaning_match_source"] = (
+            "asset_evidence:after_secondary; narration_fragment:Works now."
+        )
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertTrue(result["ok"], result["issues"])
+
+    def test_contract_rejects_a_distinct_closing_result_without_the_full_product(self):
+        fixture = load_fixture()
+        fixture["edit"]["asset_roles"]["after_secondary"] = "after-secondary.jpg"
+        fixture["edit"]["asset_evidence"]["after_secondary"] = {
+            "evidence_class": "installed_result",
+            "visual_quality": {"full_product_visible": False},
+        }
+        fixture["edit"]["hook_visual_contract"]["closing_result_asset_id"] = "after_secondary"
+        closing_shot = fixture["edit"]["beats"][0]["shots"][2]
+        closing_shot["asset_id"] = "after_secondary"
+        closing_shot["meaning_match_source"] = (
+            "asset_evidence:after_secondary; narration_fragment:Works now."
+        )
+
+        result = validate_review_reels_one_shot_contract(fixture["planning"], fixture["edit"])
+
+        self.assertIn(
+            "HOOK_CLOSING_RESULT_NOT_FULLY_VISIBLE",
+            {issue["code"] for issue in result["issues"]},
+        )
+
     def test_contract_rejects_a_result_hook_that_does_not_show_the_full_product(self):
         fixture = load_fixture()
         fixture["edit"]["asset_evidence"]["after_main"]["visual_quality"]["full_product_visible"] = False

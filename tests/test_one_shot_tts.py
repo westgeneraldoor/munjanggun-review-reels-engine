@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from video_engine_v2.one_shot_tts import (
     OneShotTTSViolation,
+    _apply_measured_alignment,
     calibrate_one_shot_timeline,
     generate_one_shot_tts,
 )
@@ -486,18 +487,54 @@ class OneShotTTSTests(unittest.TestCase):
 
         calibrated_edit = json.loads(self.edit.read_text(encoding="utf-8"))
         first_chunk = calibrated_edit["beats"][0]["caption_chunks"][0]
-        self.assertEqual(calibrated_edit["beats"][0]["time"][0], 0.0)
-        self.assertEqual(calibrated_edit["beats"][0]["narration_start_sec"], 0.0)
-        self.assertEqual(first_chunk["start_sec"], 0.0)
-        self.assertEqual(first_chunk["end_sec"], 2.82)
+        self.assertEqual(calibrated_edit["beats"][0]["time"][0], 0.5)
+        self.assertEqual(calibrated_edit["beats"][0]["narration_start_sec"], 0.5)
+        self.assertEqual(first_chunk["start_sec"], 0.5)
+        self.assertEqual(first_chunk["end_sec"], 2.84)
         compact = "".join(first_chunk["text"].split())
-        expected_accent = round(2.82 * (compact.find("별") / len(compact)), 3)
+        expected_accent = round(0.5 + (2.84 - 0.5) * (compact.find("별") / len(compact)), 3)
         self.assertEqual(calibrated_edit["beats"][0]["caption_accent"]["start_sec"], expected_accent)
         self.assertEqual(calibrated_edit["beats"][-1]["time"][1], 25.4)
         report = json.loads(result["tts_report"].read_text(encoding="utf-8"))
         self.assertEqual(report["timeline_source"], "review-reel-voice-alignment-v1")
         self.assertEqual(report["derived_voice"]["lead_in_sec"], 0.4)
-        self.assertIn("00:00:00,000 --> 00:00:02,820", result["srt"].read_text(encoding="utf-8"))
+        self.assertIn("00:00:00,500 --> 00:00:02,840", result["srt"].read_text(encoding="utf-8"))
+
+    def test_measured_alignment_keeps_before_hook_from_overhanging_result_words(self):
+        edit = {
+            "beats": [{
+                "id": "b01",
+                "time": [0.0, 4.0],
+                "caption_chunks": [
+                    {"text": "원하던 색이 연보라였습니다.", "start_sec": 0.0, "end_sec": 2.0},
+                    {"text": "그런데 정말 구해 줬습니다.", "start_sec": 2.0, "end_sec": 4.0},
+                ],
+                "shots": [
+                    {"asset_id": "result_a", "start_sec": 0.0, "end_sec": 1.333},
+                    {"asset_id": "before", "start_sec": 1.333, "end_sec": 2.667},
+                    {"asset_id": "result_b", "start_sec": 2.667, "end_sec": 4.0},
+                ],
+            }],
+        }
+        items = [
+            {"start_sec": 0.1, "end_sec": 0.9},
+            {"start_sec": 2.0, "end_sec": 3.0},
+        ]
+
+        calibrated, _ = _apply_measured_alignment(
+            edit,
+            items,
+            lead_in_sec=0.1,
+            final_duration_sec=4.0,
+        )
+
+        beat = calibrated["beats"][0]
+        shots = beat["shots"]
+        second_chunk_start = beat["caption_chunks"][1]["start_sec"]
+        self.assertLessEqual(shots[1]["end_sec"], second_chunk_start + 0.15)
+        self.assertGreaterEqual(shots[0]["end_sec"] - shots[0]["start_sec"], 1.0)
+        self.assertGreaterEqual(shots[1]["end_sec"] - shots[1]["start_sec"], 1.0)
+        self.assertEqual(shots[1]["end_sec"], shots[2]["start_sec"])
 
 
 if __name__ == "__main__":

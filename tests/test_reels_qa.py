@@ -5,6 +5,7 @@ from io import StringIO
 from pathlib import Path
 
 from video_engine_v2 import reels_qa
+from video_engine_v2.qa_guidance import explain_error
 from video_engine_v2.reels_qa import (
     apply_sync_evidence,
     build_approval_log_markdown,
@@ -39,6 +40,20 @@ class ReelsQaTest(unittest.TestCase):
         self.assertTrue(result["ok"], result["issues"])
         self.assertIn("loss_aversion", result["triggers"])
         self.assertIn("curiosity_gap", result["triggers"])
+
+    def test_hook_formula_accepts_sourced_obtained_result_hook(self):
+        result = validate_hook_formula("원하던 색이 연보라였습니다. 그런데 정말 구해줬습니다.")
+
+        self.assertTrue(result["ok"], result["issues"])
+        self.assertIn("result_promise", result["triggers"])
+
+    def test_hook_formula_rejects_plain_target_description_without_tension(self):
+        result = validate_hook_formula("구축 아파트 현관에 연보라 중문을 넣었습니다.")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["triggers"], ["target_callout"])
+        self.assertIn("HOOK_TENSION_MISSING", {issue["code"] for issue in result["issues"]})
+        self.assertTrue(explain_error("HOOK_TENSION_MISSING")["known"])
 
     def test_preflight_rejects_hook_without_formula_trigger(self):
         planning = {

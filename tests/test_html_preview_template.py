@@ -233,8 +233,8 @@ const { chromium } = require('playwright');
             )
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
-    def test_caption_chunk_change_keeps_a_fast_immediately_legible_pop(self):
-        """Catch layout refreshes that erase the phrase-change animation or hide speech text."""
+    def test_caption_chunk_change_keeps_a_video_time_bound_immediately_legible_pop(self):
+        """Catch layout refreshes that erase the phrase-change motion or hide speech text."""
         recipe = {
             "title": "responsive caption chunk test",
             "audio_plan": {"sync_policy": {"final_voice_duration_sec": 4.0}},
@@ -277,13 +277,14 @@ const { chromium } = require('playwright');
       animationName: style.animationName,
       animationDuration: style.animationDuration,
       opacity: Number(style.opacity),
+      transform: caption.style.transform,
+      videoDuration: caption.dataset.chunkPopDurationMs,
     };
   });
   await browser.close();
-  if (state.animationName !== 'captionChunkPop') console.error(JSON.stringify(state));
   if (state.text !== 'second phrase') process.exit(2);
-  if (state.animationName !== 'captionChunkPop') process.exit(3);
-  if (state.animationDuration !== '0.14s') process.exit(4);
+  if (state.animationName !== 'none' || state.animationDuration !== '0s') process.exit(3);
+  if (state.videoDuration !== '220' || !state.transform.startsWith('translateY(9.')) process.exit(4);
   if (state.opacity < 0.99) process.exit(5);
 })().catch(error => { console.error(error); process.exit(1); });
 """
@@ -344,7 +345,7 @@ const { chromium } = require('playwright');
       const style = getComputedStyle(keyword);
       return { opacity: Number(style.opacity), scale: new DOMMatrix(style.transform).a };
     };
-    return { onset: sample(1.0), peak: sample(1.06), settled: sample(1.16) };
+    return { onset: sample(1.0), peak: sample(1.06), settled: sample(1.24) };
   });
   await browser.close();
   if (state.onset.opacity < 0.99) process.exit(2);
@@ -779,13 +780,13 @@ const { chromium } = require('playwright');
     return {opacity: keyword.style.opacity, transform: keyword.style.transform};
   }, time);
   const onset = await sample(1.50);
-  const peak = await sample(1.56);
-  const settled = await sample(1.66);
+  const peak = await sample(1.584);
+  const settled = await sample(1.74);
   await page.waitForTimeout(600);
   const sameVideoTimeAfterWallClockWait = await sample(1.50);
   await browser.close();
-  if (onset.opacity !== '1' || onset.transform !== 'translateY(2px) scale(0.97)') process.exit(2);
-  if (peak.opacity !== '1' || peak.transform !== 'translateY(-3.846px) scale(1.077)') process.exit(3);
+  if (onset.opacity !== '1' || onset.transform !== 'translateY(8px) scale(0.88)') process.exit(2);
+  if (peak.opacity !== '1' || peak.transform !== 'translateY(-8px) scale(1.18)') process.exit(3);
   if (settled.opacity !== '1' || settled.transform !== 'translateY(0px) scale(1)') process.exit(4);
   if (JSON.stringify(sameVideoTimeAfterWallClockWait) !== JSON.stringify(onset)) process.exit(5);
 })().catch(error => { console.error(error); process.exit(1); });
@@ -946,7 +947,7 @@ const { chromium } = require('playwright');
   await browser.close();
   if (state.pushStart !== 'scale(1.01)' || state.pushEnd !== 'scale(1.06)') process.exit(2);
   if (state.leftStart !== 'scale(1.045) translateX(12px)' || state.leftEnd !== 'scale(1.045) translateX(-12px)') process.exit(3);
-  if (state.duration !== '0.38s') process.exit(4);
+  if (state.duration !== '0s') process.exit(4);
 })().catch(error => { console.error(error); process.exit(1); });
 """
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1075,6 +1076,187 @@ const { chromium } = require('playwright');
             )
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
+    def test_lead_in_frame_keeps_the_first_hook_caption_instead_of_the_last_beat(self):
+        recipe = {
+            "title": "lead in hook caption test",
+            "audio_plan": {"sync_policy": {"final_voice_duration_sec": 4.5}},
+            "asset_roles": {"hook": "hook.jpg", "cta": "cta.jpg"},
+            "beats": [
+                {
+                    "id": "b01", "phase": "event", "time": [0.5, 2.5], "asset": "hook",
+                    "motion": "calm_push_in", "transition_in": "cut", "caption": "원하던 색을 구했습니다",
+                    "caption_chunks": [{"text": "원하던 색을 구했습니다", "start_sec": 0.5, "end_sec": 2.5}],
+                },
+                {
+                    "id": "b02", "phase": "cta", "time": [2.5, 4.5], "asset": "cta",
+                    "motion": "static_hold", "transition_in": "calm_dissolve", "caption": "무료 실측부터 확인하세요",
+                    "caption_chunks": [{"text": "무료 실측부터 확인하세요", "start_sec": 2.5, "end_sec": 4.5}],
+                },
+            ],
+        }
+        image = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E"
+        html = render_preview_html(
+            recipe=recipe,
+            asset_urls={
+                "hook": image + "%23hook",
+                "cta": image + "%23cta",
+                "voice": "data:audio/mp3;base64,",
+                "font_body": "data:font/woff2;base64,",
+            },
+            preview_title="lead in hook caption test",
+            preview_description="browser behavior test",
+        )
+        browser_check = r"""
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  await page.goto(process.argv[1] + '?t=0');
+  const state = await page.evaluate(() => ({
+    caption: document.querySelector('#caption')?.innerText,
+    current: document.querySelector('#mainAsset')?.src,
+    info: document.querySelector('#currentInfo')?.textContent,
+  }));
+  await browser.close();
+  if (state.caption !== '원하던 색을 구했습니다') process.exit(2);
+  if (!state.current.includes('%23hook')) process.exit(3);
+  if (!state.info.startsWith('b01')) process.exit(4);
+})().catch(error => { console.error(error); process.exit(1); });
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / "preview.html"
+            html_path.write_text(html, encoding="utf-8")
+            result = subprocess.run(
+                ["node", "-e", browser_check, html_path.as_uri()],
+                cwd=TEMPLATE_PATH.parent.parent.parent,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+    def test_caption_chunk_pop_is_bound_to_video_time_at_speech_onset(self):
+        recipe = {
+            "title": "deterministic caption chunk pop",
+            "audio_plan": {"sync_policy": {"final_voice_duration_sec": 3.0}},
+            "asset_roles": {"hero": "hero.jpg"},
+            "beats": [{
+                "id": "b01", "phase": "event", "time": [0.5, 3.0], "asset": "hero",
+                "motion": "calm_push_in", "transition_in": "cut", "caption": "첫 자막 후킹",
+                "caption_chunks": [{"text": "첫 자막 후킹", "start_sec": 0.5, "end_sec": 3.0}],
+            }],
+        }
+        hero = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E%23hero"
+        html = render_preview_html(
+            recipe=recipe,
+            asset_urls={"hero": hero, "voice": "data:audio/mp3;base64,", "font_body": "data:font/woff2;base64,"},
+            preview_title="deterministic caption chunk pop",
+            preview_description="browser behavior test",
+        )
+        browser_check = r"""
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  await page.goto(process.argv[1] + '?t=0');
+  const sample = async (time) => page.evaluate((t) => {
+    renderAt(t);
+    const node = document.querySelector('#caption');
+    return {opacity: node.style.opacity, transform: node.style.transform};
+  }, time);
+  const onset = await sample(0.50);
+  const middle = await sample(0.61);
+  const settled = await sample(0.72);
+  await page.waitForTimeout(500);
+  const sameVideoTimeAfterWait = await sample(0.61);
+  await browser.close();
+  if (onset.opacity !== '1' || onset.transform !== 'translateY(10px) scale(0.94)') process.exit(2);
+  if (middle.opacity !== '1' || middle.transform === onset.transform || middle.transform === settled.transform) process.exit(3);
+  if (settled.opacity !== '1' || settled.transform !== 'translateY(0px) scale(1)') process.exit(4);
+  if (JSON.stringify(sameVideoTimeAfterWait) !== JSON.stringify(middle)) process.exit(5);
+})().catch(error => { console.error(error); process.exit(1); });
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / "preview.html"
+            html_path.write_text(html, encoding="utf-8")
+            result = subprocess.run(
+                ["node", "-e", browser_check, html_path.as_uri()],
+                cwd=TEMPLATE_PATH.parent.parent.parent,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+    def test_calm_photo_transition_is_perceptible_and_bound_to_video_time(self):
+        recipe = {
+            "title": "deterministic calm transition",
+            "audio_plan": {"sync_policy": {"final_voice_duration_sec": 4.0}},
+            "asset_roles": {"one": "one.jpg", "two": "two.jpg"},
+            "beats": [{
+                "id": "b01", "phase": "event", "time": [0.0, 4.0], "asset": "one",
+                "motion": "calm_push_in", "transition_in": "cut", "caption": "사진 전환",
+                "shots": [
+                    {"asset_id": "one", "motion": "calm_push_in", "transition_in": "cut", "start_sec": 0.0, "end_sec": 2.0},
+                    {"asset_id": "two", "motion": "calm_push_in", "transition_in": "calm_dissolve", "start_sec": 2.0, "end_sec": 4.0},
+                ],
+            }],
+        }
+        image = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E"
+        html = render_preview_html(
+            recipe=recipe,
+            asset_urls={
+                "one": image + "%23one",
+                "two": image + "%23two",
+                "voice": "data:audio/mp3;base64,",
+                "font_body": "data:font/woff2;base64,",
+            },
+            preview_title="deterministic calm transition",
+            preview_description="browser behavior test",
+        )
+        browser_check = r"""
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  await page.goto(process.argv[1] + '?t=0');
+  const sample = async (time) => page.evaluate((t) => {
+    renderAt(t);
+    return {
+      currentOpacity: mainAsset.style.opacity,
+      previousOpacity: previousAsset.style.opacity,
+      duration: mainAsset.dataset.transitionDurationMs,
+    };
+  }, time);
+  await sample(1.99);
+  const onset = await sample(2.00);
+  const middle = await sample(2.26);
+  const settled = await sample(2.52);
+  await page.waitForTimeout(700);
+  const sameVideoTimeAfterWait = await sample(2.26);
+  await browser.close();
+  if (onset.currentOpacity !== '0' || onset.previousOpacity !== '1') process.exit(2);
+  if (middle.currentOpacity !== '0.5' || middle.previousOpacity !== '0.5') process.exit(3);
+  if (settled.currentOpacity !== '1' || settled.previousOpacity !== '0') process.exit(4);
+  if (middle.duration !== '520') process.exit(5);
+  if (JSON.stringify(sameVideoTimeAfterWait) !== JSON.stringify(middle)) process.exit(6);
+})().catch(error => { console.error(error); process.exit(1); });
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / "preview.html"
+            html_path.write_text(html, encoding="utf-8")
+            result = subprocess.run(
+                ["node", "-e", browser_check, html_path.as_uri()],
+                cwd=TEMPLATE_PATH.parent.parent.parent,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
     def test_bounded_scene_transitions_render_with_outgoing_photo_context(self):
         recipe = {
             "title": "bounded transitions",
@@ -1114,6 +1296,8 @@ const { chromium } = require('playwright');
       className: stage.className,
       animationName: getComputedStyle(mainAsset).animationName,
       previousSrc: previousAsset.getAttribute('src') || '',
+      duration: mainAsset.dataset.transitionDurationMs,
+      clipPath: mainAsset.style.clipPath,
     };
     renderAt(3.99);
     renderAt(4.01);
@@ -1121,15 +1305,17 @@ const { chromium } = require('playwright');
       className: stage.className,
       animationName: getComputedStyle(mainAsset).animationName,
       previousSrc: previousAsset.getAttribute('src') || '',
+      duration: mainAsset.dataset.transitionDurationMs,
+      clipPath: mainAsset.style.clipPath,
     };
     return {slide, pageTurn};
   });
   await browser.close();
   if (!states.slide.className.includes('t-calm_slide')) process.exit(2);
-  if (states.slide.animationName !== 'calmSlideRevealIn') process.exit(3);
+  if (states.slide.animationName !== 'none' || states.slide.duration !== '600' || !states.slide.clipPath.startsWith('inset(')) process.exit(3);
   if (!states.slide.previousSrc.includes('first')) process.exit(4);
   if (!states.pageTurn.className.includes('t-soft_page_turn')) process.exit(5);
-  if (states.pageTurn.animationName !== 'softPageTurnIn') process.exit(6);
+  if (states.pageTurn.animationName !== 'none' || states.pageTurn.duration !== '640' || !states.pageTurn.clipPath.startsWith('polygon(')) process.exit(6);
   if (!states.pageTurn.previousSrc.includes('second')) process.exit(7);
 })().catch(error => { console.error(error); process.exit(1); });
 """

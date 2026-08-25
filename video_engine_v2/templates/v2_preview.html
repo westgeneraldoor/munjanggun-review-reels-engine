@@ -398,29 +398,17 @@
       animation: crossDissolveOut 260ms ease-out;
     }
 
-    .transition-hit.t-calm_dissolve .asset.main {
-      animation: calmDissolveIn 380ms cubic-bezier(.22,.7,.28,1);
-    }
+    .transition-hit.t-calm_dissolve .asset.main { animation: none; }
 
-    .transition-hit.t-calm_dissolve .asset.previous {
-      animation: crossDissolveOut 380ms ease-out;
-    }
+    .transition-hit.t-calm_dissolve .asset.previous { animation: none; }
 
-    .transition-hit.t-calm_slide .asset.main {
-      animation: calmSlideRevealIn 420ms cubic-bezier(.22,.7,.28,1);
-    }
+    .transition-hit.t-calm_slide .asset.main { animation: none; }
 
-    .transition-hit.t-calm_slide .asset.previous {
-      animation: crossDissolveOut 420ms ease-out;
-    }
+    .transition-hit.t-calm_slide .asset.previous { animation: none; }
 
-    .transition-hit.t-soft_page_turn .asset.main {
-      animation: softPageTurnIn 440ms cubic-bezier(.2,.72,.25,1);
-    }
+    .transition-hit.t-soft_page_turn .asset.main { animation: none; }
 
-    .transition-hit.t-soft_page_turn .asset.previous {
-      animation: crossDissolveOut 440ms ease-out;
-    }
+    .transition-hit.t-soft_page_turn .asset.previous { animation: none; }
 
     @keyframes flashBang {
       0% { opacity: 0.95; }
@@ -465,9 +453,7 @@
     }
 
     /* 구절 자막은 말하는 순간마다 통통 튀어 올라온다. */
-    .stage .caption.chunk-pop {
-      animation: captionChunkPop 140ms cubic-bezier(.18, 1.15, .32, 1) both;
-    }
+    .stage .caption.chunk-pop { animation: none; }
 
     @keyframes captionChunkPop {
       0% { opacity: 1; transform: translateY(8px) scale(0.96); }
@@ -865,7 +851,13 @@
     const beats = recipe.beats;
     const totalDuration = Math.max(...beats.map(b => b.time[1]));
     const CAPTION_ACCENT_MIN_DELAY_MS = 520;
-    const CAPTION_ACCENT_POP_MS = 160;
+    const CAPTION_ACCENT_POP_MS = 240;
+    const CAPTION_CHUNK_POP_MS = 220;
+    const PHOTO_TRANSITION_MS = {
+      calm_dissolve: 520,
+      calm_slide: 600,
+      soft_page_turn: 640,
+    };
 
     const stage = document.getElementById('stage');
     const mainAsset = document.getElementById('mainAsset');
@@ -1092,13 +1084,13 @@
       if (progress <= 0.35) {
         const rise = progress / 0.35;
         opacity = 1;
-        translateY = 2 - rise * 6;
-        scale = 0.97 + rise * 0.11;
+        translateY = 8 - rise * 16;
+        scale = 0.88 + rise * 0.30;
       } else {
         const settle = (progress - 0.35) / 0.65;
         opacity = 1;
-        translateY = -4 + settle * 4;
-        scale = 1.08 - settle * 0.08;
+        translateY = -8 + settle * 8;
+        scale = 1.18 - settle * 0.18;
       }
       for (const keyword of keywords) {
         keyword.style.opacity = String(Number(opacity.toFixed(3)));
@@ -1106,11 +1098,61 @@
       }
     }
 
+    function applyCaptionChunkMotion(time, chunk) {
+      if (!chunk) {
+        delete caption.dataset.chunkPopDurationMs;
+        return;
+      }
+      const startSec = Number(chunk.start_sec);
+      const progress = clamp(((time - startSec) * 1000) / CAPTION_CHUNK_POP_MS, 0, 1);
+      let translateY;
+      let scale;
+      if (progress <= 0.5) {
+        const rise = progress / 0.5;
+        translateY = 10 - rise * 14;
+        scale = 0.94 + rise * 0.10;
+      } else {
+        const settle = (progress - 0.5) / 0.5;
+        translateY = -4 + settle * 4;
+        scale = 1.04 - settle * 0.04;
+      }
+      caption.dataset.chunkPopDurationMs = String(CAPTION_CHUNK_POP_MS);
+      caption.style.opacity = 1;
+      caption.style.transform = `translateY(${Number(translateY.toFixed(3))}px) scale(${Number(scale.toFixed(3))})`;
+    }
+
+    function applyPhotoTransitionMotion(beat, shot, time) {
+      const transitionIn = String(shot?.transition_in || beat.transition_in || 'cut');
+      const durationMs = PHOTO_TRANSITION_MS[transitionIn];
+      mainAsset.style.removeProperty('clip-path');
+      if (!durationMs) {
+        delete mainAsset.dataset.transitionDurationMs;
+        previousAsset.style.opacity = 0;
+        return;
+      }
+      const startSec = Number(shot?.start_sec ?? beat.time[0]);
+      const progress = clamp(((time - startSec) * 1000) / durationMs, 0, 1);
+      mainAsset.dataset.transitionDurationMs = String(durationMs);
+      previousAsset.style.opacity = Number((1 - progress).toFixed(4));
+      if (transitionIn === 'calm_dissolve') {
+        mainAsset.style.opacity = Number(progress.toFixed(4));
+        return;
+      }
+      if (transitionIn === 'calm_slide') {
+        mainAsset.style.opacity = Number((0.72 + progress * 0.28).toFixed(4));
+        mainAsset.style.clipPath = `inset(0 ${Number(((1 - progress) * 100).toFixed(3))}% 0 0)`;
+        return;
+      }
+      mainAsset.style.opacity = Number((0.68 + progress * 0.32).toFixed(4));
+      mainAsset.style.clipPath = `polygon(${Number(((1 - progress) * 100).toFixed(3))}% 0, 100% 0, 100% 100%, ${Number(((1 - progress) * 92).toFixed(3))}% 100%)`;
+    }
+
     function classSafe(value) {
       return String(value || 'cut').toLowerCase().replace(/[^a-z0-9_-]+/g, '_');
     }
 
     function findBeat(time) {
+      if (time < Number(beats[0]?.time?.[0] || 0)) return beats[0];
       return beats.find(b => time >= b.time[0] && time < b.time[1]) || beats[beats.length - 1];
     }
 
@@ -1453,6 +1495,9 @@
         mainAsset.style.transform = `scale(1.045) translateY(${10 - p * 20}px)`;
         caption.style.transform = 'none';
       }
+
+      applyPhotoTransitionMotion(beat, shotNow, time);
+      applyCaptionChunkMotion(time, activeCaptionChunk);
 
       const reviewEmphasis = beat.review_emphasis;
       if (reviewEmphasis && reviewUnderlineLayer.children.length > 0) {

@@ -118,6 +118,7 @@ HOOK_TRIGGER_PATTERNS = {
         "줄인",
         "해결",
         "완성",
+        "구해줬",
     ),
 }
 RISK_TOPIC_KEYWORDS = {
@@ -609,6 +610,13 @@ def validate_hook_formula(text: str) -> dict[str, Any]:
                 "최종 훅에 호기심/숫자/타깃/통념반박/손실/결과 트리거가 없습니다.",
             )
         )
+    elif triggers == ["target_callout"]:
+        issues.append(
+            _issue(
+                "HOOK_TENSION_MISSING",
+                "타깃 소개만으로는 후킹이 아닙니다. 원문이 지지하는 갈등, 의외성, 손실 또는 결과를 함께 제시하세요.",
+            )
+        )
     return {
         "ok": not any(issue["severity"] == "fail" for issue in issues),
         "issues": issues,
@@ -839,7 +847,11 @@ MAX_REVIEW_UNDERLINE_START_DELAY_SEC = 0.10
 MAX_REVIEW_UNDERLINE_DRAW_SEC = 0.20
 # 렌더된 리뷰 캡처에서 한 줄 높이는 최소 이만큼은 떨어진다.
 MIN_REVIEW_UNDERLINE_LINE_GAP_PCT = 1.0
-CALM_DISSOLVE_MS = 380
+CALM_DISSOLVE_MS = 520
+CALM_SLIDE_MS = 600
+SOFT_PAGE_TURN_MS = 640
+CAPTION_ACCENT_POP_MS = 240
+CAPTION_CHUNK_POP_MS = 220
 CALM_SCALE_DELTA = 0.05
 CALM_HORIZONTAL_TRAVEL_PX = 24
 CALM_VERTICAL_TRAVEL_PX = 20
@@ -985,13 +997,14 @@ def _validate_result_first_hook_contract(edit_recipe: dict[str, Any]) -> list[di
         return issues + [_issue("RESULT_FIRST_HOOK_MISSING", "hook_visual_contract is required.")]
     result_asset_id = _as_text(contract.get("result_asset_id")).strip()
     before_asset_id = _as_text(contract.get("before_asset_id")).strip()
+    closing_result_asset_id = _as_text(contract.get("closing_result_asset_id")).strip() or result_asset_id
     if not result_asset_id or not before_asset_id or result_asset_id == before_asset_id:
         return issues + [_issue("RESULT_FIRST_HOOK_INVALID", "Result and before asset IDs must be distinct and non-empty.")]
 
     first_beat = beats[0] if beats else {}
     shots = first_beat.get("shots") or []
     sequence = [_as_text(shot.get("asset_id")).strip() for shot in shots[:3] if isinstance(shot, dict)]
-    if sequence != [result_asset_id, before_asset_id, result_asset_id]:
+    if sequence != [result_asset_id, before_asset_id, closing_result_asset_id]:
         issues.append(
             _issue(
                 "RESULT_FIRST_HOOK_SEQUENCE_INVALID",
@@ -1066,8 +1079,14 @@ def _validate_visual_evidence_contract(
     hook = edit_recipe.get("hook_visual_contract") or {}
     result_asset_id = _as_text(hook.get("result_asset_id")).strip()
     before_asset_id = _as_text(hook.get("before_asset_id")).strip()
+    closing_result_asset_id = _as_text(hook.get("closing_result_asset_id")).strip() or result_asset_id
     result_metadata = evidence.get(result_asset_id) if isinstance(evidence.get(result_asset_id), dict) else {}
     before_metadata = evidence.get(before_asset_id) if isinstance(evidence.get(before_asset_id), dict) else {}
+    closing_result_metadata = (
+        evidence.get(closing_result_asset_id)
+        if isinstance(evidence.get(closing_result_asset_id), dict)
+        else {}
+    )
     if (
         result_metadata.get("evidence_class") != "installed_result"
         or (result_metadata.get("visual_quality") or {}).get("full_product_visible") is not True
@@ -1076,6 +1095,16 @@ def _validate_visual_evidence_contract(
             _issue(
                 "HOOK_RESULT_NOT_FULLY_VISIBLE",
                 "The result-first hook must use an installed_result asset whose full product is visible.",
+            )
+        )
+    if closing_result_asset_id != result_asset_id and (
+        closing_result_metadata.get("evidence_class") != "installed_result"
+        or (closing_result_metadata.get("visual_quality") or {}).get("full_product_visible") is not True
+    ):
+        issues.append(
+            _issue(
+                "HOOK_CLOSING_RESULT_NOT_FULLY_VISIBLE",
+                "A distinct closing hook result must be an installed_result asset whose full product is visible.",
             )
         )
     if before_metadata.get("evidence_class") != "before_state":

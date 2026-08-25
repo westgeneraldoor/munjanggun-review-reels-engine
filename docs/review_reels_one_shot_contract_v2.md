@@ -123,7 +123,8 @@ python scripts/generate_one_shot_tts.py --package "<package>" --planning "<plann
 ```
 
 교정 결과는 source voice hash, 실측 파일 hash, lead-in, 새 voice/SRT/edit hash를 새
-TTS report에 기록한다. 자막 경계는 실측 발화 사이의 무음 중간점에 결속하고, 강조
+TTS report에 기록한다. 각 자막은 **실측 발화 시작**에 맞춰 나타나고 다음 자막도 다음
+실측 발화 시작에서 교체한다. 무음 중간점으로 다음 자막을 미리 띄우지 않는다. 강조
 시점도 해당 자막 안의 강조 단어 위치에서 다시 계산한다. 교정 뒤에도
 `voice-review-record`, preflight, HTML, `html-review-record`를 처음부터 다시 거친다.
 
