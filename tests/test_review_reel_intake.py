@@ -1464,6 +1464,24 @@ class ReviewReelIntakeTests(unittest.TestCase):
         script = package.package_dir / source["script"]
         script.write_text("# fixture script\n", encoding="utf-8")
         guidance = workflow_next(self.output_root)
+        self.assertEqual(guidance["next_action"], "record_hash_bound_script_review")
+        self.assertEqual(guidance["blocking_issue_codes"], ["SCRIPT_REVIEW_BINDING_MISSING"])
+
+        planning["script_review"] = {
+            "status": "approved",
+            "reviewer": "fixture-pd",
+            "evidence_reference": "fixture story-spine and script review",
+            "script_sha256": "c" * 64,
+            "checked_story_stages": ["problem", "action", "change", "proof", "cta"],
+        }
+        planning_path.write_text(json.dumps(planning, ensure_ascii=False), encoding="utf-8")
+        guidance = workflow_next(self.output_root)
+        self.assertEqual(guidance["next_action"], "record_hash_bound_script_review")
+        self.assertEqual(guidance["blocking_issue_codes"], ["SCRIPT_REVIEW_HASH_MISMATCH"])
+
+        planning["script_review"]["script_sha256"] = hashlib.sha256(script.read_bytes()).hexdigest()
+        planning_path.write_text(json.dumps(planning, ensure_ascii=False), encoding="utf-8")
+        guidance = workflow_next(self.output_root)
         self.assertEqual(guidance["next_action"], "generate_official_one_shot_tts")
         self.assertIn("generate_one_shot_tts.py", guidance["next_command"])
 
@@ -2233,6 +2251,40 @@ class ReviewReelIntakeTests(unittest.TestCase):
         self.assertTrue(all("--one-shot-html" in command for command in commands[1:]))
         self.assertTrue(all("render" not in command for command in commands))
         self.assertTrue(all("--out" not in command for command in commands))
+
+    def test_one_shot_html_retry_uses_revisioned_sync_manifest_without_overwriting_prior_evidence(self):
+        result = self.create()
+        planning = result.package_dir / "125_story_one_shot_v5_planning_recipe.json"
+        planning.write_text(
+            json.dumps(
+                {
+                    "workflow_contract": {
+                        "name": "review-reels-one-shot-v2",
+                        "html_scope_authorized": True,
+                        "mp4_scope_authorized": False,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        edit = result.package_dir / "125_story_one_shot_v5_edit_recipe.json"
+        privacy = result.package_dir / "privacy.json"
+        edit.write_text("{}", encoding="utf-8")
+        privacy.write_text("{}", encoding="utf-8")
+        prior_sync = result.package_dir / "sync_manifest.json"
+        prior_sync.write_text('{"revision":"v3"}', encoding="utf-8")
+
+        commands = build_one_shot_html_commands(
+            output_root=self.output_root,
+            planning_path=planning,
+            edit_path=edit,
+            privacy_manifest_path=privacy,
+        )
+
+        expected = str(result.package_dir / "sync_manifest_v5.json")
+        self.assertEqual(commands[1][commands[1].index("--sync-manifest") + 1], expected)
+        self.assertEqual(commands[2][commands[2].index("--sync-manifest") + 1], expected)
+        self.assertEqual(prior_sync.read_text(encoding="utf-8"), '{"revision":"v3"}')
 
     def test_one_shot_html_rejects_any_mp4_scope_before_running_production_commands(self):
         self.create()

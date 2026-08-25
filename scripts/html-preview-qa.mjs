@@ -6,7 +6,7 @@ import { chromium } from "playwright";
 
 const FRAME_SETTLE_WAIT_MS = 500;
 const SAFE_AREA_1080X1920 = { top: 220, bottom: 1470 };
-const CAPTION_ACCENT_TIMING = { mode: "keyword_onset_sec", pop_duration_ms: 420 };
+const CAPTION_ACCENT_TIMING = { mode: "keyword_onset_sec", pop_duration_ms: 240 };
 
 function parseArgs(argv) {
   const result = {};

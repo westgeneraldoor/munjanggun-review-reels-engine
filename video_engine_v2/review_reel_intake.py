@@ -1789,20 +1789,6 @@ def workflow_next(output_root: str | Path) -> dict[str, Any]:
 
             from video_engine_v2.reels_qa import validate_review_reels_one_shot_contract
 
-            scaffold_qa = validate_review_reels_one_shot_contract(planning_payload, edit_payload)
-            blocking_issues = [
-                issue for issue in scaffold_qa.get("issues") or []
-                if isinstance(issue, dict) and issue.get("severity") == "fail"
-            ]
-            if blocking_issues:
-                guidance["next_action"] = "repair_recipe_scaffold_qa_issues"
-                guidance["blocking_issue_codes"] = [str(issue.get("code") or "") for issue in blocking_issues]
-                guidance["issues"] = blocking_issues
-                guidance["explain_command_template"] = (
-                    'python scripts/review_reel_intake.py explain-error --code "<issue-code>"'
-                )
-                return guidance
-
             source = edit_payload.get("source") or {}
             script_path = _inside(package, package / str(source.get("script") or ""), code="WORKFLOW_SCRIPT_PATH_INVALID")
             srt_path = _inside(package, package / str(source.get("srt") or ""), code="WORKFLOW_SRT_PATH_INVALID")
@@ -1812,6 +1798,34 @@ def workflow_next(output_root: str | Path) -> dict[str, Any]:
                 package / str(source.get("tts_generation_report") or ""),
                 code="WORKFLOW_TTS_REPORT_PATH_INVALID",
             )
+            scaffold_qa = validate_review_reels_one_shot_contract(planning_payload, edit_payload)
+            blocking_issues = [
+                issue for issue in scaffold_qa.get("issues") or []
+                if isinstance(issue, dict) and issue.get("severity") == "fail"
+            ]
+            if not script_path.is_file():
+                blocking_issues = [
+                    issue for issue in blocking_issues
+                    if issue.get("code") != "SCRIPT_REVIEW_BINDING_MISSING"
+                ]
+            if blocking_issues:
+                issue_codes = [str(issue.get("code") or "") for issue in blocking_issues]
+                if set(issue_codes) == {"SCRIPT_REVIEW_BINDING_MISSING"}:
+                    guidance["next_action"] = "record_hash_bound_script_review"
+                    guidance["required_inputs"] = ["script_reviewer", "review_evidence", "script_sha256"]
+                    guidance["script"] = str(script_path)
+                    guidance["planning"] = str(planning_path)
+                    guidance["blocking_issue_codes"] = issue_codes
+                    guidance["issues"] = blocking_issues
+                    return guidance
+                guidance["next_action"] = "repair_recipe_scaffold_qa_issues"
+                guidance["blocking_issue_codes"] = issue_codes
+                guidance["issues"] = blocking_issues
+                guidance["explain_command_template"] = (
+                    'python scripts/review_reel_intake.py explain-error --code "<issue-code>"'
+                )
+                return guidance
+
             from video_engine_v2.current_artifacts import package_uses_ledger, read_ledger
 
             ledger_mode = package_uses_ledger(package)
@@ -1820,6 +1834,16 @@ def workflow_next(output_root: str | Path) -> dict[str, Any]:
                 guidance["next_action"] = "write_standard_script_from_completed_scaffold"
                 guidance["required_inputs"] = ["standard_script"]
                 guidance["script"] = str(script_path)
+                return guidance
+            reviewed_script_sha256 = str((planning_payload.get("script_review") or {}).get("script_sha256") or "")
+            current_script_sha256 = hashlib.sha256(script_path.read_bytes()).hexdigest()
+            if reviewed_script_sha256 != current_script_sha256:
+                guidance["next_action"] = "record_hash_bound_script_review"
+                guidance["required_inputs"] = ["script_reviewer", "review_evidence", "script_sha256"]
+                guidance["script"] = str(script_path)
+                guidance["planning"] = str(planning_path)
+                guidance["current_script_sha256"] = current_script_sha256
+                guidance["blocking_issue_codes"] = ["SCRIPT_REVIEW_HASH_MISMATCH"]
                 return guidance
             tts_paths = {
                 "script": script_path,
@@ -2748,6 +2772,11 @@ def build_one_shot_html_commands(
     edit = Path(edit_path).resolve()
     privacy = Path(privacy_manifest_path).resolve()
     sync_manifest = package.package_dir / "sync_manifest.json"
+    if sync_manifest.exists():
+        revision_match = re.search(r"_v(?P<revision>\d+)_edit_recipe\.json$", edit.name)
+        if revision_match is None:
+            raise IntakeViolation("SYNC_MANIFEST_REVISION_REQUIRED")
+        sync_manifest = package.package_dir / f"sync_manifest_v{revision_match.group('revision')}.json"
     shared = [
         "--package",
         str(package.package_dir),

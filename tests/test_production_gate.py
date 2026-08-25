@@ -988,6 +988,42 @@ class ProductionGateTests(unittest.TestCase):
         self.assertIn("SYNC_MANIFEST_NOT_OK", str(failed_sync.exception))
         self.assertFalse(self.html.parent.exists())
 
+    def test_html_gate_accepts_a_review_only_scene_cps_warning(self):
+        """Catch sync validation that treats an explicitly soft scene-speed warning as a hard failure."""
+        edit = json.loads(self.edit.read_text(encoding="utf-8"))
+        edit["audio_plan"]["sync_policy"].update(
+            {"raw_tts_duration_sec": 8.0, "final_voice_duration_sec": 8.0, "render_duration_sec": 8.0}
+        )
+        edit["beats"][0]["narration_ref"] = "가" * 35
+        edit["beats"].append(
+            {
+                "id": "b02",
+                "time": [4.0, 8.0],
+                "asset": "after_main",
+                "caption": "마무리",
+                "narration_ref": "끝",
+                "meaning_match": True,
+                "meaning_match_source": "planning_scene:s02",
+            }
+        )
+        self.edit.write_text(json.dumps(edit, ensure_ascii=False), encoding="utf-8")
+
+        manifest = self.create_valid_sync()
+
+        self.assertTrue(manifest["ok"])
+        self.assertEqual([issue["code"] for issue in manifest["issues"]], ["SCENE_CPS_NEEDS_REVIEW"])
+        try:
+            receipt = validate_html_gate(
+                package_dir=self.package,
+                planning_path=self.planning,
+                edit_path=self.edit,
+                privacy_manifest_path=self.privacy,
+                sync_manifest_path=self.sync,
+            )
+        except GateViolation as error:
+            self.fail(f"soft scene CPS warning blocked HTML: {error}")
+        self.assertEqual(receipt["action"], "html")
+
     def test_render_gate_rejects_missing_html_or_mp4_approval_without_creating_output(self):
         self.create_valid_sync()
         self.html.parent.mkdir()

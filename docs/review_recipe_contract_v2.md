@@ -42,6 +42,10 @@ planning recipe는 무엇을 왜 말하는지 기록합니다. 최소 책임은 
 - `story_mode`, timeline/scenes, review proof, CTA
 - 최종 narration과 화면 의미 계획
 - privacy·claim·quality 확인 결과
+- `writer_brief.story_spine`: problem/action/change/proof/cta의 순서, 각 단계의
+  원문·사진 evidence와 실제 beat/caption reference
+- `script_review`: 현재 표준 script의 승인 상태, reviewer, evidence reference,
+  SHA-256, story-spine 단계별 확인
 
 HTML preflight에서 항상 확인하는 planning 필드는 아래와 같습니다. `hooks`는
 `analysis` 내부가 아니라 top-level 배열입니다.
@@ -64,6 +68,11 @@ HTML preflight에서 항상 확인하는 planning 필드는 아래와 같습니�
 top-level analysis 필드는 호환 입력으로 읽을 수 있지만 새 recipe는 중첩 `analysis`를
 사용합니다. `selected_hook.text`는 `caption` 또는 `headline` 호환 필드로 읽을 수 있어도
 새 recipe에서는 `text`를 사용합니다.
+
+`story_spine`의 CTA는 `recovers_stage: "problem"`으로 첫 갈등을 회수해야 하며,
+각 단계는 존재하는 beat와 caption chunk를 참조해야 합니다. `script_review.script_sha256`은
+TTS 호출 직전 실제 `*_script.md` bytes의 SHA-256과 정확히 같아야 합니다. 서사 결속이나
+해시 승인이 없거나 stale이면 음성 생성 전에 실패합니다.
 
 one-shot HTML이면 다음 범위가 명시되어야 합니다.
 
@@ -137,17 +146,22 @@ planning scene과 다른 의미를 말하거나 package 밖 asset을 암묵적�
 
 one-shot의 모든 beat는 `shots`로 실제 사진 순서와 시간을 기록합니다. 같은 문장 안에서도
 의미가 갈리고 해당 구절에 맞는 사진 근거가 있으면 별도 shot으로 나눕니다. 첫 세 shot은
-`result_asset_id → before_asset_id → result_asset_id`, 전환은
+`result_asset_id → before_asset_id → closing_result_asset_id`, 전환은
 `cut → calm_dissolve → calm_dissolve`, 체류는 각각 1.0초 이상이어야 합니다. 이후 shot도
 hard cut을 사용하지 않고 마지막 shot은 `result_asset_id`를 최소 2.5초 유지합니다.
 전체 12컷이 상한이며 최소 컷 수는 없습니다.
+
+`closing_result_asset_id`를 생략하면 `result_asset_id`와 같은 사진을 사용합니다. 다른 사진을
+지정할 때도 `installed_result`이면서 `full_product_visible: true`인 완성 결과여야 합니다.
+같은 사진을 기계적으로 반복하지 않되, 시공 전 사진이나 부분 디테일을 결과 보상처럼 쓰지 않습니다.
 
 허용 모션은 `static_hold`, `calm_push_in`, `calm_pull_out`, `calm_glide_left`,
 `calm_glide_right`, `calm_glide_up`, `review_capture_hold`, 허용 전환은 `cut`,
 `calm_dissolve`, `calm_slide`, `soft_page_turn`입니다. `calm_slide`는 전체 최대 2회,
 `soft_page_turn`은 최대 1회이고 리뷰 증거와 CTA는 `calm_dissolve`만 사용합니다.
 비정지 motion에는 `motion_reason`이 필요하고 리뷰 증거는 한 장의
-`review_capture_hold`여야 합니다. renderer 확정값은 `calm_dissolve 380ms`, 확대·축소
+`review_capture_hold`여야 합니다. renderer 확정값은 `calm_dissolve 520ms`,
+`calm_slide 600ms`, `soft_page_turn 640ms`, 확대·축소
 scale 차이 0.05, 좌우 총 24px, 상하 총 20px입니다.
 한 beat에 shot이 여러 개면 모두 같은 motion을 써 카메라 방향을 유지합니다. calm 모션은
 일정 속도이고 `calm_dissolve`는 이전 사진의 마지막 위치를 보존한 채 투명도만 바꿉니다.
@@ -157,7 +171,8 @@ scale 차이 0.05, 좌우 총 24px, 상하 총 20px입니다.
 `hero-calm 58px`, 이후 본문·proof·CTA는 모두 `medium 46px`입니다.
 `caption_accent.start_sec`는 강조 단어가 포함된 chunk 안의 절대 영상 시각이며 단어 위치로
 산정한 발화 예상 시점에 결속합니다. chunk 시작 고정 delay는 production 증거가 아닙니다.
-pop 길이는 420ms이며 브라우저 실제 시간이 아니라 영상 시간에 결속됩니다.
+핵심어 pop 길이는 240ms, 자막 chunk 진입 pop은 220ms이며 브라우저 실제 시간이 아니라
+영상 시간에 결속됩니다.
 모든 one-shot beat는 내레이션 음성 전문을 연속으로 덮는 `caption_chunks` 1~4개를
 가집니다. 최대 4개이며, 여러 chunk를 쓸 때 각 문구는 공백·문장부호 제외 최소 7자이고
 합친 문구는 narration과 같아야 합니다. 시간은 beat를 빈틈·겹침 없이 덮고 최종 음성의

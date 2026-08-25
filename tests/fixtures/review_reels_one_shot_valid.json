@@ -25,7 +25,42 @@
       "one_line_story": "A de-identified entry-path review changed through installation.",
       "hook_candidates": [{"text": "Would a blocked entry path change?"}],
       "recommended_hook": "Would a blocked entry path change?",
-      "review_quote_for_proof": "it became easier to use afterward"
+      "review_quote_for_proof": "it became easier to use afterward",
+      "story_spine": [
+        {
+          "stage": "problem",
+          "source_evidence": {"kind": "review_quote", "quote": "felt inconvenient before installation"},
+          "caption_refs": [{"beat_id": "b02", "chunk_index": 1}]
+        },
+        {
+          "stage": "action",
+          "source_evidence": {"kind": "photo_asset", "asset_id": "installation"},
+          "caption_refs": [{"beat_id": "b05", "chunk_index": 1}]
+        },
+        {
+          "stage": "change",
+          "source_evidence": {"kind": "review_quote", "quote": "became easier to use afterward"},
+          "caption_refs": [{"beat_id": "b06", "chunk_index": 1}]
+        },
+        {
+          "stage": "proof",
+          "source_evidence": {"kind": "review_quote", "quote": "it became easier to use afterward"},
+          "caption_refs": [{"beat_id": "b07", "chunk_index": 1}]
+        },
+        {
+          "stage": "cta",
+          "source_evidence": {"kind": "analysis_field", "field": "customer_problem"},
+          "caption_refs": [{"beat_id": "b08", "chunk_index": 1}],
+          "recovers_stage": "problem"
+        }
+      ]
+    },
+    "script_review": {
+      "status": "approved",
+      "reviewer": "fixture-pd",
+      "evidence_reference": "fixture story-spine review",
+      "script_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "checked_story_stages": ["problem", "action", "change", "proof", "cta"]
     },
     "photo_qa": {
       "checked": true,

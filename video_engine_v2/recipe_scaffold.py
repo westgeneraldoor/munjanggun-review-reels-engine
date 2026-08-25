@@ -174,6 +174,8 @@ def build_recipe_scaffold(
                 "analysis",
                 "selected_hook",
                 "writer_brief",
+                "story spine evidence and caption bindings",
+                "script review hash",
                 "scene narration and captions",
                 "review underline geometry",
                 "voice-bound timing and hashes",
@@ -204,6 +206,41 @@ def build_recipe_scaffold(
             "hook_candidates": [{"text": hook_text}],
             "recommended_hook": hook_text,
             "review_quote_for_proof": quote,
+            "story_spine": [
+                {
+                    "stage": "problem",
+                    "source_evidence": {"kind": "analysis_field", "field": "before_pain"},
+                    "caption_refs": [{"beat_id": "b02", "chunk_index": 1}],
+                },
+                {
+                    "stage": "action",
+                    "source_evidence": {"kind": "photo_asset", "asset_id": "installed_result"},
+                    "caption_refs": [{"beat_id": "b03", "chunk_index": 1}],
+                },
+                {
+                    "stage": "change",
+                    "source_evidence": {"kind": "analysis_field", "field": "after_change"},
+                    "caption_refs": [{"beat_id": "b04", "chunk_index": 1}],
+                },
+                {
+                    "stage": "proof",
+                    "source_evidence": {"kind": "review_quote", "quote": quote},
+                    "caption_refs": [{"beat_id": "b05", "chunk_index": 1}],
+                },
+                {
+                    "stage": "cta",
+                    "source_evidence": {"kind": "analysis_field", "field": "customer_problem"},
+                    "caption_refs": [{"beat_id": "b06", "chunk_index": 1}],
+                    "recovers_stage": "problem",
+                },
+            ],
+        },
+        "script_review": {
+            "status": "pending",
+            "reviewer": "",
+            "evidence_reference": "",
+            "script_sha256": "",
+            "checked_story_stages": [],
         },
         "photo_qa": {
             "checked": True,

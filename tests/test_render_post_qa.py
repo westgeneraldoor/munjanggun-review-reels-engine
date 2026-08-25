@@ -431,6 +431,24 @@ class RenderPostQaTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("sync_manifest.ok must be true", result.stderr)
 
+    def test_allows_reviewed_scene_cps_soft_warning(self):
+        sync = json.loads(self.sync_manifest.read_text(encoding="utf-8"))
+        sync["issues"] = [
+            {
+                "code": "SCENE_CPS_NEEDS_REVIEW",
+                "severity": "warn",
+                "message": "fixture reviewed soft warning",
+                "scene_id": "b04",
+            }
+        ]
+        self.sync_manifest.write_text(json.dumps(sync), encoding="utf-8")
+
+        result = self.run_qa()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads((self.report_dir / "render_post_qa_report.json").read_text(encoding="utf-8"))
+        self.assertEqual(report["auto_status"], "pass")
+
     def test_rejects_sync_manifest_without_final_voice_duration(self):
         self.sync_manifest.write_text(
             json.dumps(

@@ -39,6 +39,8 @@ planning recipe는 다음 필드를 모두 가져야 한다.
 - 원문 review quote, 공개되지 않은 위험 소재/감정/강한 claim 차단
 - `writer_brief.story_mode`, 실제 고객 사진 첫 프레임, 실제 리뷰 캡처 증명,
   사건부터 CTA까지의 핵심 서사 역할
+- `writer_brief.story_spine`의 문제→행동→변화→증명→CTA 원문·사진·자막 결속,
+  첫 갈등을 회수하는 CTA, 현재 script SHA-256에 결속된 `script_review` 승인
 - planning/edit의 역할 연결, 직접 관련된 사진, 반복 filler 차단
 - 1~2줄·32px 이상·안전영역·피사체 비가림 자막 근거
 - Gemini TTS `Sulafat` 생성 보고서, 5.0~8.5자/초, 최종 TTS를 유일한
@@ -65,6 +67,9 @@ hash, one-shot contract, shot·hook·review proof·CTA·자막 chunk 등 authori
 전체, planning scene 내레이션과 표준 `*_script.md` 내레이션의 일치를 검사한다. 음성이
 아직 없을 때는 silent placeholder로 실제 production 템플릿의 DOM layout probe까지
 실행해 3줄·안전영역·overflow 실패를 TTS 전에 차단한다.
+이 단계에서 `script_review.script_sha256`도 실제 script bytes와 대조한다. 훅 첫 3컷을
+각 1.0초 이상 배치할 최소 3.0초가 없거나 실측 alignment 뒤 배치 가능 구간이 없으면
+`HOOK_ALIGNMENT_INFEASIBLE`로 중단하며 음수 shot을 만들지 않는다.
 기존 SRT/voice/report를 덮어쓰지 않으며 Gemini TTS `Sulafat`과 hash-bound 생성
 보고서만 허용한다. Windows SAPI, 임의 MP3, 수동 SRT는 one-shot production 입력이
 아니다. 같은 canonical narration hash로 API 생성에 성공한 시도가 이미 두 개면
@@ -123,12 +128,18 @@ python scripts/generate_one_shot_tts.py --package "<package>" --planning "<plann
 ```
 
 교정 결과는 source voice hash, 실측 파일 hash, lead-in, 새 voice/SRT/edit hash를 새
-TTS report에 기록한다. 자막 경계는 실측 발화 사이의 무음 중간점에 결속하고, 강조
+TTS report에 기록한다. 각 자막은 **실측 발화 시작**에 맞춰 나타나고 다음 자막도 다음
+실측 발화 시작에서 교체한다. 무음 중간점으로 다음 자막을 미리 띄우지 않는다. 강조
 시점도 해당 자막 안의 강조 단어 위치에서 다시 계산한다. 교정 뒤에도
 `voice-review-record`, preflight, HTML, `html-review-record`를 처음부터 다시 거친다.
 
 sync manifest는 one-shot scope와 recipe/privacy/voice hashes를 함께 기록한다. 어느 하나가
 바뀌거나 HTML 단계에서 flag가 누락되면 stale gate로 실패한다.
+
+sync manifest의 `severity: fail` issue와 사진 다양성·장면 밀도 같은 미해결 품질 경고는
+HTML을 계속 차단한다. 단, 현재 voice/SRT/report 해시에 결속된 `voice-review-record`가
+이미 존재하는 one-shot에서 `SCENE_CPS_NEEDS_REVIEW`만 남은 경우에는 청취 검토가 끝난
+soft warning으로 취급한다. 이 예외는 전체 CPS hard limit이나 다른 warning을 완화하지 않는다.
 
 ## TTS 해시와 시작 시점 결속
 

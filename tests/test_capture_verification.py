@@ -54,6 +54,27 @@ class UnderlinePlacementTest(unittest.TestCase):
     def test_every_drawn_line_is_detected(self):
         self.assertEqual(len(detect_text_lines(self.capture)), LINE_COUNT)
 
+    def test_one_pixel_gap_inside_glyphs_does_not_split_one_visual_text_line(self):
+        split_line = self.tmp / "split-line.png"
+        image = Image.new("RGB", (WIDTH, HEIGHT), "white")
+        canvas = ImageDraw.Draw(image)
+        canvas.rectangle([20, 100, WIDTH - 25, 104], fill=(20, 20, 20))
+        canvas.rectangle([20, 106, WIDTH - 25, 110], fill=(20, 20, 20))
+        image.save(split_line)
+
+        self.assertEqual(len(detect_text_lines(split_line)), 1)
+
+    def test_high_dpi_two_pixel_gap_inside_glyphs_stays_one_visual_text_line(self):
+        """Catch fixed-pixel row merging that breaks on taller customer captures."""
+        split_line = self.tmp / "high-dpi-split-line.png"
+        image = Image.new("RGB", (WIDTH * 2, HEIGHT * 2), "white")
+        canvas = ImageDraw.Draw(image)
+        canvas.rectangle([40, 400, WIDTH * 2 - 50, 406], fill=(20, 20, 20))
+        canvas.rectangle([40, 409, WIDTH * 2 - 50, 415], fill=(20, 20, 20))
+        image.save(split_line)
+
+        self.assertEqual(len(detect_text_lines(split_line)), 1)
+
     def test_underline_sitting_below_consecutive_lines_passes(self):
         segments = [{"top_pct": under(4)}, {"top_pct": under(5)}]
 

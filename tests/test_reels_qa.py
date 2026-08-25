@@ -5,6 +5,7 @@ from io import StringIO
 from pathlib import Path
 
 from video_engine_v2 import reels_qa
+from video_engine_v2.qa_guidance import explain_error
 from video_engine_v2.reels_qa import (
     apply_sync_evidence,
     build_approval_log_markdown,
@@ -39,6 +40,40 @@ class ReelsQaTest(unittest.TestCase):
         self.assertTrue(result["ok"], result["issues"])
         self.assertIn("loss_aversion", result["triggers"])
         self.assertIn("curiosity_gap", result["triggers"])
+
+    def test_hook_formula_accepts_sourced_obtained_result_hook(self):
+        result = validate_hook_formula("원하던 색이 연보라였습니다. 그런데 정말 구해줬습니다.")
+
+        self.assertTrue(result["ok"], result["issues"])
+        self.assertIn("result_promise", result["triggers"])
+
+    def test_hook_formula_rejects_plain_target_description_without_tension(self):
+        result = validate_hook_formula("구축 아파트 현관에 연보라 중문을 넣었습니다.")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["triggers"], ["target_callout"])
+        self.assertIn("HOOK_TENSION_MISSING", {issue["code"] for issue in result["issues"]})
+        self.assertTrue(explain_error("HOOK_TENSION_MISSING")["known"])
+
+    def test_hook_formula_rejects_target_description_even_when_it_contains_a_number(self):
+        """Catch a decorative number turning a plain target introduction into a passing hook."""
+        result = validate_hook_formula("30평 구축 아파트에 중문을 시공했습니다")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["triggers"], ["concrete_number", "target_callout"])
+        self.assertIn("HOOK_TENSION_MISSING", {issue["code"] for issue in result["issues"]})
+
+    def test_hook_formula_accepts_a_sourced_time_bound_result_as_narrative_tension(self):
+        result = validate_hook_formula("구축 아파트 중문, 3일 만에 끝냈습니다")
+
+        self.assertTrue(result["ok"], result["issues"])
+        self.assertIn("result_promise", result["triggers"])
+
+    def test_hook_formula_accepts_a_concrete_problem_not_just_its_target_and_number(self):
+        result = validate_hook_formula("로봇청소기 쓰는 집, 3cm 때문에 문이 닫히지 않았습니다")
+
+        self.assertTrue(result["ok"], result["issues"])
+        self.assertIn("problem_conflict", result["triggers"])
 
     def test_preflight_rejects_hook_without_formula_trigger(self):
         planning = {

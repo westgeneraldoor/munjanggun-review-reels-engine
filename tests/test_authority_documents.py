@@ -5,11 +5,14 @@ from pathlib import Path
 
 from video_engine_v2.reels_qa import (
     CALM_DISSOLVE_MS,
+    CALM_SLIDE_MS,
     CALM_HORIZONTAL_TRAVEL_PX,
     CALM_SCALE_DELTA,
     CALM_VERTICAL_TRAVEL_PX,
+    CAPTION_ACCENT_POP_MS,
     CAPTION_ACCENT_ONSET_EARLY_TOLERANCE_SEC,
     CAPTION_ACCENT_ONSET_LATE_TOLERANCE_SEC,
+    CAPTION_CHUNK_POP_MS,
     CAPTION_SAFE_BOTTOM_PX,
     CAPTION_SAFE_TOP_PX,
     HARD_CPS_LIMIT,
@@ -22,6 +25,7 @@ from video_engine_v2.reels_qa import (
     MIN_CONTEXTUAL_CAPTION_CHARS,
     ONE_SHOT_CALM_MOTIONS,
     ONE_SHOT_CALM_TRANSITIONS,
+    SOFT_PAGE_TURN_MS,
     SOFT_CPS_LIMIT,
 )
 from video_engine_v2.manual_review import HTML_REVIEW_CHECKS, RENDER_REVIEW_CHECKS, VOICE_REVIEW_CHECKS
@@ -341,6 +345,8 @@ class AuthorityDocumentsTest(unittest.TestCase):
         self.assertIn("아이보리 화이트", visual)
         self.assertIn("민트", visual)
         self.assertIn(f"calm_dissolve {CALM_DISSOLVE_MS}ms", visual)
+        self.assertIn(f"calm_slide {CALM_SLIDE_MS}ms", visual)
+        self.assertIn(f"soft_page_turn {SOFT_PAGE_TURN_MS}ms", visual)
         self.assertIn(f"scale 차이 {CALM_SCALE_DELTA:.2f}", visual)
         self.assertIn(f"좌우 총 {CALM_HORIZONTAL_TRAVEL_PX}px", visual)
         self.assertIn(f"상하 총 {CALM_VERTICAL_TRAVEL_PX}px", visual)
@@ -401,6 +407,8 @@ class AuthorityDocumentsTest(unittest.TestCase):
         self.assertIn(f"최소 {MIN_ONE_SHOT_FINAL_RESULT_SEC:.1f}초", combined)
         self.assertIn("cut → calm_dissolve → calm_dissolve", combined)
         self.assertIn(f"calm_dissolve {CALM_DISSOLVE_MS}ms", combined)
+        self.assertIn(f"calm_slide {CALM_SLIDE_MS}ms", combined)
+        self.assertIn(f"soft_page_turn {SOFT_PAGE_TURN_MS}ms", combined)
         self.assertIn("medium 46px", combined)
         self.assertIn("hero-calm 58px", combined)
         self.assertIn("뒤로 갈수록 `small`로 축소하지 않습니다", combined)
@@ -429,8 +437,25 @@ class AuthorityDocumentsTest(unittest.TestCase):
         self.assertIn("투명도만", combined)
         self.assertIn(f"{CAPTION_ACCENT_ONSET_EARLY_TOLERANCE_SEC:.2f}초 이상 빠르", combined)
         self.assertIn(f"{CAPTION_ACCENT_ONSET_LATE_TOLERANCE_SEC:.2f}초 이상 늦", combined)
-        self.assertIn("420ms", combined)
+        self.assertIn(f"{CAPTION_ACCENT_POP_MS}ms", combined)
+        self.assertIn(f"{CAPTION_CHUNK_POP_MS}ms", combined)
         self.assertIn("영상 시간", combined)
+
+    def test_caption_story_arc_and_measured_onset_are_live_authority(self):
+        content = (ROOT / "docs/review_reels_content_standard_v1.md").read_text(encoding="utf-8")
+        visual = (ROOT / "docs/review_reels_visual_edit_standard_v1.md").read_text(encoding="utf-8")
+        one_shot = (ROOT / "docs/review_reels_one_shot_contract_v2.md").read_text(encoding="utf-8")
+        agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+
+        for anchor in (
+            "첫 자막부터 후킹",
+            "한 화면 한 생각",
+            "CTA는 첫 갈등을 회수",
+            "일반론 CTA",
+        ):
+            self.assertIn(anchor, content + "\n" + agents)
+        self.assertIn("실측 발화 시작", one_shot + "\n" + visual)
+        self.assertIn("CSS 실제 경과시간", visual)
 
     def test_legacy_documents_are_archived_and_cannot_be_live_authority(self):
         for old_path, archive_path in ARCHIVED_DOCUMENT_MOVES.items():

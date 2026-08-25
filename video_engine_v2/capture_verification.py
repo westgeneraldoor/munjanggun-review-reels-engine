@@ -26,6 +26,11 @@ DARK_LUMA_THRESHOLD = 140
 MIN_LINE_INK_RATIO = 0.008
 # 안티에일리어싱 한 줄이 글자 줄로 오인되지 않도록 최소 높이를 둔다.
 MIN_LINE_HEIGHT_PX = 4
+# Korean glyphs can leave a one-row white gap between the main body and a
+# lower stroke.  Treating that stroke as another review line makes visually
+# correct consecutive underlines fail while a crossing coordinate can pass.
+MAX_INTRA_LINE_ROW_GAP_RATIO = 0.0025
+MAX_INTRA_LINE_ROW_GAP_PX_CAP = 4
 # 줄이 이보다 적게 검출되면 캡처 구조를 신뢰할 수 없으므로 픽셀 판정을 하지 않는다.
 MIN_DETECTED_LINES = 3
 # 밑줄은 글자 바로 아래에 붙는다. 한 줄 간격의 이 비율 안에 있어야 그 줄의 밑줄이다.
@@ -83,23 +88,39 @@ def detect_text_lines(path: str | Path) -> list[TextLine]:
                     break
         dark_rows.append(ink >= min_ink)
 
-    lines: list[TextLine] = []
+    bands: list[tuple[int, int]] = []
     start: int | None = None
     for y, is_dark in enumerate(dark_rows + [False]):
         if is_dark and start is None:
             start = y
         elif not is_dark and start is not None:
-            if y - start >= MIN_LINE_HEIGHT_PX:
-                left, right = _ink_extent(pixels, width, start, y)
-                lines.append(
-                    TextLine(
-                        top_pct=start / height * 100,
-                        bottom_pct=y / height * 100,
-                        ink_left_pct=left / width * 100,
-                        ink_right_pct=right / width * 100,
-                    )
-                )
+            bands.append((start, y))
             start = None
+
+    merged_bands: list[tuple[int, int]] = []
+    max_intra_line_gap = min(
+        MAX_INTRA_LINE_ROW_GAP_PX_CAP,
+        max(1, round(height * MAX_INTRA_LINE_ROW_GAP_RATIO)),
+    )
+    for top, bottom in bands:
+        if merged_bands and top - merged_bands[-1][1] <= max_intra_line_gap:
+            merged_bands[-1] = (merged_bands[-1][0], bottom)
+        else:
+            merged_bands.append((top, bottom))
+
+    lines: list[TextLine] = []
+    for top, bottom in merged_bands:
+        if bottom - top < MIN_LINE_HEIGHT_PX:
+            continue
+        left, right = _ink_extent(pixels, width, top, bottom)
+        lines.append(
+            TextLine(
+                top_pct=top / height * 100,
+                bottom_pct=bottom / height * 100,
+                ink_left_pct=left / width * 100,
+                ink_right_pct=right / width * 100,
+            )
+        )
     return lines
 
 
